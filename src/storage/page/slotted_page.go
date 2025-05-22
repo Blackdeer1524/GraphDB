@@ -121,7 +121,7 @@ func (p *SlottedPage) Get(slotID uint32) ([]byte, error) {
 	return p.data[offset : offset+length], nil
 }
 
-func (p SlottedPage) GetData() []byte {
+func (p *SlottedPage) GetData() []byte {
 	assert.Assert(!p.locked.Load(), "GetData contract is violated")
 
 	return p.data
