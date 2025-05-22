@@ -73,44 +73,51 @@ func tableExists(catalog *SystemCatalog, name string, kind TableKind) bool {
 	return false
 }
 
-func GetTableFile(catalog *SystemCatalog, name string, kind TableKind) (string, error) {
-	for _, t := range catalog.Tables {
+func GetTableFile(cat *SystemCatalog, name string, kind TableKind) (string, error) {
+	for _, t := range cat.Tables {
 		if t.Name == name && t.Kind == kind {
 			return t.FilePath, nil
 		}
 	}
-
 	return "", fmt.Errorf("table %s (%s) not found", name, kind)
 }
 
 func CreateTable(
-	catalog *SystemCatalog,
+	cat *SystemCatalog,
 	basePath string,
 	name string,
 	kind TableKind,
 	schema []Column,
 ) (*TableMetadata, error) {
-	if tableExists(catalog, name, kind) {
+	if tableExists(cat, name, kind) {
 		return nil, fmt.Errorf("table %s (%s) already exists", name, kind)
 	}
 
-	fileName := fmt.Sprintf("%s_%s.tbl", kind, name)
-	filePath := filepath.Join(basePath, fileName)
-
-	f, err := os.Create(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create table file: %w", err)
+	var subdir string
+	switch kind {
+	case NodeTable:
+		subdir = "vertex"
+	case EdgeTable:
+		subdir = "edge"
+	default:
+		return nil, fmt.Errorf("unknown table kind: %s", kind)
 	}
-	defer f.Close()
 
-	metadata := TableMetadata{
+	dirPath := filepath.Join(basePath, subdir)
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create %s directory: %w", subdir, err)
+	}
+
+	filePath := filepath.Join(dirPath, name+".tbl")
+
+	meta := TableMetadata{
 		Name:     name,
 		Kind:     kind,
-		FilePath: filePath,
 		Schema:   schema,
+		FilePath: filePath,
 	}
 
-	catalog.Tables = append(catalog.Tables, metadata)
+	cat.Tables = append(cat.Tables, meta)
 
-	return &metadata, nil
+	return &meta, nil
 }

@@ -1,0 +1,41 @@
+{
+  "tables": [
+    {
+      "name": "Person",
+      "kind": "NODE",
+      "file_path": "data/test_graph/NODE_Person.tbl",
+      "schema": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "age",
+          "type": "int"
+        }
+      ]
+    },
+    {
+      "name": "Knows",
+      "kind": "EDGE",
+      "file_path": "data/test_graph/EDGE_Knows.tbl",
+      "schema": [
+        {
+          "name": "since",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "Friend",
+      "kind": "EDGE",
+      "file_path": "data/test_graph/edge/Friend.tbl",
+      "schema": [
+        {
+          "name": "since",
+          "type": "string"
+        }
+      ]
+    }
+  ]
+}
