@@ -96,16 +96,16 @@ func (m *Manager[T]) GetPageNoNew(page T, fileID, pageID uint64) (T, error) {
 	return page, nil
 }
 
-func (m *Manager[T]) WritePage(page *T) error {
-	fileID := (*page).GetFileID()
-	pageID := (*page).GetPageID()
+func (m *Manager[T]) WritePage(page T) error {
+	fileID := page.GetFileID()
+	pageID := page.GetPageID()
 
 	path, ok := m.fileIDToPath[fileID]
 	if !ok {
 		return fmt.Errorf("fileID %d not found in path map", fileID)
 	}
 
-	data := (*page).GetData()
+	data := page.GetData()
 	if len(data) == 0 {
 		return errors.New("page data is empty")
 	}
@@ -122,7 +122,7 @@ func (m *Manager[T]) WritePage(page *T) error {
 		return fmt.Errorf("failed to write at file %s: %w", path, err)
 	}
 
-	(*page).SetDirtiness(false)
+	page.SetDirtiness(false)
 
 	return nil
 }

@@ -5,7 +5,11 @@ import (
 	"log"
 	"os"
 
+	"github.com/Blackdeer1524/GraphDB/bufferpool"
+	"github.com/Blackdeer1524/GraphDB/queryexecutor"
+	"github.com/Blackdeer1524/GraphDB/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/storage/graph"
+	"github.com/Blackdeer1524/GraphDB/storage/page"
 )
 
 func main() {
@@ -47,4 +51,20 @@ func main() {
 	for _, t := range g.ListTables() {
 		fmt.Printf("- %s (%s) -> %s; %s\n", t.Name, t.Kind, t.FilePath, t.Schema)
 	}
+
+	diskMgr := disk.New[*page.SlottedPage](
+		map[uint64]string{},
+		func(fileID, pageID uint64) *page.SlottedPage {
+			return nil
+		},
+	)
+
+	bufferpool, _ := bufferpool.New[*page.SlottedPage](100, bufferpool.NewLRUReplacer(), diskMgr)
+
+	qe := queryexecutor.QueryExecutor{
+		Catalog:    g,
+		BufferPool: bufferpool,
+	}
+
+	qe.AppendRows("Person", graph.VertexTable, []queryexecutor.Row{})
 }
