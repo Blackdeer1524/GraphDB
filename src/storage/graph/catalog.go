@@ -11,8 +11,8 @@ import (
 type TableKind string
 
 const (
-	NodeTable TableKind = "NODE"
-	EdgeTable TableKind = "EDGE"
+	VertexTable TableKind = "VERTEX"
+	EdgeTable   TableKind = "EDGE"
 )
 
 type Column struct {
@@ -95,7 +95,7 @@ func CreateTable(
 
 	var subdir string
 	switch kind {
-	case NodeTable:
+	case VertexTable:
 		subdir = "vertex"
 	case EdgeTable:
 		subdir = "edge"
@@ -109,6 +109,12 @@ func CreateTable(
 	}
 
 	filePath := filepath.Join(dirPath, name+".tbl")
+
+	f, err := os.Create(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create table file %s: %w", filePath, err)
+	}
+	defer f.Close()
 
 	meta := TableMetadata{
 		Name:     name,

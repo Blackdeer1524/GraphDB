@@ -1,9 +1,14 @@
 package graph
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+)
+
+var (
+	ErrNoSuchTable = errors.New("no such table")
 )
 
 type Graph struct {
@@ -62,7 +67,7 @@ func (g *Graph) Save() error {
 }
 
 func (g *Graph) CreateNodeTable(name string, schema []Column) error {
-	_, err := CreateTable(g.catalog, g.basePath, name, NodeTable, schema)
+	_, err := CreateTable(g.catalog, g.basePath, name, VertexTable, schema)
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
@@ -91,4 +96,14 @@ func (g *Graph) CreateEdgeTable(name string, schema []Column) error {
 
 func (g *Graph) ListTables() []TableMetadata {
 	return g.catalog.Tables
+}
+
+func (g *Graph) GetTable(name string, kind TableKind) (TableMetadata, error) {
+	for _, t := range g.catalog.Tables {
+		if t.Name == name && t.Kind == kind {
+			return t, nil
+		}
+	}
+
+	return TableMetadata{}, ErrNoSuchTable
 }
