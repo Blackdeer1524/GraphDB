@@ -41,6 +41,8 @@ func (qe *QueryExecutor) AppendRows(tableName string, tableKind graph.TableKind,
 			}
 
 			if _, err := currentPage.Insert(data); err == nil {
+				qe.BufferPool.FlushAllPages()
+
 				break
 			}
 

@@ -108,6 +108,8 @@ func (p *SlottedPage) Insert(record []byte) (uint32, error) {
 	p.setFreeEnd(newOffset)
 	p.setFreeStart(HeaderSize + (slotID+1)*SlotSize)
 
+	p.dirty.Store(true)
+
 	return slotID, nil
 }
 
@@ -164,9 +166,15 @@ func (p *SlottedPage) GetPageID() uint64 {
 }
 
 func (p *SlottedPage) IsDirty() bool {
+	if p == nil {
+		return false
+	}
+
 	return p.dirty.Load()
 }
 
 func (p *SlottedPage) SetData(d []byte) {
+	assert.Assert(len(d) == Size, "SetData: invalid page size")
 
+	p.data = d
 }

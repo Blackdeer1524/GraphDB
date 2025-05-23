@@ -12,6 +12,16 @@ import (
 	"github.com/Blackdeer1524/GraphDB/storage/page"
 )
 
+func createFileIDToPath(g *graph.Graph) map[uint64]string {
+	mapping := make(map[uint64]string)
+
+	for i, table := range g.ListTables() {
+		mapping[uint64(i)] = table.FilePath
+	}
+
+	return mapping
+}
+
 func main() {
 	const path = "./data/test_graph"
 
@@ -52,10 +62,12 @@ func main() {
 		fmt.Printf("- %s (%s) -> %s; %s\n", t.Name, t.Kind, t.FilePath, t.Schema)
 	}
 
+	fileIDToPath := createFileIDToPath(g)
+
 	diskMgr := disk.New[*page.SlottedPage](
-		map[uint64]string{},
+		fileIDToPath,
 		func(fileID, pageID uint64) *page.SlottedPage {
-			return nil
+			return page.NewSlottedPage(fileID, pageID)
 		},
 	)
 
@@ -66,5 +78,10 @@ func main() {
 		BufferPool: bufferpool,
 	}
 
-	qe.AppendRows("Person", graph.VertexTable, []queryexecutor.Row{})
+	qe.AppendRows("Person", graph.VertexTable, []queryexecutor.Row{
+		{
+			"name": "some",
+			"age":  19,
+		},
+	})
 }

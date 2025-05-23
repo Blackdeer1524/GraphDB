@@ -3,6 +3,7 @@ package disk
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -48,7 +49,7 @@ func (m *Manager[T]) ReadPage(fileID, pageID uint64) (T, error) {
 		return zeroVal, fmt.Errorf("fileID %d not found in path map", fileID)
 	}
 
-	file, err := os.Open(path)
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return zeroVal, err
 	}
@@ -57,13 +58,18 @@ func (m *Manager[T]) ReadPage(fileID, pageID uint64) (T, error) {
 	offset := int64(pageID * PageSize)
 	data := make([]byte, PageSize)
 
-	_, err = file.ReadAt(data, offset)
+	n, err := file.ReadAt(data, offset)
 	if err != nil {
+		if errors.Is(err, io.EOF) || n == 0 {
+			page := m.newPageFunc(fileID, pageID)
+
+			return page, nil
+		}
+
 		return zeroVal, err
 	}
 
 	page := m.newPageFunc(fileID, pageID)
-
 	page.SetData(data)
 
 	return page, nil
