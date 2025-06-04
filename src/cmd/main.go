@@ -12,6 +12,8 @@ import (
 	"github.com/Blackdeer1524/GraphDB/storage/page"
 )
 
+const graphName = "test_graph"
+
 func createFileIDToPath(g *graph.Graph) map[uint64]string {
 	mapping := make(map[uint64]string)
 
@@ -23,7 +25,7 @@ func createFileIDToPath(g *graph.Graph) map[uint64]string {
 }
 
 func main() {
-	const path = "./data/test_graph"
+	const path = "./data/" + graphName
 
 	var g *graph.Graph
 	var err error
@@ -64,24 +66,49 @@ func main() {
 
 	fileIDToPath := createFileIDToPath(g)
 
-	diskMgr := disk.New[*page.SlottedPage](
+	diskMgr := disk.New(
 		fileIDToPath,
 		func(fileID, pageID uint64) *page.SlottedPage {
 			return page.NewSlottedPage(fileID, pageID)
 		},
 	)
 
-	bufferpool, _ := bufferpool.New[*page.SlottedPage](100, bufferpool.NewLRUReplacer(), diskMgr)
+	bufferpool, _ := bufferpool.New(100, bufferpool.NewLRUReplacer(), diskMgr)
 
 	qe := queryexecutor.QueryExecutor{
 		Catalog:    g,
 		BufferPool: bufferpool,
 	}
 
-	qe.AppendRows("Person", graph.VertexTable, []queryexecutor.Row{
-		{
-			"name": "some",
-			"age":  19,
+	//qe.AppendRows("Person", graph.VertexTable, []queryexecutor.Row{
+	//	{
+	//		"name": "some",
+	//		"age":  19,
+	//	},
+	//})
+
+	req := queryexecutor.FindRequest{
+		TableName: "Person",
+		TableKind: graph.VertexTable,
+		Filter: func(r queryexecutor.Row) bool {
+			val, ok := r["age"]
+			if !ok {
+				return false
+			}
+
+			valInt, ok := val.(float64)
+			if !ok {
+				return false
+			}
+
+			return valInt == 18
 		},
-	})
+	}
+
+	res, err := qe.FindVertices(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Print(res)
 }
