@@ -3,8 +3,8 @@ package disk
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 )
 
 const PageSize = 4096
@@ -49,7 +49,7 @@ func (m *Manager[T]) ReadPage(fileID, pageID uint64) (T, error) {
 		return zeroVal, fmt.Errorf("fileID %d not found in path map", fileID)
 	}
 
-	file, err := os.Open(filepath.Clean(path))
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return zeroVal, err
 	}
@@ -58,13 +58,18 @@ func (m *Manager[T]) ReadPage(fileID, pageID uint64) (T, error) {
 	offset := int64(pageID * PageSize)
 	data := make([]byte, PageSize)
 
-	_, err = file.ReadAt(data, offset)
+	n, err := file.ReadAt(data, offset)
 	if err != nil {
+		if errors.Is(err, io.EOF) || n == 0 {
+			page := m.newPageFunc(fileID, pageID)
+
+			return page, nil
+		}
+
 		return zeroVal, err
 	}
 
 	page := m.newPageFunc(fileID, pageID)
-
 	page.SetData(data)
 
 	return page, nil
@@ -78,7 +83,7 @@ func (m *Manager[T]) GetPageNoNew(page T, fileID, pageID uint64) (T, error) {
 		return zeroVal, fmt.Errorf("fileID %d not found in path map", fileID)
 	}
 
-	file, err := os.Open(filepath.Clean(path))
+	file, err := os.Open(path)
 	if err != nil {
 		return zeroVal, fmt.Errorf("failed to open file: %w", err)
 	}
@@ -97,34 +102,33 @@ func (m *Manager[T]) GetPageNoNew(page T, fileID, pageID uint64) (T, error) {
 	return page, nil
 }
 
-func (m *Manager[T]) WritePage(page *T) error {
-	fileID := (*page).GetFileID()
-	pageID := (*page).GetPageID()
+func (m *Manager[T]) WritePage(page T) error {
+	fileID := page.GetFileID()
+	pageID := page.GetPageID()
 
 	path, ok := m.fileIDToPath[fileID]
 	if !ok {
 		return fmt.Errorf("fileID %d not found in path map", fileID)
 	}
 
-	data := (*page).GetData()
+	data := page.GetData()
 	if len(data) == 0 {
 		return errors.New("page data is empty")
 	}
 
-	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE, 0644)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open file %s: %w", path, err)
 	}
 	defer file.Close()
 
 	offset := int64(pageID * PageSize)
-
 	_, err = file.WriteAt(data, offset)
 	if err != nil {
 		return fmt.Errorf("failed to write at file %s: %w", path, err)
 	}
 
-	(*page).SetDirtiness(false)
+	page.SetDirtiness(false)
 
 	return nil
 }

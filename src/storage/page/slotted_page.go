@@ -5,9 +5,8 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
-	assert "github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 )
 
 var (
@@ -19,8 +18,8 @@ var (
 
 const (
 	Size       = 4096
-	HeaderSize = uint32(unsafe.Sizeof(uint32(0)) * 3) // numSlots (4) + freeStart (4) + freeEnd (4)
-	SlotSize   = uint32(unsafe.Sizeof(uint16(0)) * 2) // offset (2) + length (2)
+	HeaderSize = 12 // numSlots (4) + freeStart (4) + freeEnd (4)
+	SlotSize   = 4  // offset (2) + length (2)
 )
 
 type SlottedPage struct {
@@ -70,7 +69,7 @@ func (p *SlottedPage) freeEnd() uint32 {
 }
 
 func (p *SlottedPage) setFreeEnd(n uint32) {
-	binary.LittleEndian.PutUint32(p.data[8:12], uint32(n))
+	binary.LittleEndian.PutUint32(p.data[8:12], n)
 }
 
 func (p *SlottedPage) getSlot(i uint32) (offset, length uint32) {
@@ -89,25 +88,27 @@ func (p *SlottedPage) setSlot(i, offset, length uint32) {
 }
 
 func (p *SlottedPage) Insert(record []byte) (uint32, error) {
-	recLen := uint32(len(record))
+	recLen := len(record)
 	freeSpace := p.freeEnd() - p.freeStart()
 
-	if freeSpace < recLen+SlotSize {
+	if freeSpace < uint32(recLen)+SlotSize {
 		return 0, ErrNoEnoughSpace
 	}
 
 	// Allocate space for the record
-	newOffset := p.freeEnd() - recLen
+	newOffset := p.freeEnd() - uint32(recLen)
 	copy(p.data[newOffset:], record)
 
 	// Create slot
 	slotID := p.NumSlots()
-	p.setSlot(slotID, newOffset, recLen)
+	p.setSlot(slotID, newOffset, uint32(recLen))
 
 	// Update header
 	p.setNumSlots(slotID + 1)
 	p.setFreeEnd(newOffset)
 	p.setFreeStart(HeaderSize + (slotID+1)*SlotSize)
+
+	p.dirty.Store(true)
 
 	return slotID, nil
 }
@@ -154,4 +155,26 @@ func (p *SlottedPage) RUnlock() {
 
 func (p *SlottedPage) SetDirtiness(val bool) {
 	p.dirty.Store(val)
+}
+
+func (p *SlottedPage) GetFileID() uint64 {
+	return p.fileID
+}
+
+func (p *SlottedPage) GetPageID() uint64 {
+	return p.pageID
+}
+
+func (p *SlottedPage) IsDirty() bool {
+	if p == nil {
+		return false
+	}
+
+	return p.dirty.Load()
+}
+
+func (p *SlottedPage) SetData(d []byte) {
+	assert.Assert(len(d) == Size, "SetData: invalid page size")
+
+	p.data = d
 }

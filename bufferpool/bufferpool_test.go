@@ -3,11 +3,10 @@ package bufferpool
 import (
 	"testing"
 
+	"github.com/Blackdeer1524/GraphDB/bufferpool/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-
-	"github.com/Blackdeer1524/GraphDB/bufferpool/mocks"
 )
 
 func TestGetPage_Cached(t *testing.T) {
@@ -38,7 +37,7 @@ func TestGetPage_Cached(t *testing.T) {
 	result, err := manager.GetPage(pIdent)
 
 	assert.NoError(t, err)
-	assert.Equal(t, p, *result)
+	assert.Equal(t, p, result)
 
 	// не должно быть считывания с диска
 	mockDisk.AssertNotCalled(t, "ReadPage", fileID, pageID)
@@ -66,7 +65,7 @@ func TestGetPage_LoadFromDisk(t *testing.T) {
 	result, err := manager.GetPage(pIdent)
 
 	assert.NoError(t, err)
-	assert.Equal(t, expectedPage, *result)
+	assert.Equal(t, expectedPage, result)
 
 	assert.Equal(t, uint64(0), manager.pageToFrame[pIdent])
 	assert.Equal(t, expectedPage, manager.frames[0].Page)
@@ -109,7 +108,7 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 	result, err := manager.GetPage(pIdent)
 
 	assert.NoError(t, err)
-	assert.Equal(t, newPage, *result)
+	assert.Equal(t, newPage, result)
 
 	assert.Equal(t, uint64(1), manager.pageToFrame[pIdent])
 	assert.Equal(t, newPage, manager.frames[1].Page)
@@ -157,7 +156,7 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	result, err := manager.GetPage(pIdent)
 
 	assert.NoError(t, err)
-	assert.Equal(t, newPage, *result)
+	assert.Equal(t, newPage, result)
 
 	oldIdent := PageIdentity{FileID: existingFileID, PageID: existingPageID}
 	_, exists := manager.pageToFrame[oldIdent]
