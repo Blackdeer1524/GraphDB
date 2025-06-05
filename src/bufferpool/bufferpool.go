@@ -49,7 +49,7 @@ type Replacer interface {
 
 type DiskManager[T Page] interface {
 	ReadPage(fileID, pageID uint64) (T, error)
-	WritePage(page T) error
+	WritePage(page *T) error
 }
 
 type frame[T Page] struct {
@@ -218,7 +218,7 @@ func (m *Manager[T]) GetPage(pIdent PageIdentity) (T, error) {
 
 	victimFrame := m.frames[victimFrameID]
 	if victimFrame.Page.IsDirty() {
-		err = m.diskManager.WritePage(victimFrame.Page)
+		err = m.diskManager.WritePage(&victimFrame.Page)
 		if err != nil {
 			var zero T
 			return zero, err
@@ -284,7 +284,7 @@ func (m *Manager[T]) FlushPage(pIdent PageIdentity) error {
 		return nil
 	}
 
-	err := m.diskManager.WritePage(frame.Page)
+	err := m.diskManager.WritePage(&frame.Page)
 	if err != nil {
 		return fmt.Errorf("failed to write page to disk: %w", err)
 	}
@@ -303,7 +303,7 @@ func (m *Manager[T]) FlushAllPages() error {
 	for i := range m.frames {
 		frame := &m.frames[i]
 		if frame.Page.IsDirty() {
-			_ = m.diskManager.WritePage(frame.Page)
+			_ = m.diskManager.WritePage(&frame.Page)
 
 			frame.Page.SetDirtiness(false)
 
