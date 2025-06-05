@@ -57,7 +57,7 @@ func (ts *TableScanSource) Next() (Row, error) {
 			PageID: uint64(ts.pageNum),
 		}
 
-		page, err := ts.bufferPool.GetPage(pIdent)
+		page, err := ts.bufferPool.GetPageNoNew(pIdent)
 		if err != nil {
 			return nil, fmt.Errorf("cannot load page %d: %w", ts.pageNum, err)
 		}

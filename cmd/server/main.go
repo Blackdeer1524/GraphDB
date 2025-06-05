@@ -80,12 +80,15 @@ func main() {
 		BufferPool: bufferpool,
 	}
 
-	//qe.AppendRows("Person", graph.VertexTable, []queryexecutor.Row{
-	//	{
-	//		"name": "some",
-	//		"age":  19,
-	//	},
-	//})
+	err = qe.AppendRows("Person", graph.VertexTable, []queryexecutor.Row{
+		{
+			"name": "some",
+			"age":  19,
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	req := queryexecutor.FindRequest{
 		TableName: "Person",
@@ -101,7 +104,7 @@ func main() {
 				return false
 			}
 
-			return valInt == 18
+			return valInt == 19
 		},
 	}
 
