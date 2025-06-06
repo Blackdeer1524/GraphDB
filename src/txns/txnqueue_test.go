@@ -1,13 +1,16 @@
-package transactions
+package txns
 
 import (
 	"fmt"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func expectClosedChannel(t *testing.T, ch <-chan struct{}, mes string) {
+	require.NotNil(t, ch)
 	select {
 	case <-ch:
 	case <-time.After(100 * time.Millisecond):
@@ -16,6 +19,7 @@ func expectClosedChannel(t *testing.T, ch <-chan struct{}, mes string) {
 }
 
 func expectOpenChannel(t *testing.T, ch <-chan struct{}, mes string) {
+	require.NotNil(t, ch)
 	select {
 	case <-ch:
 		t.Error(mes)
@@ -25,9 +29,9 @@ func expectOpenChannel(t *testing.T, ch <-chan struct{}, mes string) {
 
 // TestSharedLockCompatibility shows proper lock compatibility
 func TestSharedLockCompatibility(t *testing.T) {
-	q := newTxnQueue()
-	req1 := txnLockRequest{TransactionID: 1, recordId: 1, lockMode: SHARED}
-	req2 := txnLockRequest{TransactionID: 2, recordId: 1, lockMode: SHARED}
+	q := newTxnQueue[RecordLockMode, RecordID]()
+	req1 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 1, recordId: 1, lockMode: RECORD_LOCK_SHARED}
+	req2 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 2, recordId: 1, lockMode: RECORD_LOCK_SHARED}
 
 	notifier1 := q.Lock(req1)
 	notifier2 := q.Lock(req2)
@@ -38,9 +42,9 @@ func TestSharedLockCompatibility(t *testing.T) {
 
 // TestExclusiveBlocking demonstrates lock queueing
 func TestExclusiveBlocking(t *testing.T) {
-	q := newTxnQueue()
-	req1 := txnLockRequest{TransactionID: 2, recordId: 1, lockMode: SHARED}
-	req2 := txnLockRequest{TransactionID: 1, recordId: 1, lockMode: EXCLUSIVE}
+	q := newTxnQueue[RecordLockMode, RecordID]()
+	req1 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 2, recordId: 1, lockMode: RECORD_LOCK_SHARED}
+	req2 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 1, recordId: 1, lockMode: RECORD_LOCK_EXCLUSIVE}
 
 	notifier1 := q.Lock(req1)
 	expectClosedChannel(t, notifier1, "shared lock should have been granted immediately")
@@ -51,11 +55,11 @@ func TestExclusiveBlocking(t *testing.T) {
 
 // TestDeadlockPrevention verifies transaction age ordering
 func TestDeadlockPrevention(t *testing.T) {
-	q := newTxnQueue()
+	q := newTxnQueue[RecordLockMode, RecordID]()
 
 	// Older transaction (lower ID) first
-	oldReq := txnLockRequest{TransactionID: 1, recordId: 1, lockMode: EXCLUSIVE}
-	newReq := txnLockRequest{TransactionID: 2, recordId: 1, lockMode: SHARED}
+	oldReq := TxnLockRequest[RecordLockMode, RecordID]{txnID: 1, recordId: 1, lockMode: RECORD_LOCK_EXCLUSIVE}
+	newReq := TxnLockRequest[RecordLockMode, RecordID]{txnID: 2, recordId: 1, lockMode: RECORD_LOCK_SHARED}
 
 	// Older transaction gets blocked (simulated)
 	q.Lock(oldReq)
@@ -69,7 +73,7 @@ func TestDeadlockPrevention(t *testing.T) {
 
 // TestConcurrentAccess checks for race conditions
 func TestConcurrentAccess(t *testing.T) {
-	q := newTxnQueue()
+	q := newTxnQueue[RecordLockMode, RecordID]()
 
 	var wg sync.WaitGroup
 
@@ -79,10 +83,10 @@ func TestConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			req := txnLockRequest{
-				TransactionID: TxnID(id), //nolint:gosec
-				recordId:      1,
-				lockMode:      SHARED,
+			req := TxnLockRequest[RecordLockMode, RecordID]{
+				txnID:    TxnID(id), //nolint:gosec
+				recordId: 1,
+				lockMode: RECORD_LOCK_SHARED,
 			}
 
 			fmt.Printf("before lock %d\n", id)
@@ -93,7 +97,7 @@ func TestConcurrentAccess(t *testing.T) {
 			expectClosedChannel(t, notifier, "shared lock request should have been granted")
 
 			fmt.Printf("before unlock %d\n", id)
-			q.Unlock(txnUnlockRequest{TransactionID: TxnID(id), recordId: 1}) //nolint:gosec
+			q.Unlock(TxnUnlockRequest[RecordID]{txnID: TxnID(id), recordId: 1}) //nolint:gosec
 			fmt.Printf("after unlock %d\n", id)
 		}(i)
 	}
@@ -103,9 +107,9 @@ func TestConcurrentAccess(t *testing.T) {
 
 // TestExclusiveOrdering validates exclusive locks ordering
 func TestExclusiveOrdering(t *testing.T) {
-	q := newTxnQueue()
-	req1 := txnLockRequest{TransactionID: 9, recordId: 1, lockMode: EXCLUSIVE}
-	req2 := txnLockRequest{TransactionID: 8, recordId: 1, lockMode: EXCLUSIVE}
+	q := newTxnQueue[RecordLockMode, RecordID]()
+	req1 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 9, recordId: 1, lockMode: RECORD_LOCK_EXCLUSIVE}
+	req2 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 8, recordId: 1, lockMode: RECORD_LOCK_EXCLUSIVE}
 
 	notifier1 := q.Lock(req1)
 	notifier2 := q.Lock(req2)
@@ -113,7 +117,7 @@ func TestExclusiveOrdering(t *testing.T) {
 	expectClosedChannel(t, notifier1, "empty queue -> grant the lock")
 	expectOpenChannel(t, notifier2, "shouldn't have granted the lock in presence of concurrent exclusive lock")
 
-	if !q.Unlock(txnUnlockRequest{TransactionID: 9, recordId: 1}) {
+	if !q.Unlock(TxnUnlockRequest[RecordID]{txnID: 9, recordId: 1}) {
 		t.Errorf("no concurrent deleted -> couldn't have failed")
 	}
 
@@ -124,10 +128,10 @@ func TestExclusiveOrdering(t *testing.T) {
 // can't grant a lock automatically if there is
 // another transaction that have already requested a lock on a tuple
 func TestLockFairness(t *testing.T) {
-	q := newTxnQueue()
-	req1 := txnLockRequest{TransactionID: 9, recordId: 1, lockMode: SHARED}
-	req2 := txnLockRequest{TransactionID: 8, recordId: 1, lockMode: EXCLUSIVE}
-	req3 := txnLockRequest{TransactionID: 7, recordId: 1, lockMode: SHARED}
+	q := newTxnQueue[RecordLockMode, RecordID]()
+	req1 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 9, recordId: 1, lockMode: RECORD_LOCK_SHARED}
+	req2 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 8, recordId: 1, lockMode: RECORD_LOCK_EXCLUSIVE}
+	req3 := TxnLockRequest[RecordLockMode, RecordID]{txnID: 7, recordId: 1, lockMode: RECORD_LOCK_SHARED}
 
 	notifier1 := q.Lock(req1)
 	notifier2 := q.Lock(req2)

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
-	"github.com/Blackdeer1524/GraphDB/src/transactions"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 func generateSequence(chain *TxnLogChain, dataPageId bufferpool.PageIdentity, length int) []LogRecordTypeTag {
@@ -68,7 +68,7 @@ func TestIterSanity(t *testing.T) {
 				SlotNum: 0,
 			},
 		},
-		getActiveTransactions: func() []transactions.TxnID {
+		getActiveTransactions: func() []txns.TxnID {
 			panic("TODO")
 		},
 	}
@@ -78,7 +78,7 @@ func TestIterSanity(t *testing.T) {
 		PageID: 23,
 	}
 
-	TransactionID := transactions.TxnID(1)
+	TransactionID := txns.TxnID(1)
 	chain := NewTxnLogChain(logger, TransactionID)
 
 	types := generateSequence(chain, dataPageId, 100)

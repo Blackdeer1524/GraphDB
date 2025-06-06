@@ -14,7 +14,7 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
-	"github.com/Blackdeer1524/GraphDB/src/transactions"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 func TestValidRecovery(t *testing.T) {
@@ -34,7 +34,7 @@ func TestValidRecovery(t *testing.T) {
 	slotNum, err := insertValue(t, pool, dataPageID, []byte("bef000"))
 	require.NoError(t, err)
 
-	TransactionID := transactions.TxnID(100)
+	TransactionID := txns.TxnID(100)
 	before := []byte("before")
 	after := []byte("after")
 
@@ -95,7 +95,7 @@ func TestFailedTxn(t *testing.T) {
 	}
 	pageID := bufferpool.PageIdentity{FileID: 1, PageID: 42}
 
-	TransactionID := transactions.TxnID(100)
+	TransactionID := txns.TxnID(100)
 	before := []byte("before")
 
 	slotNum, err := insertValue(t, pool, pageID, before)
@@ -169,7 +169,7 @@ func TestFailedTxn(t *testing.T) {
 // 		},
 // 	}
 //
-// 	chain := NewTxnLogChain(logger, transactions.TransactionID(1))
+// 	chain := NewTxnLogChain(logger, txns.TransactionID(1))
 // 	dataPageID := bufferpool.PageIdentity{
 // 		FileID: 52,
 // 		PageID: 43,
@@ -220,7 +220,7 @@ func TestMassiveRecovery(t *testing.T) {
 				SlotNum: 0,
 			},
 		},
-		getActiveTransactions: func() []transactions.TxnID {
+		getActiveTransactions: func() []txns.TxnID {
 			panic("TODO")
 		},
 	}
@@ -280,7 +280,7 @@ func TestMassiveRecovery(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			TransactionID := transactions.TxnID(TransactionIDCounter.Add(1))
+			TransactionID := txns.TxnID(TransactionIDCounter.Add(1))
 			chain := NewTxnLogChain(logger, TransactionID)
 
 			chain.Begin()
@@ -362,7 +362,7 @@ func assertLogRecord(
 	actualTag LogRecordTypeTag,
 	untypedRecord any,
 	expectedRecordType LogRecordTypeTag,
-	expectedTransactionID transactions.TxnID,
+	expectedTransactionID txns.TxnID,
 ) {
 	require.Equal(t, actualTag, expectedRecordType)
 
@@ -406,7 +406,7 @@ func assertLogRecordWithRetrieval(
 	pageID bufferpool.PageIdentity,
 	slotNum uint16,
 	expectedRecordType LogRecordTypeTag,
-	expectedTransactionID transactions.TxnID,
+	expectedTransactionID txns.TxnID,
 ) {
 	page, err := pool.GetPage(pageID)
 	require.NoError(t, err)
@@ -445,7 +445,7 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 				SlotNum: 0,
 			},
 		},
-		getActiveTransactions: func() []transactions.TxnID {
+		getActiveTransactions: func() []txns.TxnID {
 			panic("TODO")
 		},
 	}
@@ -465,7 +465,7 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 		waitWg.Add(1)
 		barierWg.Add(1)
 
-		go func(TransactionID transactions.TxnID) {
+		go func(TransactionID txns.TxnID) {
 			defer waitWg.Done()
 
 			chain := NewTxnLogChain(logger, TransactionID)
@@ -527,7 +527,7 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 					PageID: update.Location.PageID,
 				}, update.Location.SlotNum, TypeUpdate, TransactionID)
 			}
-		}(transactions.TxnID(i)) //nolint:gosec
+		}(txns.TxnID(i)) //nolint:gosec
 	}
 
 	waitWg.Wait()

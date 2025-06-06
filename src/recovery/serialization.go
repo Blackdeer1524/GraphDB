@@ -9,7 +9,7 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
-	"github.com/Blackdeer1524/GraphDB/src/transactions"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 type LogRecordTypeTag byte
@@ -611,7 +611,7 @@ func (c *CheckpointEndLogRecord) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	c.activeTransactions = make([]transactions.TxnID, activeTxnsLen)
+	c.activeTransactions = make([]txns.TxnID, activeTxnsLen)
 	for i := range c.activeTransactions {
 		if err := binary.Read(reader, binary.BigEndian, &c.activeTransactions[i]); err != nil {
 			return err
