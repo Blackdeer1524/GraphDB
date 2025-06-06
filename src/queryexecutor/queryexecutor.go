@@ -2,6 +2,7 @@ package queryexecutor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
@@ -20,7 +21,6 @@ type FilterFunc func(Row) bool
 
 type RowSource interface {
 	Next() (Row, error)
-	//Reset() error
 }
 
 type TableScanSource struct {
@@ -32,15 +32,6 @@ type TableScanSource struct {
 	current  []Row
 
 	fileID uint64
-}
-
-func NewTableScanSource(bp *bufferpool.Manager[*page.SlottedPage], table graph.TableMetadata) RowSource {
-	return &TableScanSource{
-		bufferPool: bp,
-		table:      table,
-		pageNum:    0,
-		rowIndex:   0,
-	}
 }
 
 func (ts *TableScanSource) Next() (Row, error) {
@@ -61,11 +52,13 @@ func (ts *TableScanSource) Next() (Row, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot load page %d: %w", ts.pageNum, err)
 		}
+		defer ts.bufferPool.Unpin(pIdent)
 
 		ts.pageNum++
 
 		rows := make([]Row, 0)
 
+		page.RLock()
 		numSlots := (*page).NumSlots()
 
 		for i := uint16(0); i < numSlots; i++ {
@@ -81,6 +74,8 @@ func (ts *TableScanSource) Next() (Row, error) {
 
 			rows = append(rows, row)
 		}
+
+		page.RUnlock()
 
 		ts.current = rows
 		ts.rowIndex = 0
@@ -113,4 +108,13 @@ func validateRowAgainstSchema(row Row, schema []graph.Column) error {
 	}
 
 	return nil
+}
+
+type IndexScanSource struct {
+	indexFile  string
+	keyColumns []string
+}
+
+func (iss *IndexScanSource) Next() (Row, error) {
+	return nil, errors.New("not implemented")
 }
