@@ -113,7 +113,11 @@ func (m *Manager[T]) WritePage(page *T) error {
 		return errors.New("page data is empty")
 	}
 
-	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE, 0600)
+	file, err := os.OpenFile(
+		filepath.Clean(path),
+		os.O_WRONLY|os.O_CREATE,
+		0600,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to open file %s: %w", path, err)
 	}

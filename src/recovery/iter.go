@@ -43,7 +43,9 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 		FileID: iter.logfileID,
 		PageID: iter.curLoc.PageID,
 	}
-	defer func(pageID bufferpool.PageIdentity) { err = iter.pool.Unpin(pageID) }(curPageID)
+	defer func(pageID bufferpool.PageIdentity) { err = iter.pool.Unpin(pageID) }(
+		curPageID,
+	)
 	defer iter.lockedPage.RUnlock()
 
 	newPage, err := iter.pool.GetPageNoCreate(

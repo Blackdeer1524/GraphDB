@@ -37,7 +37,9 @@ type MockDiskManager struct {
 	mock.Mock
 }
 
-func (m *MockDiskManager) ReadPage(fileID, pageID uint64) (*SlottedPage, error) {
+func (m *MockDiskManager) ReadPage(
+	fileID, pageID uint64,
+) (*SlottedPage, error) {
 	args := m.Called(fileID, pageID)
 	return args.Get(0).(*SlottedPage), args.Error(1)
 }

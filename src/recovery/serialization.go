@@ -624,7 +624,10 @@ func (c *CheckpointEndLogRecord) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	c.dirtyPageTable = make(map[bufferpool.PageIdentity]LogRecordLocationInfo, dirtyPagesLen)
+	c.dirtyPageTable = make(
+		map[bufferpool.PageIdentity]LogRecordLocationInfo,
+		dirtyPagesLen,
+	)
 
 	for i := 0; i < int(dirtyPagesLen); i++ {
 		var pageID bufferpool.PageIdentity
@@ -691,7 +694,11 @@ func readLogRecord(data []byte) (LogRecordTypeTag, any, error) {
 
 		return TypeCheckpointEnd, r, err
 	default:
-		assert.Assert(data[0] < byte(TypeUnknown), "unknow log type: %d", data[0])
+		assert.Assert(
+			data[0] < byte(TypeUnknown),
+			"unknow log type: %d",
+			data[0],
+		)
 	}
 
 	panic("unreachable")

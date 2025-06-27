@@ -118,9 +118,14 @@ func (q *txnQueue) Lock(r txnLockRequest) <-chan struct{} {
 	locksAreCompatible := true
 
 	for {
-		Assert(cur.r.TransactionID != r.TransactionID, "trying to lock already locked transaction. %+v", r)
+		Assert(
+			cur.r.TransactionID != r.TransactionID,
+			"trying to lock already locked transaction. %+v",
+			r,
+		)
 
-		locksAreCompatible = locksAreCompatible && compatibleLockModes(r.lockMode, cur.r.lockMode)
+		locksAreCompatible = locksAreCompatible &&
+			compatibleLockModes(r.lockMode, cur.r.lockMode)
 		if !locksAreCompatible && cur.r.TransactionID < r.TransactionID {
 			// Deadlock prevention policy
 			// Only an older transaction can wait for a younger one.

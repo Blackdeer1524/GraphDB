@@ -115,7 +115,11 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 	assert.Equal(t, newPage, manager.frames[1].Page)
 
 	assert.Equal(t, existingPage, manager.frames[0].Page)
-	assert.Equal(t, uint64(0), manager.pageToFrame[PageIdentity{FileID: existingFileID, PageID: existingPageID}])
+	assert.Equal(
+		t,
+		uint64(0),
+		manager.pageToFrame[PageIdentity{FileID: existingFileID, PageID: existingPageID}],
+	)
 
 	mockDisk.AssertExpectations(t)
 	mockReplacer.AssertExpectations(t)

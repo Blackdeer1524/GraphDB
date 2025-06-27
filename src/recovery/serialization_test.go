@@ -26,7 +26,11 @@ func TestBeginLogRecord_MarshalUnmarshal(t *testing.T) {
 	}
 
 	if original.TransactionID != recovered.TransactionID {
-		t.Errorf("TransactionID mismatch: got %v, want %v", recovered.TransactionID, original.TransactionID)
+		t.Errorf(
+			"TransactionID mismatch: got %v, want %v",
+			recovered.TransactionID,
+			original.TransactionID,
+		)
 	}
 }
 
@@ -57,27 +61,51 @@ func TestUpdateLogRecord_MarshalUnmarshal(t *testing.T) {
 	}
 
 	if original.TransactionID != recovered.TransactionID {
-		t.Errorf("TransactionID mismatch: got %v, want %v", recovered.TransactionID, original.TransactionID)
+		t.Errorf(
+			"TransactionID mismatch: got %v, want %v",
+			recovered.TransactionID,
+			original.TransactionID,
+		)
 	}
 
 	if original.parentLogLocation != recovered.parentLogLocation {
-		t.Errorf("prevLog mismatch: got %v, want %v", recovered.parentLogLocation, original.parentLogLocation)
+		t.Errorf(
+			"prevLog mismatch: got %v, want %v",
+			recovered.parentLogLocation,
+			original.parentLogLocation,
+		)
 	}
 
 	if original.modifiedPageIdentity != recovered.modifiedPageIdentity {
-		t.Errorf("pageInfo mismatch: got %v, want %v", recovered.modifiedPageIdentity, original.modifiedPageIdentity)
+		t.Errorf(
+			"pageInfo mismatch: got %v, want %v",
+			recovered.modifiedPageIdentity,
+			original.modifiedPageIdentity,
+		)
 	}
 
 	if original.modifiedSlotNumber != recovered.modifiedSlotNumber {
-		t.Errorf("slotNumber mismatch: got %v, want %v", recovered.modifiedSlotNumber, original.modifiedSlotNumber)
+		t.Errorf(
+			"slotNumber mismatch: got %v, want %v",
+			recovered.modifiedSlotNumber,
+			original.modifiedSlotNumber,
+		)
 	}
 
 	if !bytes.Equal(original.beforeValue, recovered.beforeValue) {
-		t.Errorf("beforeValue mismatch: got %v, want %v", recovered.beforeValue, original.beforeValue)
+		t.Errorf(
+			"beforeValue mismatch: got %v, want %v",
+			recovered.beforeValue,
+			original.beforeValue,
+		)
 	}
 
 	if !bytes.Equal(original.afterValue, recovered.afterValue) {
-		t.Errorf("afterValue mismatch: got %v, want %v", recovered.afterValue, original.afterValue)
+		t.Errorf(
+			"afterValue mismatch: got %v, want %v",
+			recovered.afterValue,
+			original.afterValue,
+		)
 	}
 }
 
@@ -107,23 +135,43 @@ func TestInsertLogRecord_MarshalUnmarshal(t *testing.T) {
 	}
 
 	if original.TransactionID != recovered.TransactionID {
-		t.Errorf("TransactionID mismatch: got %v, want %v", recovered.TransactionID, original.TransactionID)
+		t.Errorf(
+			"TransactionID mismatch: got %v, want %v",
+			recovered.TransactionID,
+			original.TransactionID,
+		)
 	}
 
 	if original.parentLogLocation != recovered.parentLogLocation {
-		t.Errorf("prevLog mismatch: got %v, want %v", recovered.parentLogLocation, original.parentLogLocation)
+		t.Errorf(
+			"prevLog mismatch: got %v, want %v",
+			recovered.parentLogLocation,
+			original.parentLogLocation,
+		)
 	}
 
 	if original.modifiedPageIdentity != recovered.modifiedPageIdentity {
-		t.Errorf("pageInfo mismatch: got %v, want %v", recovered.modifiedPageIdentity, original.modifiedPageIdentity)
+		t.Errorf(
+			"pageInfo mismatch: got %v, want %v",
+			recovered.modifiedPageIdentity,
+			original.modifiedPageIdentity,
+		)
 	}
 
 	if original.modifiedSlotNumber != recovered.modifiedSlotNumber {
-		t.Errorf("slotNumber mismatch: got %v, want %v", recovered.modifiedSlotNumber, original.modifiedSlotNumber)
+		t.Errorf(
+			"slotNumber mismatch: got %v, want %v",
+			recovered.modifiedSlotNumber,
+			original.modifiedSlotNumber,
+		)
 	}
 
 	if !bytes.Equal(original.value, recovered.value) {
-		t.Errorf("value mismatch: got %v, want %v", recovered.value, original.value)
+		t.Errorf(
+			"value mismatch: got %v, want %v",
+			recovered.value,
+			original.value,
+		)
 	}
 }
 
@@ -150,11 +198,19 @@ func TestCommitLogRecord_MarshalUnmarshal(t *testing.T) {
 	}
 
 	if original.TransactionID != recovered.TransactionID {
-		t.Errorf("TransactionID mismatch: got %v, want %v", recovered.TransactionID, original.TransactionID)
+		t.Errorf(
+			"TransactionID mismatch: got %v, want %v",
+			recovered.TransactionID,
+			original.TransactionID,
+		)
 	}
 
 	if original.parentLogLocation != recovered.parentLogLocation {
-		t.Errorf("prevLog mismatch: got %v, want %v", recovered.parentLogLocation, original.parentLogLocation)
+		t.Errorf(
+			"prevLog mismatch: got %v, want %v",
+			recovered.parentLogLocation,
+			original.parentLogLocation,
+		)
 	}
 }
 
@@ -181,11 +237,19 @@ func TestAbortLogRecord_MarshalUnmarshal(t *testing.T) {
 	}
 
 	if original.TransactionID != recovered.TransactionID {
-		t.Errorf("TransactionID mismatch: got %v, want %v", recovered.TransactionID, original.TransactionID)
+		t.Errorf(
+			"TransactionID mismatch: got %v, want %v",
+			recovered.TransactionID,
+			original.TransactionID,
+		)
 	}
 
 	if original.parentLogLocation != recovered.parentLogLocation {
-		t.Errorf("prevLog mismatch: got %v, want %v", recovered.parentLogLocation, original.parentLogLocation)
+		t.Errorf(
+			"prevLog mismatch: got %v, want %v",
+			recovered.parentLogLocation,
+			original.parentLogLocation,
+		)
 	}
 }
 
@@ -212,11 +276,19 @@ func TestTxnEndLogRecord_MarshalUnmarshal(t *testing.T) {
 	}
 
 	if original.TransactionID != recovered.TransactionID {
-		t.Errorf("TransactionID mismatch: got %v, want %v", recovered.TransactionID, original.TransactionID)
+		t.Errorf(
+			"TransactionID mismatch: got %v, want %v",
+			recovered.TransactionID,
+			original.TransactionID,
+		)
 	}
 
 	if original.parentLogLocation != recovered.parentLogLocation {
-		t.Errorf("prevLog mismatch: got %v, want %v", recovered.parentLogLocation, original.parentLogLocation)
+		t.Errorf(
+			"prevLog mismatch: got %v, want %v",
+			recovered.parentLogLocation,
+			original.parentLogLocation,
+		)
 	}
 }
 
@@ -249,31 +321,59 @@ func TestCompensationLogRecord_MarshalUnmarshal(t *testing.T) {
 	}
 
 	if original.TransactionID != recovered.TransactionID {
-		t.Errorf("TransactionID mismatch: got %v, want %v", recovered.TransactionID, original.TransactionID)
+		t.Errorf(
+			"TransactionID mismatch: got %v, want %v",
+			recovered.TransactionID,
+			original.TransactionID,
+		)
 	}
 
 	if original.parentLogLocation != recovered.parentLogLocation {
-		t.Errorf("prevLog mismatch: got %v, want %v", recovered.parentLogLocation, original.parentLogLocation)
+		t.Errorf(
+			"prevLog mismatch: got %v, want %v",
+			recovered.parentLogLocation,
+			original.parentLogLocation,
+		)
 	}
 
 	if original.modifiedPageIdentity != recovered.modifiedPageIdentity {
-		t.Errorf("pageInfo mismatch: got %v, want %v", recovered.modifiedPageIdentity, original.modifiedPageIdentity)
+		t.Errorf(
+			"pageInfo mismatch: got %v, want %v",
+			recovered.modifiedPageIdentity,
+			original.modifiedPageIdentity,
+		)
 	}
 
 	if original.modifiedSlotNumber != recovered.modifiedSlotNumber {
-		t.Errorf("slotNumber mismatch: got %v, want %v", recovered.modifiedSlotNumber, original.modifiedSlotNumber)
+		t.Errorf(
+			"slotNumber mismatch: got %v, want %v",
+			recovered.modifiedSlotNumber,
+			original.modifiedSlotNumber,
+		)
 	}
 
 	if original.nextUndoLSN != recovered.nextUndoLSN {
-		t.Errorf("nextUndoLSN mismatch: got %v, want %v", recovered.nextUndoLSN, original.nextUndoLSN)
+		t.Errorf(
+			"nextUndoLSN mismatch: got %v, want %v",
+			recovered.nextUndoLSN,
+			original.nextUndoLSN,
+		)
 	}
 
 	if !bytes.Equal(original.beforeValue, recovered.beforeValue) {
-		t.Errorf("beforeValue mismatch: got %v, want %v", recovered.beforeValue, original.beforeValue)
+		t.Errorf(
+			"beforeValue mismatch: got %v, want %v",
+			recovered.beforeValue,
+			original.beforeValue,
+		)
 	}
 
 	if !bytes.Equal(original.afterValue, recovered.afterValue) {
-		t.Errorf("afterValue mismatch: got %v, want %v", recovered.afterValue, original.afterValue)
+		t.Errorf(
+			"afterValue mismatch: got %v, want %v",
+			recovered.afterValue,
+			original.afterValue,
+		)
 	}
 }
 
@@ -418,8 +518,12 @@ func TestCheckpointEnd_MarshalUnmarshal(t *testing.T) {
 
 	for i := range original.activeTransactions {
 		if original.activeTransactions[i] != recovered.activeTransactions[i] {
-			t.Errorf("activeTransactions[%d] mismatch: got %v, want %v",
-				i, recovered.activeTransactions[i], original.activeTransactions[i])
+			t.Errorf(
+				"activeTransactions[%d] mismatch: got %v, want %v",
+				i,
+				recovered.activeTransactions[i],
+				original.activeTransactions[i],
+			)
 		}
 	}
 
@@ -451,7 +555,11 @@ func TestCheckpointEnd_EmptyData(t *testing.T) {
 
 func TestCheckpointEnd_InvalidTypeTag(t *testing.T) {
 	// Create a valid record first
-	original := NewCheckpointEnd(999, []transactions.TxnID{123}, make(map[bufferpool.PageIdentity]LogRecordLocationInfo))
+	original := NewCheckpointEnd(
+		999,
+		[]transactions.TxnID{123},
+		make(map[bufferpool.PageIdentity]LogRecordLocationInfo),
+	)
 
 	data, err := original.MarshalBinary()
 	if err != nil {

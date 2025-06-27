@@ -28,12 +28,20 @@ func (s *Server) Run() error {
 	mux := http.DefaultServeMux
 
 	s.http = &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", s.cfg.ServerHost, s.cfg.ServerPort),
+		Addr: fmt.Sprintf(
+			"%s:%d",
+			s.cfg.ServerHost,
+			s.cfg.ServerPort,
+		),
 		Handler:           mux,
 		ReadHeaderTimeout: time.Second * 10,
 	}
 
-	s.log.Infof("Server is running on %s:%d", s.cfg.ServerHost, s.cfg.ServerPort)
+	s.log.Infof(
+		"Server is running on %s:%d",
+		s.cfg.ServerHost,
+		s.cfg.ServerPort,
+	)
 
 	if err := s.http.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("Server.Run http.ListenAndServe: %w", err)
@@ -47,7 +55,8 @@ func (s *Server) Close(ctx context.Context) error {
 		return nil
 	}
 
-	if err := s.http.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := s.http.Shutdown(ctx); err != nil &&
+		!errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("Server.Close http.Shutdown: %w", err)
 	}
 

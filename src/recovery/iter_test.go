@@ -13,7 +13,11 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/transactions"
 )
 
-func generateSequence(chain *TxnLogChain, dataPageId bufferpool.PageIdentity, length int) []LogRecordTypeTag {
+func generateSequence(
+	chain *TxnLogChain,
+	dataPageId bufferpool.PageIdentity,
+	length int,
+) []LogRecordTypeTag {
 	chain.Begin()
 
 	res := make([]LogRecordTypeTag, length+2)
@@ -30,7 +34,8 @@ func generateSequence(chain *TxnLogChain, dataPageId bufferpool.PageIdentity, le
 			res[i] = TypeUpdate
 
 			//nolint:gosec
-			chain.Update(dataPageId, uint16(i), []byte(strconv.Itoa(i)), []byte(strconv.Itoa(i))).Loc()
+			chain.Update(dataPageId, uint16(i), []byte(strconv.Itoa(i)), []byte(strconv.Itoa(i))).
+				Loc()
 		}
 	}
 

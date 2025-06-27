@@ -28,7 +28,12 @@ func TestInsertAndGet(t *testing.T) {
 	for i, id := range slotIDs {
 		got, err := page.Get(id)
 		require.NoError(t, err, "Get failed")
-		assert.Equal(t, string(records[i]), string(got), "Retrieved record doesn't match")
+		assert.Equal(
+			t,
+			string(records[i]),
+			string(got),
+			"Retrieved record doesn't match",
+		)
 	}
 }
 

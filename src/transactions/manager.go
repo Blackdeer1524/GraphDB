@@ -69,9 +69,11 @@ func (m *Manager) Unlock(r txnUnlockRequest) {
 		defer m.qsGuard.Unlock()
 
 		q, present := m.qs[r.recordId]
-		Assert(present,
+		Assert(
+			present,
 			"trying to unlock a transaction on an unlocked tuple. recordID: %+v",
-			r.recordId)
+			r.recordId,
+		)
 
 		return q
 	}()
@@ -118,9 +120,11 @@ func (m *Manager) UnlockAll(TransactionID TxnID) {
 			defer m.qsGuard.Unlock()
 
 			q, present := m.qs[r]
-			Assert(present,
+			Assert(
+				present,
 				"trying to unlock a transaction on an unlocked tuple. recordID: %+v",
-				r)
+				r,
+			)
 
 			return q
 		}()

@@ -32,8 +32,16 @@ func TestSharedLockCompatibility(t *testing.T) {
 	notifier1 := q.Lock(req1)
 	notifier2 := q.Lock(req2)
 
-	expectClosedChannel(t, notifier1, "Compatible shared locks should both be granted immediately")
-	expectClosedChannel(t, notifier2, "Compatible shared locks should both be granted immediately")
+	expectClosedChannel(
+		t,
+		notifier1,
+		"Compatible shared locks should both be granted immediately",
+	)
+	expectClosedChannel(
+		t,
+		notifier2,
+		"Compatible shared locks should both be granted immediately",
+	)
 }
 
 // TestExclusiveBlocking demonstrates lock queueing
@@ -43,7 +51,11 @@ func TestExclusiveBlocking(t *testing.T) {
 	req2 := txnLockRequest{TransactionID: 1, recordId: 1, lockMode: EXCLUSIVE}
 
 	notifier1 := q.Lock(req1)
-	expectClosedChannel(t, notifier1, "shared lock should have been granted immediately")
+	expectClosedChannel(
+		t,
+		notifier1,
+		"shared lock should have been granted immediately",
+	)
 
 	notifier2 := q.Lock(req2)
 	expectOpenChannel(t, notifier2, "exclusive lock should have been enqueued")
@@ -63,7 +75,9 @@ func TestDeadlockPrevention(t *testing.T) {
 	// Younger transaction should abort
 	result := q.Lock(newReq)
 	if result != nil {
-		t.Error("Younger transaction should abort when blocking older transaction")
+		t.Error(
+			"Younger transaction should abort when blocking older transaction",
+		)
 	}
 }
 
@@ -90,10 +104,16 @@ func TestConcurrentAccess(t *testing.T) {
 			notifier := q.Lock(req)
 			fmt.Printf("after lock %d\n", id)
 
-			expectClosedChannel(t, notifier, "shared lock request should have been granted")
+			expectClosedChannel(
+				t,
+				notifier,
+				"shared lock request should have been granted",
+			)
 
 			fmt.Printf("before unlock %d\n", id)
-			q.Unlock(txnUnlockRequest{TransactionID: TxnID(id), recordId: 1}) //nolint:gosec
+			q.Unlock(
+				txnUnlockRequest{TransactionID: TxnID(id), recordId: 1},
+			) //nolint:gosec
 			fmt.Printf("after unlock %d\n", id)
 		}(i)
 	}
@@ -111,7 +131,11 @@ func TestExclusiveOrdering(t *testing.T) {
 	notifier2 := q.Lock(req2)
 
 	expectClosedChannel(t, notifier1, "empty queue -> grant the lock")
-	expectOpenChannel(t, notifier2, "shouldn't have granted the lock in presence of concurrent exclusive lock")
+	expectOpenChannel(
+		t,
+		notifier2,
+		"shouldn't have granted the lock in presence of concurrent exclusive lock",
+	)
 
 	if !q.Unlock(txnUnlockRequest{TransactionID: 9, recordId: 1}) {
 		t.Errorf("no concurrent deleted -> couldn't have failed")
@@ -135,5 +159,9 @@ func TestLockFairness(t *testing.T) {
 
 	expectClosedChannel(t, notifier1, "empty queue -> grant the lock")
 	expectOpenChannel(t, notifier2, "incompatible lock -> wait")
-	expectOpenChannel(t, notifier3, "waiting imcompatible lock -> can't grant the lock immediately")
+	expectOpenChannel(
+		t,
+		notifier3,
+		"waiting imcompatible lock -> can't grant the lock immediately",
+	)
 }

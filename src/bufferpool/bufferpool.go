@@ -108,7 +108,11 @@ var (
 	_ BufferPool[Page] = &Manager[Page]{}
 )
 
-func New[T Page](poolSize uint64, replacer Replacer, diskManager DiskManager[T]) (*Manager[T], error) {
+func New[T Page](
+	poolSize uint64,
+	replacer Replacer,
+	diskManager DiskManager[T],
+) (*Manager[T], error) {
 	assert.Assert(poolSize > 0, "pool size must be greater than zero")
 
 	emptyFrames := make([]uint64, poolSize)

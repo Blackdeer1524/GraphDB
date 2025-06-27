@@ -19,8 +19,10 @@ var (
 
 const (
 	Size       = 4096
-	HeaderSize = uint16(unsafe.Sizeof(uint16(0))) * 3 // numSlots (4) + freeStart (4) + freeEnd (4)
-	SlotSize   = uint16(unsafe.Sizeof(uint16(0))) * 2 // offset (2) + length (2)
+	HeaderSize = uint16(
+		unsafe.Sizeof(uint16(0)),
+	) * 3 // numSlots (4) + freeStart (4) + freeEnd (4)
+	SlotSize = uint16(unsafe.Sizeof(uint16(0))) * 2 // offset (2) + length (2)
 )
 
 type SlottedPage struct {

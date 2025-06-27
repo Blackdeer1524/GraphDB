@@ -62,7 +62,9 @@ func TestValidRecovery(t *testing.T) {
 
 	// Check that the page contains the "after" value
 	p, err := pool.GetPage(dataPageID)
-	defer func(pageID bufferpool.PageIdentity) { assert.NoError(t, pool.Unpin(pageID)) }(dataPageID)
+	defer func(pageID bufferpool.PageIdentity) { assert.NoError(t, pool.Unpin(pageID)) }(
+		dataPageID,
+	)
 
 	p.RLock()
 	defer p.RUnlock()
@@ -77,7 +79,11 @@ func TestValidRecovery(t *testing.T) {
 	}
 
 	if !bytes.Equal(data[:len(after)], after) {
-		t.Errorf("Recovery failed: expected %q, got %q", after, data[:len(after)])
+		t.Errorf(
+			"Recovery failed: expected %q, got %q",
+			after,
+			data[:len(after)],
+		)
 	}
 }
 
@@ -189,7 +195,9 @@ func insertValue(
 ) (uint16, error) {
 	p, err := pool.GetPage(pageId)
 	require.NoError(t, err)
-	defer func(pgID bufferpool.PageIdentity) { require.NoError(t, pool.Unpin(pgID)) }(pageId)
+	defer func(pgID bufferpool.PageIdentity) { require.NoError(t, pool.Unpin(pgID)) }(
+		pageId,
+	)
 
 	p.Lock()
 	defer p.Unlock()
@@ -271,7 +279,12 @@ func TestMassiveRecovery(t *testing.T) {
 	inc := N * 6 / 10
 	right := (left + inc) % N
 	STEP := 5
-	require.Equal(t, inc%STEP, 0, "step must divide inc. otherwise, it would cause an infinite loop")
+	require.Equal(
+		t,
+		inc%STEP,
+		0,
+		"step must divide inc. otherwise, it would cause an infinite loop",
+	)
 
 	wg := sync.WaitGroup{}
 	for i := left; i != right; i = (i + STEP) % N {
@@ -418,7 +431,13 @@ func assertLogRecordWithRetrieval(
 	tag, untypedRecord, err := readLogRecord(data)
 	require.NoError(t, err)
 
-	assertLogRecord(t, tag, untypedRecord, expectedRecordType, expectedTransactionID)
+	assertLogRecord(
+		t,
+		tag,
+		untypedRecord,
+		expectedRecordType,
+		expectedTransactionID,
+	)
 
 	page.RUnlock()
 	require.NoError(t, pool.Unpin(pageID))
@@ -480,13 +499,15 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 					insertLocs = append(
 						insertLocs,
 						//nolint:gosec
-						chain.Insert(dataPageId, uint16(j), []byte(strconv.Itoa(i*INNER+j))).Loc(),
+						chain.Insert(dataPageId, uint16(j), []byte(strconv.Itoa(i*INNER+j))).
+							Loc(),
 					)
 				case 1:
 					updateLocs = append(
 						updateLocs,
 						//nolint:gosec
-						chain.Update(dataPageId, uint16(j), []byte(strconv.Itoa(i)), []byte(strconv.Itoa(i*INNER+j))).Loc(),
+						chain.Update(dataPageId, uint16(j), []byte(strconv.Itoa(i)), []byte(strconv.Itoa(i*INNER+j))).
+							Loc(),
 					)
 				}
 			}
@@ -506,26 +527,60 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 			barierWg.Done()
 			barierWg.Wait()
 
-			assertLogRecordWithRetrieval(t, logger.pool, bufferpool.PageIdentity{FileID: logger.logfileID, PageID: beginLoc.Location.PageID}, beginLoc.Location.SlotNum, TypeBegin, TransactionID)
+			assertLogRecordWithRetrieval(
+				t,
+				logger.pool,
+				bufferpool.PageIdentity{
+					FileID: logger.logfileID,
+					PageID: beginLoc.Location.PageID,
+				},
+				beginLoc.Location.SlotNum,
+				TypeBegin,
+				TransactionID,
+			)
 
 			if isCommit {
-				assertLogRecordWithRetrieval(t, logger.pool, bufferpool.PageIdentity{FileID: logger.logfileID, PageID: finishLoc.Location.PageID}, finishLoc.Location.SlotNum, TypeCommit, TransactionID)
+				assertLogRecordWithRetrieval(
+					t,
+					logger.pool,
+					bufferpool.PageIdentity{
+						FileID: logger.logfileID,
+						PageID: finishLoc.Location.PageID,
+					},
+					finishLoc.Location.SlotNum,
+					TypeCommit,
+					TransactionID,
+				)
 			} else {
 				assertLogRecordWithRetrieval(t, logger.pool, bufferpool.PageIdentity{FileID: logger.logfileID, PageID: finishLoc.Location.PageID}, finishLoc.Location.SlotNum, TypeAbort, TransactionID)
 			}
 
 			for _, insert := range insertLocs {
-				assertLogRecordWithRetrieval(t, logger.pool, bufferpool.PageIdentity{
-					FileID: logger.logfileID,
-					PageID: insert.Location.PageID,
-				}, insert.Location.SlotNum, TypeInsert, TransactionID)
+				assertLogRecordWithRetrieval(
+					t,
+					logger.pool,
+					bufferpool.PageIdentity{
+						FileID: logger.logfileID,
+						PageID: insert.Location.PageID,
+					},
+					insert.Location.SlotNum,
+					TypeInsert,
+					TransactionID,
+				)
 			}
 
 			for _, update := range updateLocs {
-				assertLogRecordWithRetrieval(t, logger.pool, bufferpool.PageIdentity{
-					FileID: logger.logfileID,
-					PageID: update.Location.PageID,
-				}, update.Location.SlotNum, TypeUpdate, TransactionID)
+				assertLogRecordWithRetrieval(
+					t,
+					logger.pool,
+					bufferpool.PageIdentity{
+						FileID: logger.logfileID,
+						PageID: update.Location.PageID,
+					},
+					update.Location.SlotNum,
+					TypeUpdate,
+					TransactionID,
+				)
 			}
 		}(transactions.TxnID(i)) //nolint:gosec
 	}

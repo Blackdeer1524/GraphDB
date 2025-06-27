@@ -56,10 +56,16 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 
 			notifier := m.Lock(req)
 			fmt.Printf("after lock %d\n", id)
-			expectClosedChannel(t, notifier, "Concurrent access to different records should work")
+			expectClosedChannel(
+				t,
+				notifier,
+				"Concurrent access to different records should work",
+			)
 
 			fmt.Printf("before unlock %d\n", id)
-			m.Unlock(txnUnlockRequest{TransactionID: TxnID(id), recordId: recordID}) //nolint:gosec
+			m.Unlock(
+				txnUnlockRequest{TransactionID: TxnID(id), recordId: recordID},
+			) //nolint:gosec
 			fmt.Printf("after unlock %d\n", id)
 		}(i)
 	}
@@ -88,11 +94,17 @@ func TestManagerUnlockPanicScenarios(t *testing.T) {
 			}
 		}()
 
-		req := txnLockRequest{TransactionID: 1, recordId: 200, lockMode: EXCLUSIVE}
+		req := txnLockRequest{
+			TransactionID: 1,
+			recordId:      200,
+			lockMode:      EXCLUSIVE,
+		}
 		notifier := m.Lock(req)
 		expectClosedChannel(t, notifier, "Lock should be granted")
 		m.Unlock(txnUnlockRequest{TransactionID: 1, recordId: 200})
-		m.Unlock(txnUnlockRequest{TransactionID: 1, recordId: 200}) // Panic here
+		m.Unlock(
+			txnUnlockRequest{TransactionID: 1, recordId: 200},
+		) // Panic here
 	})
 }
 
@@ -101,25 +113,45 @@ func TestManagerLockContention(t *testing.T) {
 	recordID := RecordID(300)
 
 	// First exclusive lock
-	req1 := txnLockRequest{TransactionID: 5, recordId: recordID, lockMode: EXCLUSIVE}
+	req1 := txnLockRequest{
+		TransactionID: 5,
+		recordId:      recordID,
+		lockMode:      EXCLUSIVE,
+	}
 	notifier1 := m.Lock(req1)
 	expectClosedChannel(t, notifier1, "First exclusive lock should be granted")
 
 	// Second exclusive lock (should block)
-	req2 := txnLockRequest{TransactionID: 4, recordId: recordID, lockMode: EXCLUSIVE}
+	req2 := txnLockRequest{
+		TransactionID: 4,
+		recordId:      recordID,
+		lockMode:      EXCLUSIVE,
+	}
 	notifier2 := m.Lock(req2)
 	expectOpenChannel(t, notifier2, "Second exclusive lock should block")
 
 	// Concurrent shared lock (should also block)
-	req3 := txnLockRequest{TransactionID: 3, recordId: recordID, lockMode: SHARED}
+	req3 := txnLockRequest{
+		TransactionID: 3,
+		recordId:      recordID,
+		lockMode:      SHARED,
+	}
 	notifier3 := m.Lock(req3)
 	expectOpenChannel(t, notifier3, "Shared lock should block behind exclusive")
 
 	// Unlock first and verify chain
 	m.Unlock(txnUnlockRequest{TransactionID: 5, recordId: recordID})
-	expectClosedChannel(t, notifier2, "Second lock should be granted after unlock")
+	expectClosedChannel(
+		t,
+		notifier2,
+		"Second lock should be granted after unlock",
+	)
 	m.Unlock(txnUnlockRequest{TransactionID: 4, recordId: recordID})
-	expectClosedChannel(t, notifier3, "Shared lock should be granted after exclusives")
+	expectClosedChannel(
+		t,
+		notifier3,
+		"Shared lock should be granted after exclusives",
+	)
 }
 
 func TestManagerUnlockRetry(t *testing.T) {
@@ -127,7 +159,11 @@ func TestManagerUnlockRetry(t *testing.T) {
 	recordID := RecordID(400)
 
 	// Setup lock
-	req := txnLockRequest{TransactionID: 1, recordId: recordID, lockMode: EXCLUSIVE}
+	req := txnLockRequest{
+		TransactionID: 1,
+		recordId:      recordID,
+		lockMode:      EXCLUSIVE,
+	}
 	notifier := m.Lock(req)
 	expectClosedChannel(t, notifier, "Lock should be granted")
 
@@ -160,7 +196,11 @@ func TestManagerUnlockAll(t *testing.T) {
 		recordId:      1,
 		lockMode:      EXCLUSIVE,
 	})
-	expectClosedChannel(t, notifier1x, "Txn 1 should have been granted the Exclusive Lock on 1")
+	expectClosedChannel(
+		t,
+		notifier1x,
+		"Txn 1 should have been granted the Exclusive Lock on 1",
+	)
 
 	notifier0s := m.Lock(txnLockRequest{
 		TransactionID: waitingTxn,
@@ -170,5 +210,9 @@ func TestManagerUnlockAll(t *testing.T) {
 	expectOpenChannel(t, notifier0s, "Txn 0 should be enqueued on record 1")
 
 	m.UnlockAll(runningTxn)
-	expectClosedChannel(t, notifier0s, "Txn 0 should have been granted the lock after the running transaction has finished")
+	expectClosedChannel(
+		t,
+		notifier0s,
+		"Txn 0 should have been granted the lock after the running transaction has finished",
+	)
 }
