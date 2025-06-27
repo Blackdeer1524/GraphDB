@@ -30,7 +30,7 @@ install-lint:
 pre-commit: lint test
 
 fmt:
-	go fmt ./...
+	golangci-lint fmt ./...
 	gci write -s standard -s default -s "Prefix(github.com/Blackdeer1524/GraphDB)" -s blank -s dot $(PKG)
 
 lint: fmt
