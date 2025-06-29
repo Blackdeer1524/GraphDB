@@ -1,0 +1,133 @@
+{
+  "tables": [
+    {
+      "name": "users",
+      "kind": "VERTEX",
+      "file_path": "data/demo-catalog/vertex/users.tbl",
+      "schema": [
+        {
+          "name": "id",
+          "type": "INT",
+          "nullable": false,
+          "is_primary": true,
+          "is_unique": false
+        },
+        {
+          "name": "name",
+          "type": "STRING",
+          "nullable": false,
+          "is_primary": false,
+          "is_unique": false
+        },
+        {
+          "name": "email",
+          "type": "STRING",
+          "nullable": false,
+          "is_primary": false,
+          "is_unique": true
+        },
+        {
+          "name": "age",
+          "type": "INT",
+          "nullable": true,
+          "is_primary": false,
+          "is_unique": false
+        },
+        {
+          "name": "created_at",
+          "type": "DATE",
+          "nullable": false,
+          "is_primary": false,
+          "is_unique": false
+        }
+      ],
+      "description": "User vertices in the social graph"
+    },
+    {
+      "name": "friendships",
+      "kind": "EDGE",
+      "file_path": "data/demo-catalog/edge/friendships.tbl",
+      "schema": [
+        {
+          "name": "id",
+          "type": "INT",
+          "nullable": false,
+          "is_primary": true,
+          "is_unique": false
+        },
+        {
+          "name": "from_user_id",
+          "type": "INT",
+          "nullable": false,
+          "is_primary": false,
+          "is_unique": false
+        },
+        {
+          "name": "to_user_id",
+          "type": "INT",
+          "nullable": false,
+          "is_primary": false,
+          "is_unique": false
+        },
+        {
+          "name": "created_at",
+          "type": "DATE",
+          "nullable": false,
+          "is_primary": false,
+          "is_unique": false
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "nullable": false,
+          "is_primary": false,
+          "is_unique": false
+        }
+      ],
+      "description": "Friendship edges between users"
+    }
+  ],
+  "indexes": [
+    {
+      "name": "idx_users_email",
+      "type": "BTREE",
+      "table_name": "users",
+      "columns": [
+        "email"
+      ],
+      "file_path": "data/demo-catalog/indexes/idx_users_email.idx",
+      "is_unique": true
+    },
+    {
+      "name": "idx_users_name",
+      "type": "BTREE",
+      "table_name": "users",
+      "columns": [
+        "name"
+      ],
+      "file_path": "data/demo-catalog/indexes/idx_users_name.idx",
+      "is_unique": false
+    },
+    {
+      "name": "idx_friendships_from",
+      "type": "BTREE",
+      "table_name": "friendships",
+      "columns": [
+        "from_user_id"
+      ],
+      "file_path": "data/demo-catalog/indexes/idx_friendships_from.idx",
+      "is_unique": false
+    },
+    {
+      "name": "idx_friendships_to",
+      "type": "BTREE",
+      "table_name": "friendships",
+      "columns": [
+        "to_user_id"
+      ],
+      "file_path": "data/demo-catalog/indexes/idx_friendships_to.idx",
+      "is_unique": false
+    }
+  ],
+  "settings": {}
+}
