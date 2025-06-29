@@ -173,15 +173,11 @@ func (p *SlottedPage) GetPageID() uint64 {
 }
 
 func (p *SlottedPage) IsDirty() bool {
-	if p == nil {
-		return false
-	}
-
 	return p.dirty.Load()
 }
 
 func (p *SlottedPage) SetData(d []byte) {
-	assert.Assert(!p.locked.Load(), "SetData contract is violated")
+	assert.Assert(p.locked.Load(), "SetData contract is violated")
 
 	clear(p.data)
 	copy(p.data, d)
