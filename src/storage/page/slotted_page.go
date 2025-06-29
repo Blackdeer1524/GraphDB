@@ -115,8 +115,6 @@ func (p *SlottedPage) Insert(record []byte) (slotID uint16, err error) {
 	p.setFreeEnd(newOffset)
 	p.setFreeStart(HeaderSize + (slotID+1)*SlotSize)
 
-	p.SetDirtiness(true)
-
 	return slotID, nil
 }
 
