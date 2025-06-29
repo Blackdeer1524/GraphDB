@@ -31,3 +31,7 @@ bin/
 # Go workspace files
 go.work
 go.work.sum
+
+# Database files
+*.idx
+*.tbl
