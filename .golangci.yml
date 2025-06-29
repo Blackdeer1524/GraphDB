@@ -54,10 +54,17 @@ issues:
   fix: true
 formatters:
   enable:
+    - golines
     - gci
     - gofmt
     - goimports
   settings:
+    golines:
+      max-len: 80
+      tab-len: 4
+      shorten-comments: true
+      reformat-tags: true
+      chain-split-dots: true
     gci:
       sections:
         - standard

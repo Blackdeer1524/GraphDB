@@ -1,6 +1,6 @@
 package recovery
 
-import "github.com/Blackdeer1524/GraphDB/src/transactions"
+import "github.com/Blackdeer1524/GraphDB/src/txns"
 
 type txnStatus byte
 
@@ -25,18 +25,18 @@ func NewATTEntry(
 }
 
 type ActiveTransactionsTable struct {
-	table map[transactions.TxnID]ATTEntry
+	table map[txns.TxnID]ATTEntry
 }
 
 func NewActiveTransactionsTable() ActiveTransactionsTable {
 	return ActiveTransactionsTable{
-		table: map[transactions.TxnID]ATTEntry{},
+		table: map[txns.TxnID]ATTEntry{},
 	}
 }
 
 // returns true iff it is the first record for the transaction
 func (att *ActiveTransactionsTable) Insert(
-	id transactions.TxnID,
+	id txns.TxnID,
 	tag LogRecordTypeTag,
 	entry ATTEntry,
 ) bool {

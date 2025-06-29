@@ -25,7 +25,9 @@ func (b *BufferPool_mock) Unpin(pageID PageIdentity) error {
 	return nil
 }
 
-func (b *BufferPool_mock) GetPage(pageID PageIdentity) (*page.SlottedPage, error) {
+func (b *BufferPool_mock) GetPage(
+	pageID PageIdentity,
+) (*page.SlottedPage, error) {
 	val, ok := b.pages.Load(pageID)
 
 	var p *page.SlottedPage
@@ -42,7 +44,9 @@ func (b *BufferPool_mock) GetPage(pageID PageIdentity) (*page.SlottedPage, error
 	return p, nil
 }
 
-func (b *BufferPool_mock) GetPageNoCreate(pageID PageIdentity) (*page.SlottedPage, error) {
+func (b *BufferPool_mock) GetPageNoCreate(
+	pageID PageIdentity,
+) (*page.SlottedPage, error) {
 	val, ok := b.pages.Load(pageID)
 	if !ok {
 		return nil, ErrNoSuchPage

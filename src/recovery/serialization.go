@@ -9,7 +9,7 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
-	"github.com/Blackdeer1524/GraphDB/src/transactions"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 type LogRecordTypeTag byte
@@ -611,7 +611,7 @@ func (c *CheckpointEndLogRecord) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	c.activeTransactions = make([]transactions.TxnID, activeTxnsLen)
+	c.activeTransactions = make([]txns.TxnID, activeTxnsLen)
 	for i := range c.activeTransactions {
 		if err := binary.Read(reader, binary.BigEndian, &c.activeTransactions[i]); err != nil {
 			return err
@@ -624,7 +624,10 @@ func (c *CheckpointEndLogRecord) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	c.dirtyPageTable = make(map[bufferpool.PageIdentity]LogRecordLocationInfo, dirtyPagesLen)
+	c.dirtyPageTable = make(
+		map[bufferpool.PageIdentity]LogRecordLocationInfo,
+		dirtyPagesLen,
+	)
 
 	for i := 0; i < int(dirtyPagesLen); i++ {
 		var pageID bufferpool.PageIdentity
@@ -691,7 +694,11 @@ func readLogRecord(data []byte) (LogRecordTypeTag, any, error) {
 
 		return TypeCheckpointEnd, r, err
 	default:
-		assert.Assert(data[0] < byte(TypeUnknown), "unknow log type: %d", data[0])
+		assert.Assert(
+			data[0] < byte(TypeUnknown),
+			"unknow log type: %d",
+			data[0],
+		)
 	}
 
 	panic("unreachable")

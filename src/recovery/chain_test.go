@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
-	"github.com/Blackdeer1524/GraphDB/src/transactions"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 func TestChainSanity(t *testing.T) {
@@ -32,12 +32,12 @@ func TestChainSanity(t *testing.T) {
 				SlotNum: 0,
 			},
 		},
-		getActiveTransactions: func() []transactions.TxnID {
+		getActiveTransactions: func() []txns.TxnID {
 			panic("TODO")
 		},
 	}
 
-	chain := NewTxnLogChain(logger, transactions.TxnID(1))
+	chain := NewTxnLogChain(logger, txns.TxnID(1))
 
 	dataPageId := bufferpool.PageIdentity{
 		FileID: 1,
@@ -146,7 +146,7 @@ func TestChain(t *testing.T) {
 				SlotNum: 0,
 			},
 		},
-		getActiveTransactions: func() []transactions.TxnID {
+		getActiveTransactions: func() []txns.TxnID {
 			panic("TODO")
 		},
 	}
@@ -156,8 +156,8 @@ func TestChain(t *testing.T) {
 		PageID: 0,
 	}
 
-	TransactionID_1 := transactions.TxnID(1)
-	TransactionID_2 := transactions.TxnID(2)
+	TransactionID_1 := txns.TxnID(1)
+	TransactionID_2 := txns.TxnID(2)
 
 	chain := NewTxnLogChain(logger, TransactionID_1)
 
