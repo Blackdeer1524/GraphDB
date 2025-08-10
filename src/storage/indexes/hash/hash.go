@@ -2,9 +2,23 @@ package hash
 
 import (
 	"encoding/binary"
+	"fmt"
+	"hash/fnv"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
+
+const (
+	idxKind = 2
+
+	indexRootPageID = 0
+)
+
+var ErrNotFound = fmt.Errorf("not found")
+
+type TableLockRequest struct {
+}
 
 type Page interface {
 	GetData() []byte
@@ -22,6 +36,12 @@ type Page interface {
 
 type StorageEngine[T Page] interface {
 	ReadPage() (T, error)
+	GetPage(kind uint64, pageID uint64) (T, error)
+}
+
+type Locker interface {
+	GetPageLock(req TableLockRequest, kind uint64, pageID uint64) bool
+	GetPageUnlock(req TableLockRequest, kind uint64, pageID uint64) bool
 }
 
 type rootMetaData struct {
@@ -32,10 +52,29 @@ type rootMetaData struct {
 	checksum      uint64
 }
 
-type Index[T Page] struct {
+type Index[T Page, U comparable] struct {
 	se StorageEngine[T]
 
-	root rootMetaData
+	root   rootMetaData
+	fileID uint64
+
+	lock Locker
+}
+
+type RID struct {
+	PageID uint64
+	SlotID uint16
+}
+
+type KeyWithRID[U comparable] struct {
+	rid RID
+	key U
+}
+
+type BucketPage[U comparable] struct {
+	localDepth uint32
+	entriesCnt uint32
+	entries    []KeyWithRID[U]
 }
 
 func rootPageMetadata(m rootMetaData) []byte {
@@ -89,18 +128,73 @@ func getRootPageMetadata(data []byte) rootMetaData {
 	return res
 }
 
-func New[T Page](fst Page) (*Index[T], error) {
-	return &Index[T]{}, nil
+func New[T Page, U comparable](fst Page, fileID uint64) (*Index[T, U], error) {
+	// мне нужны локи уровня страниц
+	return &Index[T, U]{
+		se: nil,
+		//root:   getRootPageMetadata(fst.GetData()),
+		fileID: fileID,
+	}, nil
 }
 
-func (h *Index[T]) Search() {
+func hashKey[U comparable](value U) uint64 {
+	s := fmt.Sprint(value)
+
+	h := fnv.New32a()
+	h.Write([]byte(s))
+
+	return uint64(h.Sum32())
+}
+
+func getBucketPage[U comparable](data []byte) BucketPage[U] {
+	assert.Assert(len(data) == page.PageSize)
+
+	return BucketPage[U]{}
+}
+
+func (h *Index[T, U]) Search(key U) (RID, error) {
+	rootLockReq := TableLockRequest{}
+
+	ok := h.lock.GetPageLock(rootLockReq, idxKind, indexRootPageID)
+	if !ok {
+		return RID{}, fmt.Errorf("failed to get page lock for index root")
+	}
+	defer h.lock.GetPageUnlock(rootLockReq, idxKind, indexRootPageID)
+
+	// let's use the least significant bits
+	dIdx := hashKey(key) & ((1 << h.root.globalDepth) - 1)
+
+	bucketLockReq := TableLockRequest{}
+
+	bucketPage := h.root.directory[dIdx]
+
+	ok = h.lock.GetPageLock(bucketLockReq, idxKind, bucketPage)
+	if !ok {
+		return RID{}, fmt.Errorf("failed to get page lock for bucket %d", dIdx)
+	}
+	defer h.lock.GetPageUnlock(bucketLockReq, idxKind, bucketPage)
+
+	// bucket page is page with row identifiers
+	pageWithRIDs, err := h.se.GetPage(idxKind, bucketPage)
+	if err != nil {
+		return RID{}, fmt.Errorf("failed to get page: %w", err)
+	}
+
+	bucketPageSt := getBucketPage[U](pageWithRIDs.GetData())
+
+	for _, v := range bucketPageSt.entries {
+		if v.key == key {
+			return v.rid, nil
+		}
+	}
+
+	return RID{}, ErrNotFound
+}
+
+func (h *Index[T, U]) Insert() {
 
 }
 
-func (h *Index[T]) Insert() {
-
-}
-
-func (h *Index[T]) Delete() {
+func (h *Index[T, U]) Delete() {
 
 }
