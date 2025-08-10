@@ -5,15 +5,17 @@ import "github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 type RecordID uint64
 type TableID uint64
 
-/* a monotonically increasing counter. It is guaranteed to be unique between transactions
- * WARN: there might be problems with synchronization
- *       in distributed systems that use this kind of transaction IDs */
+// TxnID is a monotonically increasing counter. It is guaranteed to be unique between transactions
+// WARN: there might be problems with synchronization
+// in distributed systems that use this kind of transaction IDs
 type TxnID uint64
 
 type TaggedLockMode[TypeTag any] int
 
 type RecordLockMode TaggedLockMode[RecordID]
 type TableLockMode TaggedLockMode[TableID]
+
+type SystemCatalogLockMode int
 
 type LockMode[T any] interface {
 	Compatible(T) bool
@@ -30,6 +32,14 @@ const (
 	TABLE_LOCK_SHARED
 	TABLE_LOCK_SHARED_INTENTION_EXCLUSIVE
 	TABLE_LOCK_EXCLUSIVE
+)
+
+const (
+	SystemCatalogIntentionShared SystemCatalogLockMode = iota
+	SystemCatalogIntentionExclusive
+	SystemCatalogShared
+	SystemCatalogSharedIntentionExclusive
+	SystemCatalogExclusive
 )
 
 func (m RecordLockMode) Compatible(other RecordLockMode) bool {
@@ -143,4 +153,15 @@ func NewTxnUnlockRequest[ObjectIDType comparable](
 		txnID:    txnID,
 		recordId: recordId,
 	}
+}
+
+type TableLockRequest struct {
+	TxnID    TxnID
+	TableID  TableID
+	LockMode TableLockMode
+}
+
+type SystemCatalogLockRequest struct {
+	TxnID    TxnID
+	LockMode SystemCatalogLockMode
 }

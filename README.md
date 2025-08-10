@@ -11,5 +11,3 @@ make run
 ```shell
 make build
 ```
-
-Тест
