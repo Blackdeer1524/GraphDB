@@ -7,7 +7,7 @@ import (
 	"sync"
 	"unsafe"
 
-	assert "github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 )
 
 var (
@@ -167,12 +167,12 @@ func Get[T encoding.BinaryUnmarshaler](
 }
 
 func (p *SlottedPage) GetBytes(slotID uint16) []byte {
-	header := p.getHeader()
+	h := p.getHeader()
 
 	assert.Assert(slotID < p.NumSlots(), "invalid slotID")
-	assert.Assert(slotID < header.slotsCount, "slotID is too large")
+	assert.Assert(slotID < h.slotsCount, "slotID is too large")
 
-	ptr := header.getSlots()[slotID]
+	ptr := h.getSlots()[slotID]
 	assert.Assert(
 		ptr.recordInfo() == slotStatusInserted,
 		"tried to read from a slot with status %d", ptr.recordInfo(),
@@ -184,6 +184,7 @@ func (p *SlottedPage) GetBytes(slotID uint16) []byte {
 		&p.data[offset+uint16(unsafe.Sizeof(int(0)))],
 		sliceLen,
 	)
+
 	return data
 }
 
