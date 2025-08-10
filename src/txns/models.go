@@ -15,6 +15,8 @@ type TaggedLockMode[TypeTag any] int
 type RecordLockMode TaggedLockMode[RecordID]
 type TableLockMode TaggedLockMode[TableID]
 
+type IndexLockMode int
+
 type LockMode[T any] interface {
 	Compatible(T) bool
 }
@@ -30,6 +32,14 @@ const (
 	TABLE_LOCK_SHARED
 	TABLE_LOCK_SHARED_INTENTION_EXCLUSIVE
 	TABLE_LOCK_EXCLUSIVE
+)
+
+const (
+	IndexIntentionShared IndexLockMode = iota
+	IndexIntentionExclusive
+	IndexShared
+	IndexSharedIntentionExclusive
+	IndexExclusive
 )
 
 func (m RecordLockMode) Compatible(other RecordLockMode) bool {
@@ -143,4 +153,10 @@ func NewTxnUnlockRequest[ObjectIDType comparable](
 		txnID:    txnID,
 		recordId: recordId,
 	}
+}
+
+type IndexLockRequest struct {
+	TxnID    TxnID
+	LockMode IndexLockMode
+	PageID   uint64
 }

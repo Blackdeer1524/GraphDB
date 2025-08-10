@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 	"hash/fnv"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
@@ -18,9 +19,6 @@ const (
 )
 
 var ErrNotFound = fmt.Errorf("not found")
-
-type TableLockRequest struct {
-}
 
 type Page interface {
 	GetData() []byte
@@ -37,13 +35,14 @@ type Page interface {
 }
 
 type StorageEngine[T Page] interface {
-	ReadPage() (T, error)
-	GetPage(kind uint64, pageID uint64) (T, error)
+	GetPage(kind uint64, id uint64, pageID uint64) (T, error)
+	UnpinPage(kind uint64, id uint64, pageID uint64) error
+	WritePage(kind uint64, id uint64, pageID uint64, page T) error
 }
 
 type Locker interface {
-	GetPageLock(req TableLockRequest, kind uint64, pageID uint64) bool
-	GetPageUnlock(req TableLockRequest, kind uint64, pageID uint64) bool
+	GetPageLock(req txns.IndexLockRequest, kind uint64) bool
+	GetPageUnlock(req txns.IndexLockRequest, kind uint64) bool
 }
 
 type rootMetaData struct {
@@ -57,8 +56,8 @@ type rootMetaData struct {
 type Index[T Page, U comparable] struct {
 	se StorageEngine[T]
 
-	root   rootMetaData
-	fileID uint64
+	root    rootMetaData
+	indexID uint64
 
 	lock Locker
 }
@@ -135,7 +134,7 @@ func New[T Page, U comparable](fst Page, fileID uint64) (*Index[T, U], error) {
 	return &Index[T, U]{
 		se: nil,
 		//root:   getRootPageMetadata(fst.GetData()),
-		fileID: fileID,
+		indexID: fileID,
 	}, nil
 }
 
@@ -236,33 +235,46 @@ func bucketPageToBytes[U comparable](bucket BucketPage[U]) ([]byte, error) {
 	return data, nil
 }
 
-func (h *Index[T, U]) Search(key U) (RID, error) {
-	rootLockReq := TableLockRequest{}
+func (h *Index[T, U]) Search(txnID txns.TxnID, key U) (RID, error) {
+	rootLockReq := txns.IndexLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexShared,
+		PageID:   indexRootPageID,
+	}
 
-	ok := h.lock.GetPageLock(rootLockReq, idxKind, indexRootPageID)
-	if !ok {
+	if !h.lock.GetPageLock(rootLockReq, idxKind) {
 		return RID{}, fmt.Errorf("failed to get page lock for index root")
 	}
-	defer h.lock.GetPageUnlock(rootLockReq, idxKind, indexRootPageID)
+	defer h.lock.GetPageUnlock(rootLockReq, idxKind)
 
-	// let's use the least significant bits
+	rootPage, err := h.se.GetPage(idxKind, h.indexID, indexRootPageID)
+	if err != nil {
+		return RID{}, fmt.Errorf("failed to get root page: %w", err)
+	}
+	defer h.se.UnpinPage(idxKind, h.indexID, indexRootPageID)
+
+	h.root = getRootPageMetadata(rootPage.GetData())
+
 	dIdx := hashKey(key) & ((1 << h.root.globalDepth) - 1)
-
-	bucketLockReq := TableLockRequest{}
 
 	bucketPage := h.root.directory[dIdx]
 
-	ok = h.lock.GetPageLock(bucketLockReq, idxKind, bucketPage)
-	if !ok {
+	bucketLockReq := txns.IndexLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexShared,
+		PageID:   bucketPage,
+	}
+
+	if !h.lock.GetPageLock(bucketLockReq, idxKind) {
 		return RID{}, fmt.Errorf("failed to get page lock for bucket %d", dIdx)
 	}
-	defer h.lock.GetPageUnlock(bucketLockReq, idxKind, bucketPage)
+	defer h.lock.GetPageUnlock(bucketLockReq, idxKind)
 
-	// bucket page is page with row identifiers
-	pageWithRIDs, err := h.se.GetPage(idxKind, bucketPage)
+	pageWithRIDs, err := h.se.GetPage(idxKind, h.indexID, bucketPage)
 	if err != nil {
 		return RID{}, fmt.Errorf("failed to get page: %w", err)
 	}
+	defer h.se.UnpinPage(idxKind, h.indexID, bucketPage)
 
 	bucketPageSt := getBucketPage[U](pageWithRIDs.GetData())
 
@@ -279,6 +291,78 @@ func (h *Index[T, U]) Insert() {
 
 }
 
-func (h *Index[T, U]) Delete() {
+func (h *Index[T, U]) Delete(txnID txns.TxnID, key U) error {
+	rootLockReq := txns.IndexLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexShared,
+		PageID:   indexRootPageID,
+	}
+	if !h.lock.GetPageLock(rootLockReq, idxKind) {
+		return fmt.Errorf("failed to get page lock for index root")
+	}
+	defer h.lock.GetPageUnlock(rootLockReq, idxKind)
 
+	rootPage, err := h.se.GetPage(idxKind, h.indexID, indexRootPageID)
+	if err != nil {
+		return fmt.Errorf("failed to get root page: %w", err)
+	}
+	defer h.se.UnpinPage(idxKind, h.indexID, indexRootPageID)
+
+	h.root = getRootPageMetadata(rootPage.GetData())
+
+	dIdx := hashKey(key) & ((1 << h.root.globalDepth) - 1)
+	bucketPage := h.root.directory[dIdx]
+
+	bucketLockReq := txns.IndexLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexExclusive,
+		PageID:   bucketPage,
+	}
+	if !h.lock.GetPageLock(bucketLockReq, idxKind) {
+		return fmt.Errorf("failed to get page lock for bucket %d", bucketPage)
+	}
+	defer h.lock.GetPageUnlock(bucketLockReq, idxKind)
+
+	pageWithRIDs, err := h.se.GetPage(idxKind, h.indexID, bucketPage)
+	if err != nil {
+		return fmt.Errorf("failed to get page: %w", err)
+	}
+	defer h.se.UnpinPage(idxKind, h.indexID, bucketPage)
+
+	bucketPageSt := getBucketPage[U](pageWithRIDs.GetData())
+
+	newEntries := make([]KeyWithRID[U], 0, len(bucketPageSt.entries))
+	found := false
+
+	for _, v := range bucketPageSt.entries {
+		if v.key == key {
+			found = true
+
+			continue
+		}
+
+		newEntries = append(newEntries, v)
+	}
+
+	if !found {
+		return ErrNotFound
+	}
+
+	bucketPageSt.entries = newEntries
+	bucketPageSt.entriesCnt = uint32(len(newEntries))
+
+	newData, err := bucketPageToBytes(bucketPageSt)
+	if err != nil {
+		return fmt.Errorf("failed to serialize bucket: %w", err)
+	}
+
+	pageWithRIDs.SetData(newData)
+	pageWithRIDs.SetDirtiness(true)
+
+	err = h.se.WritePage(idxKind, h.indexID, bucketPage, pageWithRIDs)
+	if err != nil {
+		return fmt.Errorf("failed to write page: %w", err)
+	}
+
+	return nil
 }
