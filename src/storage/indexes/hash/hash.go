@@ -129,7 +129,7 @@ func getRootPageMetadata(data []byte) rootMetaData {
 	return res
 }
 
-func New[T Page, U comparable](fst Page, fileID uint64) (*Index[T, U], error) {
+func New[T Page, U comparable](fileID uint64) (*Index[T, U], error) {
 	// мне нужны локи уровня страниц
 	return &Index[T, U]{
 		se: nil,
@@ -142,7 +142,7 @@ func hashKey[U comparable](value U) uint64 {
 	s := fmt.Sprint(value)
 
 	h := fnv.New32a()
-	h.Write([]byte(s))
+	_, _ = h.Write([]byte(s))
 
 	return uint64(h.Sum32())
 }
