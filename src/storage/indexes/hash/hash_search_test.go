@@ -182,9 +182,9 @@ func TestIndexSearch(t *testing.T) {
 		se.On("GetPage", uint64(idxKind), uint64(1), uint64(4)).Return(bucketPage, nil)
 		se.On("UnpinPage", uint64(idxKind), uint64(1), uint64(4)).Return(errors.New("unpin failed"))
 
-		rid, err := index.Search(1, 42)
-		assert.NoError(t, err)
-		assert.Equal(t, RID{PageID: 1, SlotID: 2}, rid)
+		_, err := index.Search(1, 42)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unpin failed")
 
 		locker.AssertExpectations(t)
 		se.AssertExpectations(t)
