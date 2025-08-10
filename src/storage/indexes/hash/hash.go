@@ -306,7 +306,7 @@ func (h *Index[T, U]) Insert() {
 
 }
 
-func (h *Index[T, U]) Delete(txnID txns.TxnID, key U) error {
+func (h *Index[T, U]) Delete(txnID txns.TxnID, key U) (err error) {
 	rootLockReq := txns.IndexLockRequest{
 		TxnID:    txnID,
 		LockMode: txns.IndexShared,
@@ -321,7 +321,14 @@ func (h *Index[T, U]) Delete(txnID txns.TxnID, key U) error {
 	if err != nil {
 		return fmt.Errorf("failed to get root page: %w", err)
 	}
-	defer h.se.UnpinPage(idxKind, h.indexID, indexRootPageID)
+	defer func() {
+		err1 := h.se.UnpinPage(idxKind, h.indexID, indexRootPageID)
+		if err != nil {
+			err = errors.Join(err, err1)
+		} else {
+			err = err1
+		}
+	}()
 
 	h.root = getRootPageMetadata(rootPage.GetData())
 
@@ -342,7 +349,14 @@ func (h *Index[T, U]) Delete(txnID txns.TxnID, key U) error {
 	if err != nil {
 		return fmt.Errorf("failed to get page: %w", err)
 	}
-	defer h.se.UnpinPage(idxKind, h.indexID, bucketPage)
+	defer func() {
+		err1 := h.se.UnpinPage(idxKind, h.indexID, bucketPage)
+		if err != nil {
+			err = errors.Join(err, err1)
+		} else {
+			err = err1
+		}
+	}()
 
 	bucketPageSt := getBucketPage[U](pageWithRIDs.GetData())
 
