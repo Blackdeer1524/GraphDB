@@ -212,6 +212,8 @@ func (m *Manager[T]) GetPage(pIdent PageIdentity) (T, error) {
 		}
 		m.pageToFrame[pIdent] = frameID
 
+		m.pin(pIdent)
+
 		return page, nil
 	}
 
