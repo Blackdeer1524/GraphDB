@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"runtime"
+	"time"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
@@ -43,6 +45,7 @@ type StorageEngine[T Page] interface {
 
 type Locker interface {
 	GetPageLock(req txns.IndexLockRequest, kind uint64) bool
+	UpgradePageLock(req txns.IndexLockRequest, kind uint64) bool
 	GetPageUnlock(req txns.IndexLockRequest, kind uint64) bool
 }
 
@@ -302,6 +305,15 @@ func (h *Index[T, U]) Search(txnID txns.TxnID, key U) (rid RID, err error) {
 	return RID{}, ErrNotFound
 }
 
+// insertSlow inserts key-value pair but under exclusive lock
+// on directory of index. All locks must be occupied by caller
+// of this function.
+func (h *Index[T, U]) insertSlow(txnID txns.TxnID, key U, rid RID) error {
+	panic("not implemented!")
+
+	return nil
+}
+
 func (h *Index[T, U]) Insert(txnID txns.TxnID, key U, rid RID) (err error) {
 	rootLockReq := txns.IndexLockRequest{
 		TxnID:    txnID,
@@ -377,9 +389,26 @@ func (h *Index[T, U]) Insert(txnID txns.TxnID, key U, rid RID) (err error) {
 		return nil
 	}
 
-	panic("not implemented!")
+	// upgrade lock to exclusive before changing the directory metainformation
 
-	return nil
+	const maxRetries = 20
+
+	var i int
+
+	for i = 0; i < maxRetries; i++ {
+		if h.lock.UpgradePageLock(rootLockReq, idxKind) {
+			break
+		}
+
+		runtime.Gosched()
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if i == maxRetries {
+		return fmt.Errorf("failed to upgrade lock: timeout")
+	}
+
+	return h.insertSlow(txnID, key, rid)
 }
 
 func (h *Index[T, U]) Delete(txnID txns.TxnID, key U) (err error) {

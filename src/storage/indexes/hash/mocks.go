@@ -75,6 +75,11 @@ func (m *mockLocker) GetPageLock(req txns.IndexLockRequest, kind uint64) bool {
 	return args.Bool(0)
 }
 
+func (m *mockLocker) UpgradePageLock(req txns.IndexLockRequest, kind uint64) bool {
+	args := m.Called(req, kind)
+	return args.Bool(0)
+}
+
 func (m *mockLocker) GetPageUnlock(req txns.IndexLockRequest, kind uint64) bool {
 	args := m.Called(req, kind)
 	return args.Bool(0)
