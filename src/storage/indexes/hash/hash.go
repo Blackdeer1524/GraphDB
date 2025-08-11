@@ -6,11 +6,11 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/Blackdeer1524/GraphDB/src/txns"
 	"hash/fnv"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 const (
@@ -302,8 +302,84 @@ func (h *Index[T, U]) Search(txnID txns.TxnID, key U) (rid RID, err error) {
 	return RID{}, ErrNotFound
 }
 
-func (h *Index[T, U]) Insert() {
+func (h *Index[T, U]) Insert(txnID txns.TxnID, key U, rid RID) (err error) {
+	rootLockReq := txns.IndexLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexShared,
+		PageID:   indexRootPageID,
+	}
 
+	if !h.lock.GetPageLock(rootLockReq, idxKind) {
+		return fmt.Errorf("failed to get page lock for index root")
+	}
+	defer func() {
+		h.lock.GetPageUnlock(rootLockReq, idxKind)
+	}()
+
+	rootPage, err := h.se.GetPage(idxKind, h.indexID, indexRootPageID)
+	if err != nil {
+		return fmt.Errorf("failed to get root page: %w", err)
+	}
+	defer func() {
+		err1 := h.se.UnpinPage(idxKind, h.indexID, indexRootPageID)
+		if err != nil {
+			err = errors.Join(err, err1)
+		} else {
+			err = err1
+		}
+	}()
+
+	h.root = getRootPageMetadata(rootPage.GetData())
+
+	dIdx := hashKey(key) & ((1 << h.root.globalDepth) - 1)
+	bucketPage := h.root.directory[dIdx]
+
+	bucketLockReq := txns.IndexLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexExclusive,
+		PageID:   bucketPage,
+	}
+	if !h.lock.GetPageLock(bucketLockReq, idxKind) {
+		return fmt.Errorf("failed to get page lock for bucket %d", bucketPage)
+	}
+	defer h.lock.GetPageUnlock(bucketLockReq, idxKind)
+
+	pageWithRIDs, err := h.se.GetPage(idxKind, h.indexID, bucketPage)
+	if err != nil {
+		return fmt.Errorf("failed to get page: %w", err)
+	}
+	defer func() {
+		err1 := h.se.UnpinPage(idxKind, h.indexID, bucketPage)
+		if err != nil {
+			err = errors.Join(err, err1)
+		} else {
+			err = err1
+		}
+	}()
+
+	bucketPageSt := getBucketPage[U](pageWithRIDs.GetData())
+
+	if bucketPageSt.entriesCnt < h.root.maxBucketSize {
+		bucketPageSt.entries = append(bucketPageSt.entries, KeyWithRID[U]{
+			key: key,
+			rid: rid,
+		})
+		bucketPageSt.entriesCnt++
+
+		newData, err := bucketPageToBytes(bucketPageSt)
+		if err != nil {
+			return fmt.Errorf("failed to serialize bucket: %w", err)
+		}
+
+		pageWithRIDs.SetData(newData)
+		pageWithRIDs.SetDirtiness(true)
+
+		return nil
+	}
+
+	panic("not implemented!")
+
+	return nil
 }
 
 func (h *Index[T, U]) Delete(txnID txns.TxnID, key U) (err error) {
@@ -387,11 +463,6 @@ func (h *Index[T, U]) Delete(txnID txns.TxnID, key U) (err error) {
 
 	pageWithRIDs.SetData(newData)
 	pageWithRIDs.SetDirtiness(true)
-
-	err = h.se.WritePage(idxKind, h.indexID, bucketPage, pageWithRIDs)
-	if err != nil {
-		return fmt.Errorf("failed to write page: %w", err)
-	}
 
 	return nil
 }
