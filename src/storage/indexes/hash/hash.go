@@ -13,6 +13,8 @@ const (
 	indexRootPageID uint64 = 0
 
 	directoryPageCapacity = 512
+
+	bucketPageCapacity = 100
 )
 
 var ErrNotFound = fmt.Errorf("not found")
@@ -167,7 +169,100 @@ func (h *Index[T, U]) insertSlow(txnID txns.TxnID, key U, rid RID) error {
 }
 
 func (h *Index[T, U]) Insert(txnID txns.TxnID, key U, rid RID) (err error) {
-	panic("not implemented!")
+	rootPageLock := txns.PageLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexShared,
+		PageID:   indexRootPageID,
+	}
+
+	if !h.lock.GetPageLock(rootPageLock) {
+		return errors.New("failed to get lock on index root page")
+	}
+
+	rootPage, err := h.se.GetPage(indexRootPageID, h.indexFileID)
+	if err != nil {
+		return fmt.Errorf("failed to get root page: %w", err)
+	}
+	defer func() {
+		err1 := h.se.UnpinPage(indexRootPageID, h.indexFileID)
+		if err1 != nil {
+			err = errors.Join(err, err1)
+		}
+	}()
+
+	root := getRootPageMetadata(rootPage.GetData())
+
+	// index of directoryPages that we need. But now we
+	// need to find a directoryPages page with this index
+	dIdx := hashKey(key) & ((uint64(1) << root.globalDepth) - 1)
+
+	directoryPageID := root.directoryPages[dIdx/directoryPageCapacity]
+
+	directoryPageLock := txns.PageLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexShared,
+		PageID:   directoryPageID,
+	}
+
+	if !h.lock.GetPageLock(directoryPageLock) {
+		return errors.New("failed to get lock on directoryPages page")
+	}
+
+	directoryPageBytes, err := h.se.GetPage(directoryPageID, h.indexFileID)
+	if err != nil {
+		return fmt.Errorf("failed to get directoryPages page: %w", err)
+	}
+	defer func() {
+		err1 := h.se.UnpinPage(directoryPageID, h.indexFileID)
+		if err1 != nil {
+			err = errors.Join(err, err1)
+		}
+	}()
+
+	directoryPage := getDirectoryPage(directoryPageBytes.GetData())
+
+	bucketPageID := directoryPage.bucketPages[dIdx%directoryPageCapacity]
+
+	bucketPageLock := txns.PageLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.IndexExclusive,
+		PageID:   bucketPageID,
+	}
+
+	if !h.lock.GetPageLock(bucketPageLock) {
+		return fmt.Errorf("failed to get lock on bucket page: %w", err)
+	}
+
+	bucketPage, err := h.se.GetPage(bucketPageID, h.indexFileID)
+	if err != nil {
+		return fmt.Errorf("failed to get bucket page: %w", err)
+	}
+	defer func() {
+		err1 := h.se.UnpinPage(bucketPageID, h.indexFileID)
+		if err1 != nil {
+			err = errors.Join(err, err1)
+		}
+	}()
+
+	bucketPageSt := getBucketPage[U](bucketPage.GetData())
+
+	if bucketPageSt.entriesCnt < root.maxKeysInBucketCount {
+		bucketPageSt.entries = append(bucketPageSt.entries, KeyWithRID[U]{
+			key: key,
+			rid: rid,
+		})
+		bucketPageSt.entriesCnt++
+
+		newData, err := bucketPageToBytes(bucketPageSt)
+		if err != nil {
+			return fmt.Errorf("failed to serialize bucket: %w", err)
+		}
+
+		bucketPage.SetData(newData)
+		bucketPage.SetDirtiness(true)
+
+		return nil
+	}
 
 	return h.insertSlow(txnID, key, rid)
 }

@@ -26,10 +26,11 @@ type BucketPage[U comparable] struct {
 }
 
 type rootMetaData struct {
-	magic          [4]byte
-	globalDepth    uint32
-	dirPagesCount  uint32
-	directoryPages []uint64
+	magic                [4]byte
+	globalDepth          uint32
+	maxKeysInBucketCount uint32
+	dirPagesCount        uint32
+	directoryPages       []uint64
 
 	checksum uint64
 }
@@ -46,12 +47,13 @@ func getRootPageMetadata(data []byte) rootMetaData {
 
 	copy(res.magic[:], data[0:4])
 	res.globalDepth = binary.LittleEndian.Uint32(data[4:])
-	res.dirPagesCount = binary.LittleEndian.Uint32(data[8:])
+	res.maxKeysInBucketCount = binary.LittleEndian.Uint32(data[8:])
+	res.dirPagesCount = binary.LittleEndian.Uint32(data[12:])
 	res.checksum = binary.LittleEndian.Uint64(data[page.PageSize-8:])
 
 	res.directoryPages = make([]uint64, 0, res.dirPagesCount)
 
-	l := 12
+	l := 16
 	for i := 0; i < int(res.dirPagesCount); i++ {
 		res.directoryPages = append(res.directoryPages, binary.LittleEndian.Uint64(data[l:]))
 		l += 8
@@ -70,10 +72,11 @@ func rootPageToBytes(m rootMetaData) []byte {
 
 	copy(data[0:4], m.magic[:])
 	binary.LittleEndian.PutUint32(data[4:], m.globalDepth)
-	binary.LittleEndian.PutUint32(data[8:], m.dirPagesCount)
+	binary.LittleEndian.PutUint32(data[8:], m.maxKeysInBucketCount)
+	binary.LittleEndian.PutUint32(data[12:], m.dirPagesCount)
 	binary.LittleEndian.PutUint64(data[page.PageSize-8:], m.checksum)
 
-	l := 12
+	l := 16
 	for _, v := range m.directoryPages {
 		binary.LittleEndian.PutUint64(data[l:], v)
 		l += 8

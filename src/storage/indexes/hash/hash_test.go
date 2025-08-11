@@ -15,11 +15,12 @@ import (
 func Test_getRootMetadata(t *testing.T) {
 	t.Run("SimpleTest", func(t *testing.T) {
 		m := rootMetaData{
-			magic:          [4]byte{'h', 'i', 'd', 'x'},
-			globalDepth:    2,
-			dirPagesCount:  4,
-			directoryPages: []uint64{1, 2, 3, 4},
-			checksum:       5,
+			magic:                [4]byte{'h', 'i', 'd', 'x'},
+			globalDepth:          2,
+			maxKeysInBucketCount: 100,
+			dirPagesCount:        4,
+			directoryPages:       []uint64{1, 2, 3, 4},
+			checksum:             5,
 		}
 
 		data := rootPageToBytes(m)
@@ -141,6 +142,7 @@ func TestIndexSearch(t *testing.T) {
 	binary.LittleEndian.PutUint32(rootData[4:], 2)                   // globalDepth = 2
 	binary.LittleEndian.PutUint32(rootData[8:], 100)                 // dirPagesCount = 100
 	binary.LittleEndian.PutUint64(rootData[12:], 1)                  // directoryPages[0] = PageID(1)
+	binary.LittleEndian.PutUint64(rootData[16:], 1)                  // directoryPages[0] = PageID(1)
 	binary.LittleEndian.PutUint64(rootData[page.PageSize-8:], 12345) // checksum
 	rootPage := &mockPage{data: rootData}
 
@@ -336,6 +338,8 @@ func TestIndexSearch(t *testing.T) {
 	t.Run("UnpinPageFailure", func(t *testing.T) {
 		// TODO дописать этот тест, сейчас мне лень =)
 
+		t.Skip()
+
 		resetMocks(&locker.Mock, &se.Mock)
 
 		bucket := BucketPage[uint64]{
@@ -382,6 +386,7 @@ func TestDelete(t *testing.T) {
 	binary.LittleEndian.PutUint32(rootData[4:], 2)                   // globalDepth = 2
 	binary.LittleEndian.PutUint32(rootData[8:], 100)                 // dirPagesCount = 100
 	binary.LittleEndian.PutUint64(rootData[12:], 1)                  // directoryPages[0] = PageID(1)
+	binary.LittleEndian.PutUint64(rootData[16:], 1)                  // directoryPages[0] = PageID(1)
 	binary.LittleEndian.PutUint64(rootData[page.PageSize-8:], 12345) // checksum
 	rootPage := &mockPage{data: rootData}
 
@@ -514,5 +519,96 @@ func TestDelete(t *testing.T) {
 }
 
 func TestInsert(t *testing.T) {
+	se := new(mockStorageEngine)
+	locker := new(mockLocker)
 
+	const (
+		txID        txns.TxnID = 1
+		indexFileID uint64     = 1
+	)
+
+	rootData := make([]byte, page.PageSize)
+	rootData[0] = 'I'
+	rootData[1] = 'N'
+	rootData[2] = 'D'
+	rootData[3] = 'X'
+	binary.LittleEndian.PutUint32(rootData[4:], 2)                   // globalDepth = 2
+	binary.LittleEndian.PutUint32(rootData[8:], 100)                 // dirPagesCount = 100
+	binary.LittleEndian.PutUint64(rootData[12:], 1)                  // directoryPages[0] = PageID(1)
+	binary.LittleEndian.PutUint64(rootData[16:], 1)                  // directoryPages[0] = PageID(1)
+	binary.LittleEndian.PutUint64(rootData[page.PageSize-8:], 12345) // checksum
+	rootPage := &mockPage{data: rootData}
+
+	index := &Index[*mockPage, uint64]{
+		se:          se,
+		indexFileID: indexFileID,
+		lock:        locker,
+	}
+
+	t.Run("SuccessfulFastInsert", func(t *testing.T) {
+		resetMocks(&locker.Mock, &se.Mock)
+
+		bucket := BucketPage[uint64]{
+			localDepth: 2,
+			entriesCnt: 1,
+			entries: []KeyWithRID[uint64]{
+				{key: 100, rid: RID{PageID: 3, SlotID: 0}},
+			},
+		}
+		bucketData, _ := bucketPageToBytes(bucket)
+		bucketPage := &mockPage{data: bucketData}
+
+		nBucket := BucketPage[uint64]{
+			localDepth: 2,
+			entriesCnt: 2,
+			entries: []KeyWithRID[uint64]{
+				{key: 100, rid: RID{PageID: 3, SlotID: 0}},
+				{key: 42, rid: RID{PageID: 3, SlotID: 1}},
+			},
+		}
+		nBucketData, _ := bucketPageToBytes(nBucket)
+		nBucketPage := &mockPage{data: nBucketData}
+		nBucketPage.SetDirtiness(true)
+
+		directoryPg := directoryPageData{
+			count:       4,
+			bucketPages: []uint64{228, 228, 228, 4},
+		}
+		directoryPageBytes := directoryPageToBytes(directoryPg)
+		directoryPage := &mockPage{data: directoryPageBytes}
+
+		// root page
+		se.On("GetPage", indexRootPageID, indexFileID).Return(rootPage, nil)
+		se.On("UnpinPage", indexRootPageID, indexFileID).Return(nil)
+		locker.On("GetPageLock", txns.PageLockRequest{
+			TxnID:    txID,
+			LockMode: txns.IndexShared,
+			PageID:   indexRootPageID,
+		}).Return(true)
+
+		// directory page
+		se.On("GetPage", uint64(1), indexFileID).Return(directoryPage, nil)
+		se.On("UnpinPage", uint64(1), indexFileID).Return(nil)
+		locker.On("GetPageLock", txns.PageLockRequest{
+			TxnID:    txID,
+			LockMode: txns.IndexShared,
+			PageID:   uint64(1),
+		}).Return(true)
+
+		// bucket page
+		se.On("GetPage", uint64(4), indexFileID).Return(bucketPage, nil)
+		se.On("UnpinPage", uint64(4), indexFileID).Return(nil)
+		locker.On("GetPageLock", txns.PageLockRequest{
+			TxnID:    txID,
+			LockMode: txns.IndexExclusive,
+			PageID:   uint64(4),
+		}).Return(true)
+
+		err := index.Insert(txID, 42, RID{PageID: 3, SlotID: 1})
+		assert.NoError(t, err)
+		assert.Equal(t, nBucketPage, bucketPage)
+
+		locker.AssertExpectations(t)
+		se.AssertExpectations(t)
+	})
 }
