@@ -457,6 +457,60 @@ func TestDelete(t *testing.T) {
 		locker.AssertExpectations(t)
 		se.AssertExpectations(t)
 	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		resetMocks(&locker.Mock, &se.Mock)
+
+		bucket := BucketPage[uint64]{
+			localDepth: 2,
+			entriesCnt: 1,
+			entries: []KeyWithRID[uint64]{
+				{key: 100, rid: RID{PageID: 3, SlotID: 4}},
+			},
+		}
+		bucketData, _ := bucketPageToBytes(bucket)
+		bucketPage := &mockPage{data: bucketData}
+
+		directoryPg := directoryPageData{
+			count:       4,
+			bucketPages: []uint64{228, 228, 228, 4},
+		}
+		directoryPageBytes := directoryPageToBytes(directoryPg)
+		directoryPage := &mockPage{data: directoryPageBytes}
+
+		// root page
+		se.On("GetPage", indexRootPageID, indexFileID).Return(rootPage, nil)
+		se.On("UnpinPage", indexRootPageID, indexFileID).Return(nil)
+		locker.On("GetPageLock", txns.PageLockRequest{
+			TxnID:    txID,
+			LockMode: txns.IndexShared,
+			PageID:   indexRootPageID,
+		}).Return(true)
+
+		// directory page
+		se.On("GetPage", uint64(1), indexFileID).Return(directoryPage, nil)
+		se.On("UnpinPage", uint64(1), indexFileID).Return(nil)
+		locker.On("GetPageLock", txns.PageLockRequest{
+			TxnID:    txID,
+			LockMode: txns.IndexShared,
+			PageID:   uint64(1),
+		}).Return(true)
+
+		// bucket page
+		se.On("GetPage", uint64(4), indexFileID).Return(bucketPage, nil)
+		se.On("UnpinPage", uint64(4), indexFileID).Return(nil)
+		locker.On("GetPageLock", txns.PageLockRequest{
+			TxnID:    txID,
+			LockMode: txns.IndexExclusive,
+			PageID:   uint64(4),
+		}).Return(true)
+
+		err := index.Delete(txID, 42)
+		assert.EqualError(t, err, "not found")
+
+		locker.AssertExpectations(t)
+		se.AssertExpectations(t)
+	})
 }
 
 func TestInsert(t *testing.T) {
