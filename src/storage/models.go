@@ -1,4 +1,4 @@
-package systemcatalog
+package storage
 
 type Schema map[string]Column
 

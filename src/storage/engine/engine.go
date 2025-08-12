@@ -3,10 +3,11 @@ package engine
 import (
 	"errors"
 	"fmt"
-	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
-	"github.com/Blackdeer1524/GraphDB/src/txns"
 	"os"
 	"path/filepath"
+
+	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 type Locker interface {
@@ -19,8 +20,10 @@ type Locker interface {
 type SystemCatalog interface {
 	GetNewFileID() uint64
 	GetBasePath() string
-	AddVertexTable(req systemcatalog.VertexTable) error
+	AddVertexTable(req storage.VertexTable) error
 	DropVertexTable(name string) error
+	AddEdgeTable(req storage.EdgeTable) error
+	DropEdgeTable(name string) error
 	Save() error
 }
 
@@ -51,11 +54,16 @@ func getVertexTableFilePath(basePath, name string) string {
 	return filepath.Join(basePath, "tables", "vertex", name+".tbl")
 }
 
-func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema systemcatalog.Schema) error {
+func getEdgeTableFilePath(basePath, name string) string {
+	return filepath.Join(basePath, "tables", "edge", name+".tbl")
+}
+
+func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema storage.Schema) error {
 	needToRollback := true
 
 	systemCatalogLockRequest := txns.SystemCatalogLockRequest{
-		TxnID: txnID,
+		TxnID:    txnID,
+		LockMode: txns.SystemCatalogExclusive,
 	}
 
 	if !s.lock.GetSystemCatalogLock(systemCatalogLockRequest) {
@@ -80,7 +88,7 @@ func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema 
 	if err != nil {
 		return fmt.Errorf("unable to create directory: %w", err)
 	}
-	file.Close()
+	_ = file.Close()
 	defer func() {
 		if needToRollback {
 			_ = s.disk.Remove(tableFilePath)
@@ -89,7 +97,7 @@ func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema 
 
 	// update info in metadata
 
-	tblCreateReq := systemcatalog.VertexTable{
+	tblCreateReq := storage.VertexTable{
 		Name:       name,
 		PathToFile: tableFilePath,
 		FileID:     fileID,
@@ -120,8 +128,70 @@ func (s *StorageEngine) DropVertexTable() {
 	panic("unimplemented")
 }
 
-func (s *StorageEngine) CreateEdgesTable() {
-	panic("unimplemented")
+func (s *StorageEngine) CreateEdgesTable(txnID txns.TxnID, name string, schema storage.Schema) error {
+	needToRollback := true
+
+	systemCatalogLockRequest := txns.SystemCatalogLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.SystemCatalogExclusive,
+	}
+
+	if !s.lock.GetSystemCatalogLock(systemCatalogLockRequest) {
+		return errors.New("unable to get system catalog lock")
+	}
+
+	basePath := s.catalog.GetBasePath()
+	fileID := s.catalog.GetNewFileID()
+
+	tableFilePath := getEdgeTableFilePath(basePath, name)
+
+	fileExists, err := s.disk.IsFileExists(tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to check if file exists: %w", err)
+	}
+
+	if fileExists {
+		return fmt.Errorf("file %s already exists", tableFilePath)
+	}
+
+	file, err := s.disk.Create(tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to create directory: %w", err)
+	}
+	_ = file.Close()
+	defer func() {
+		if needToRollback {
+			_ = s.disk.Remove(tableFilePath)
+		}
+	}()
+
+	// update info in metadata
+
+	tblCreateReq := storage.EdgeTable{
+		Name:       name,
+		PathToFile: tableFilePath,
+		FileID:     fileID,
+		Schema:     schema,
+	}
+
+	err = s.catalog.AddEdgeTable(tblCreateReq)
+	if err != nil {
+		return fmt.Errorf("unable to add vertex table to catalog: %w", err)
+	}
+	defer func() {
+		if needToRollback {
+			_ = s.catalog.DropEdgeTable(name)
+		}
+	}()
+
+	err = s.catalog.Save()
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+
+	needToRollback = false
+
+	return nil
 }
 
 func (s *StorageEngine) DropEdgesTable() {

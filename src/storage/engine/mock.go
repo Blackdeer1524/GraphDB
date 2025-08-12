@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 	"github.com/stretchr/testify/mock"
 	"os"
@@ -42,12 +42,22 @@ func (m *mockCatalog) GetBasePath() string {
 	return args.String(0)
 }
 
-func (m *mockCatalog) AddVertexTable(req systemcatalog.VertexTable) error {
+func (m *mockCatalog) AddVertexTable(req storage.VertexTable) error {
 	args := m.Called(req)
 	return args.Error(0)
 }
 
 func (m *mockCatalog) DropVertexTable(name string) error {
+	args := m.Called(name)
+	return args.Error(0)
+}
+
+func (m *mockCatalog) AddEdgeTable(req storage.EdgeTable) error {
+	args := m.Called(req)
+	return args.Error(0)
+}
+
+func (m *mockCatalog) DropEdgeTable(name string) error {
 	args := m.Called(name)
 	return args.Error(0)
 }

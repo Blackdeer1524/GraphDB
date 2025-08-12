@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,10 +20,10 @@ var (
 )
 
 type Data struct {
-	Metadata     Metadata               `json:"metadata"`
-	VertexTables map[string]VertexTable `json:"vertex_tables"`
-	EdgeTables   map[string]EdgeTable   `json:"edge_tables"`
-	Indexes      map[string]Index       `json:"indexes"`
+	Metadata     storage.Metadata               `json:"metadata"`
+	VertexTables map[string]storage.VertexTable `json:"vertex_tables"`
+	EdgeTables   map[string]storage.EdgeTable   `json:"edge_tables"`
+	Indexes      map[string]storage.Index       `json:"indexes"`
 }
 
 type Manager struct {
@@ -57,13 +58,13 @@ func New(basePath string) (*Manager, error) {
 	}
 
 	sc := &Data{
-		Metadata: Metadata{
+		Metadata: storage.Metadata{
 			Version: "1.0",
 			Name:    "graphdb",
 		},
-		VertexTables: make(map[string]VertexTable),
-		EdgeTables:   make(map[string]EdgeTable),
-		Indexes:      make(map[string]Index),
+		VertexTables: make(map[string]storage.VertexTable),
+		EdgeTables:   make(map[string]storage.EdgeTable),
+		Indexes:      make(map[string]storage.Index),
 	}
 
 	if !ok {
@@ -151,7 +152,7 @@ func (m *Manager) GetNewFileID() uint64 {
 	return m.maxFileID
 }
 
-func (m *Manager) GetVertexTableMeta(name string) (*VertexTable, error) {
+func (m *Manager) GetVertexTableMeta(name string) (*storage.VertexTable, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -163,7 +164,7 @@ func (m *Manager) GetVertexTableMeta(name string) (*VertexTable, error) {
 	return &table, nil
 }
 
-func (m *Manager) AddVertexTable(req VertexTable) error {
+func (m *Manager) AddVertexTable(req storage.VertexTable) error {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -191,7 +192,7 @@ func (m *Manager) DropVertexTable(name string) error {
 	return nil
 }
 
-func (m *Manager) VertexGetIndexes(name string) ([]Index, error) {
+func (m *Manager) VertexGetIndexes(name string) ([]storage.Index, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -200,7 +201,7 @@ func (m *Manager) VertexGetIndexes(name string) ([]Index, error) {
 		return nil, ErrEntityNotFound
 	}
 
-	indexes := make([]Index, 0)
+	indexes := make([]storage.Index, 0)
 
 	for _, index := range m.data.Indexes {
 		if index.TableName == name && index.TableKind == "vertex" {
@@ -211,7 +212,7 @@ func (m *Manager) VertexGetIndexes(name string) ([]Index, error) {
 	return indexes, nil
 }
 
-func (m *Manager) GetEdgeTableMeta(name string) (*EdgeTable, error) {
+func (m *Manager) GetEdgeTableMeta(name string) (*storage.EdgeTable, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -223,7 +224,7 @@ func (m *Manager) GetEdgeTableMeta(name string) (*EdgeTable, error) {
 	return &table, nil
 }
 
-func (m *Manager) AddEdgeTable(req EdgeTable) error {
+func (m *Manager) AddEdgeTable(req storage.EdgeTable) error {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -251,7 +252,7 @@ func (m *Manager) DropEdgeTable(name string) error {
 	return nil
 }
 
-func (m *Manager) EdgeGetIndexes(name string) ([]Index, error) {
+func (m *Manager) EdgeGetIndexes(name string) ([]storage.Index, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -260,7 +261,7 @@ func (m *Manager) EdgeGetIndexes(name string) ([]Index, error) {
 		return nil, ErrEntityNotFound
 	}
 
-	indexes := make([]Index, 0)
+	indexes := make([]storage.Index, 0)
 
 	for _, index := range m.data.Indexes {
 		if index.TableName == name && index.TableKind == "edge" {
@@ -271,7 +272,7 @@ func (m *Manager) EdgeGetIndexes(name string) ([]Index, error) {
 	return indexes, nil
 }
 
-func (m *Manager) GetIndex(name string) (*Index, error) {
+func (m *Manager) GetIndex(name string) (*storage.Index, error) {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -283,7 +284,7 @@ func (m *Manager) GetIndex(name string) (*Index, error) {
 	return &index, nil
 }
 
-func (m *Manager) AddIndex(index Index) error {
+func (m *Manager) AddIndex(index storage.Index) error {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -320,19 +321,19 @@ func (m *Manager) CopyData() *Data {
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
-	metadata := Metadata{
+	metadata := storage.Metadata{
 		Version: m.data.Metadata.Version,
 		Name:    m.data.Metadata.Name,
 	}
 
-	vertexTables := make(map[string]VertexTable, len(m.data.VertexTables))
+	vertexTables := make(map[string]storage.VertexTable, len(m.data.VertexTables))
 	for name, table := range m.data.VertexTables {
-		properties := make(map[string]Column, len(table.Schema))
+		properties := make(map[string]storage.Column, len(table.Schema))
 		for k, v := range table.Schema {
 			properties[k] = v
 		}
 
-		vertexTables[name] = VertexTable{
+		vertexTables[name] = storage.VertexTable{
 			Name:       table.Name,
 			PathToFile: table.PathToFile,
 			FileID:     table.FileID,
@@ -340,14 +341,14 @@ func (m *Manager) CopyData() *Data {
 		}
 	}
 
-	edgeTables := make(map[string]EdgeTable, len(m.data.EdgeTables))
+	edgeTables := make(map[string]storage.EdgeTable, len(m.data.EdgeTables))
 	for name, table := range m.data.EdgeTables {
-		properties := make(map[string]Column, len(table.Schema))
+		properties := make(map[string]storage.Column, len(table.Schema))
 		for k, v := range table.Schema {
 			properties[k] = v
 		}
 
-		edgeTables[name] = EdgeTable{
+		edgeTables[name] = storage.EdgeTable{
 			Name:       table.Name,
 			PathToFile: table.PathToFile,
 			FileID:     table.FileID,
@@ -355,12 +356,12 @@ func (m *Manager) CopyData() *Data {
 		}
 	}
 
-	indexes := make(map[string]Index, len(m.data.Indexes))
+	indexes := make(map[string]storage.Index, len(m.data.Indexes))
 	for name, index := range m.data.Indexes {
 		columns := make([]string, len(index.Columns))
 		copy(columns, index.Columns)
 
-		indexes[name] = Index{
+		indexes[name] = storage.Index{
 			Name:      index.Name,
 			FileID:    index.FileID,
 			TableName: index.TableName,
