@@ -1,17 +1,19 @@
 package systemcatalog
 
+type Schema map[string]Column
+
 type VertexTable struct {
-	Name       string            `json:"name"`
-	PathToFile string            `json:"path_to_file"`
-	FileID     uint64            `json:"file_id"`
-	Schema     map[string]Column `json:"schema"`
+	Name       string `json:"name"`
+	PathToFile string `json:"path_to_file"`
+	FileID     uint64 `json:"file_id"`
+	Schema     Schema `json:"schema"`
 }
 
 type EdgeTable struct {
-	Name       string            `json:"name"`
-	PathToFile string            `json:"path_to_file"`
-	FileID     uint64            `json:"file_id"`
-	Schema     map[string]Column `json:"schema"`
+	Name       string `json:"name"`
+	PathToFile string `json:"path_to_file"`
+	FileID     uint64 `json:"file_id"`
+	Schema     Schema `json:"schema"`
 }
 
 type Index struct {

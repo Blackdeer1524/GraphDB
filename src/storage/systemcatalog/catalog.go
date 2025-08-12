@@ -30,6 +30,8 @@ type Manager struct {
 
 	mx *sync.RWMutex
 
+	maxFileID uint64
+
 	data *Data
 }
 
@@ -86,11 +88,39 @@ func New(basePath string) (*Manager, error) {
 		}
 	}
 
+	maxFileID := uint64(0)
+
+	for _, table := range sc.VertexTables {
+		if table.FileID > maxFileID {
+			maxFileID = table.FileID
+		}
+	}
+
+	for _, table := range sc.EdgeTables {
+		if table.FileID > maxFileID {
+			maxFileID = table.FileID
+		}
+	}
+
+	for _, index := range sc.Indexes {
+		if index.FileID > maxFileID {
+			maxFileID = index.FileID
+		}
+	}
+
 	return &Manager{
-		basePath: basePath,
-		data:     sc,
-		mx:       new(sync.RWMutex),
+		basePath:  basePath,
+		data:      sc,
+		mx:        new(sync.RWMutex),
+		maxFileID: maxFileID,
 	}, nil
+}
+
+func (m *Manager) GetBasePath() string {
+	m.mx.RLock()
+	defer m.mx.RUnlock()
+
+	return m.basePath
 }
 
 func (m *Manager) Save() error {
@@ -110,6 +140,15 @@ func (m *Manager) Save() error {
 	}
 
 	return nil
+}
+
+func (m *Manager) GetNewFileID() uint64 {
+	m.mx.Lock()
+	defer m.mx.Unlock()
+
+	m.maxFileID++
+
+	return m.maxFileID
 }
 
 func (m *Manager) GetVertexTableMeta(name string) (*VertexTable, error) {
@@ -138,7 +177,7 @@ func (m *Manager) AddVertexTable(req VertexTable) error {
 	return nil
 }
 
-func (m *Manager) VertexDropTable(name string) error {
+func (m *Manager) DropVertexTable(name string) error {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -198,7 +237,7 @@ func (m *Manager) AddEdgeTable(req EdgeTable) error {
 	return nil
 }
 
-func (m *Manager) EdgeDropTable(name string) error {
+func (m *Manager) DropEdgeTable(name string) error {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 

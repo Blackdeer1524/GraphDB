@@ -144,3 +144,34 @@ func NewTxnUnlockRequest[ObjectIDType comparable](
 		recordId: recordId,
 	}
 }
+
+type PageLockMode int
+
+const (
+	PageIntentionShared PageLockMode = iota
+	PageIntentionExclusive
+	PageShared
+	PageSharedIntentionExclusive
+	PageExclusive
+)
+
+type PageLockRequest struct {
+	TxnID    TxnID
+	LockMode PageLockMode
+	PageID   uint64
+}
+
+type SystemCatalogLock int
+
+const (
+	SystemCatalogIntentionShared SystemCatalogLock = iota
+	SystemCatalogIntentionExclusive
+	SystemCatalogShared
+	SystemCatalogSharedIntentionExclusive
+	SystemCatalogExclusive
+)
+
+type SystemCatalogLockRequest struct {
+	TxnID    TxnID
+	LockMode SystemCatalogLock
+}
