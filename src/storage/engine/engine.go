@@ -16,32 +16,39 @@ type Locker interface {
 	GetSystemCatalogLock(req txns.SystemCatalogLockRequest) bool
 }
 
-type StorageEngine struct {
-	lock    Locker
-	catalog *systemcatalog.Manager
+type SystemCatalog interface {
+	GetNewFileID() uint64
+	GetBasePath() string
+	AddVertexTable(req systemcatalog.VertexTable) error
+	DropVertexTable(name string) error
+	Save() error
 }
 
-func New(s *systemcatalog.Manager, l Locker) *StorageEngine {
+type Filesystem interface {
+	Stat(name string) (os.FileInfo, error)
+	Create(name string) (*os.File, error)
+	Remove(name string) error
+	MkdirAll(path string, perm os.FileMode) error
+	IsFileExists(path string) (bool, error)
+}
+
+type StorageEngine struct {
+	lock    Locker
+	catalog SystemCatalog
+
+	disk Filesystem
+}
+
+func New(s SystemCatalog, l Locker, d Filesystem) *StorageEngine {
 	return &StorageEngine{
 		catalog: s,
+		lock:    l,
+		disk:    d,
 	}
 }
 
 func getVertexTableFilePath(basePath, name string) string {
 	return filepath.Join(basePath, "tables", "vertex", name+".tbl")
-}
-
-func isFileExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-
-	return false, err
 }
 
 func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema systemcatalog.Schema) error {
@@ -60,7 +67,7 @@ func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema 
 
 	tableFilePath := getVertexTableFilePath(basePath, name)
 
-	fileExists, err := isFileExists(tableFilePath)
+	fileExists, err := s.disk.IsFileExists(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to check if file exists: %w", err)
 	}
@@ -69,14 +76,14 @@ func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema 
 		return fmt.Errorf("file %s already exists", tableFilePath)
 	}
 
-	file, err := os.Create(tableFilePath)
+	file, err := s.disk.Create(tableFilePath)
 	if err != nil {
-		return fmt.Errorf("unable to create directory: %w")
+		return fmt.Errorf("unable to create directory: %w", err)
 	}
 	file.Close()
 	defer func() {
 		if needToRollback {
-			_ = os.Remove(tableFilePath)
+			_ = s.disk.Remove(tableFilePath)
 		}
 	}()
 
