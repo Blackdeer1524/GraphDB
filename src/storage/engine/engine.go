@@ -124,7 +124,7 @@ func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema 
 	return nil
 }
 
-func (s *StorageEngine) DropVertexTable() {
+func (s *StorageEngine) DropVertexTable(txnID txns.TxnID, name string) {
 	panic("unimplemented")
 }
 
@@ -194,7 +194,7 @@ func (s *StorageEngine) CreateEdgesTable(txnID txns.TxnID, name string, schema s
 	return nil
 }
 
-func (s *StorageEngine) DropEdgesTable() {
+func (s *StorageEngine) DropEdgesTable(txnID txns.TxnID, name string) {
 	panic("unimplemented")
 }
 
