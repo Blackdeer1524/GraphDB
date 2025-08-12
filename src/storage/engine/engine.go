@@ -197,3 +197,11 @@ func (s *StorageEngine) CreateEdgesTable(txnID txns.TxnID, name string, schema s
 func (s *StorageEngine) DropEdgesTable() {
 	panic("unimplemented")
 }
+
+func (s *StorageEngine) CreateIndex(txnID txns.TxnID, name string) {
+	panic("unimplemented")
+}
+
+func (s *StorageEngine) DropIndex(txnID txns.TxnID, name string) {
+	panic("unimplemented")
+}
