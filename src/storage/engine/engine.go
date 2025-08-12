@@ -14,7 +14,6 @@ type Locker interface {
 	UpgradePageLock(req txns.PageLockRequest) bool
 
 	GetSystemCatalogLock(req txns.SystemCatalogLockRequest) bool
-	//UpgradeSystemCatalogLock(req txns.PageLockRequest) bool
 }
 
 type StorageEngine struct {
@@ -30,6 +29,19 @@ func New(s *systemcatalog.Manager, l Locker) *StorageEngine {
 
 func getVertexTableFilePath(basePath, name string) string {
 	return filepath.Join(basePath, "tables", "vertex", name+".tbl")
+}
+
+func isFileExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return false, err
 }
 
 func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema systemcatalog.Schema) error {
@@ -48,10 +60,20 @@ func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema 
 
 	tableFilePath := getVertexTableFilePath(basePath, name)
 
-	_, err := os.Create(tableFilePath)
+	fileExists, err := isFileExists(tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to check if file exists: %w", err)
+	}
+
+	if fileExists {
+		return fmt.Errorf("file %s already exists", tableFilePath)
+	}
+
+	file, err := os.Create(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to create directory: %w")
 	}
+	file.Close()
 	defer func() {
 		if needToRollback {
 			_ = os.Remove(tableFilePath)
