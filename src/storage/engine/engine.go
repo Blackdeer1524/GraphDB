@@ -124,8 +124,29 @@ func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema 
 	return nil
 }
 
-func (s *StorageEngine) DropVertexTable(txnID txns.TxnID, name string) {
-	panic("unimplemented")
+func (s *StorageEngine) DropVertexTable(txnID txns.TxnID, name string) error {
+	systemCatalogLockRequest := txns.SystemCatalogLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.SystemCatalogExclusive,
+	}
+
+	if !s.lock.GetSystemCatalogLock(systemCatalogLockRequest) {
+		return errors.New("unable to get system catalog lock")
+	}
+
+	// do not delete file, just remove from catalog
+
+	err := s.catalog.DropVertexTable(name)
+	if err != nil {
+		return fmt.Errorf("unable to drop vertex table: %w", err)
+	}
+
+	err = s.catalog.Save()
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+
+	return nil
 }
 
 func (s *StorageEngine) CreateEdgesTable(txnID txns.TxnID, name string, schema storage.Schema) error {
@@ -194,8 +215,29 @@ func (s *StorageEngine) CreateEdgesTable(txnID txns.TxnID, name string, schema s
 	return nil
 }
 
-func (s *StorageEngine) DropEdgesTable(txnID txns.TxnID, name string) {
-	panic("unimplemented")
+func (s *StorageEngine) DropEdgesTable(txnID txns.TxnID, name string) error {
+	systemCatalogLockRequest := txns.SystemCatalogLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.SystemCatalogExclusive,
+	}
+
+	if !s.lock.GetSystemCatalogLock(systemCatalogLockRequest) {
+		return errors.New("unable to get system catalog lock")
+	}
+
+	// do not delete file, just remove from catalog
+
+	err := s.catalog.DropEdgeTable(name)
+	if err != nil {
+		return fmt.Errorf("unable to drop vertex table: %w", err)
+	}
+
+	err = s.catalog.Save()
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+
+	return nil
 }
 
 func (s *StorageEngine) CreateIndex(txnID txns.TxnID, name string) {
