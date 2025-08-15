@@ -32,6 +32,16 @@ type mockCatalog struct {
 	mock.Mock
 }
 
+func (m *mockCatalog) AddIndex(req storage.Index) error {
+	args := m.Called(req)
+	return args.Error(0)
+}
+
+func (m *mockCatalog) DropIndex(name string) error {
+	args := m.Called(name)
+	return args.Error(0)
+}
+
 func (m *mockCatalog) GetNewFileID() uint64 {
 	args := m.Called()
 	return args.Get(0).(uint64)

@@ -9,6 +9,20 @@ import (
 	"testing"
 )
 
+func Test_getVertexTableFilePath(t *testing.T) {
+	ans := getVertexTableFilePath("/var/lib/graphdb", "friends")
+
+	assert.Equal(t, "/var/lib/graphdb/tables/vertex/friends.tbl", ans)
+}
+
+func Test_getEdgeTableFilePath(t *testing.T) {
+	ans := getEdgeTableFilePath("/var/lib/graphdb", "friends")
+
+	assert.Equal(t, "/var/lib/graphdb/tables/edge/friends.tbl", ans)
+}
+
+/* Test for CreateVertexTable */
+
 func TestCreateVertexTable_Success(t *testing.T) {
 	locker := &mockLocker{}
 	catalog := &mockCatalog{}
@@ -266,17 +280,7 @@ func TestCreateVertexTable_SaveError_RollsBackFileAndCatalogEntry(t *testing.T) 
 	disk.AssertExpectations(t)
 }
 
-func Test_getVertexTableFilePath(t *testing.T) {
-	ans := getVertexTableFilePath("/var/lib/graphdb", "friends")
-
-	assert.Equal(t, "/var/lib/graphdb/tables/vertex/friends.tbl", ans)
-}
-
-func Test_getEdgeTableFilePath(t *testing.T) {
-	ans := getEdgeTableFilePath("/var/lib/graphdb", "friends")
-
-	assert.Equal(t, "/var/lib/graphdb/tables/edge/friends.tbl", ans)
-}
+/* Test for CreateEdgesTable */
 
 func TestCreateEdgesTable_Success(t *testing.T) {
 	locker := &mockLocker{}
@@ -510,4 +514,54 @@ func TestCreateEdgesTable_SaveError_RollsBackFileAndCatalogEntry(t *testing.T) {
 
 	disk.AssertCalled(t, "Remove", tablePath)
 	catalog.AssertCalled(t, "DropEdgeTable", name)
+}
+
+/* Test for IndexCreate */
+
+func TestCreateIndex_Success(t *testing.T) {
+	lock := new(mockLocker)
+	cat := new(mockCatalog)
+	fs := new(mockDisk)
+
+	txnID := txns.TxnID(1)
+	name := "idx1"
+	tableName := "tbl"
+	tableKind := "vertex"
+	columns := []string{"col1"}
+	keyBytes := uint32(8)
+
+	basePath := "/tmp"
+	filePath := getIndexFilePath(basePath, name)
+
+	lock.On("GetSystemCatalogLock", mock.Anything).Return(true)
+
+	cat.On("GetBasePath").Return(basePath)
+	cat.On("GetNewFileID").Return(uint64(1))
+	cat.On("AddIndex", mock.Anything).Return(nil)
+	cat.On("Save").Return(nil)
+
+	fs.On("IsFileExists", filePath).Return(false, nil)
+	fs.On("Create", filePath).Return(os.NewFile(0, ""), nil)
+
+	se := New(cat, lock, fs)
+
+	err := se.CreateIndex(txnID, name, tableName, tableKind, columns, keyBytes)
+	assert.NoError(t, err)
+
+	lock.AssertExpectations(t)
+	cat.AssertExpectations(t)
+	fs.AssertExpectations(t)
+}
+
+func TestCreateIndex_NoLock(t *testing.T) {
+	lock := new(mockLocker)
+	cat := new(mockCatalog)
+	fs := new(mockDisk)
+
+	lock.On("GetSystemCatalogLock", mock.Anything).Return(false)
+
+	se := New(cat, lock, fs)
+	err := se.CreateIndex(1, "idx1", "tbl", "vertex", nil, 4)
+
+	assert.EqualError(t, err, "unable to get system catalog lock")
 }

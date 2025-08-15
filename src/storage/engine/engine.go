@@ -20,10 +20,14 @@ type Locker interface {
 type SystemCatalog interface {
 	GetNewFileID() uint64
 	GetBasePath() string
+
 	AddVertexTable(req storage.VertexTable) error
 	DropVertexTable(name string) error
 	AddEdgeTable(req storage.EdgeTable) error
 	DropEdgeTable(name string) error
+	AddIndex(req storage.Index) error
+	DropIndex(name string) error
+
 	Save() error
 }
 
@@ -56,6 +60,10 @@ func getVertexTableFilePath(basePath, name string) string {
 
 func getEdgeTableFilePath(basePath, name string) string {
 	return filepath.Join(basePath, "tables", "edge", name+".tbl")
+}
+
+func getIndexFilePath(basePath, name string) string {
+	return filepath.Join(basePath, "indexes", name+".idx")
 }
 
 func (s *StorageEngine) CreateVertexTable(txnID txns.TxnID, name string, schema storage.Schema) error {
@@ -240,10 +248,103 @@ func (s *StorageEngine) DropEdgesTable(txnID txns.TxnID, name string) error {
 	return nil
 }
 
-func (s *StorageEngine) CreateIndex(txnID txns.TxnID, name string) {
-	panic("unimplemented")
+func (s *StorageEngine) CreateIndex(
+	txnID txns.TxnID,
+	name string,
+	tableName string,
+	tableKind string,
+	columns []string,
+	keyBytesCnt uint32,
+) error {
+	needToRollback := true
+
+	systemCatalogLockRequest := txns.SystemCatalogLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.SystemCatalogExclusive,
+	}
+
+	if !s.lock.GetSystemCatalogLock(systemCatalogLockRequest) {
+		return errors.New("unable to get system catalog lock")
+	}
+
+	basePath := s.catalog.GetBasePath()
+	fileID := s.catalog.GetNewFileID()
+
+	tableFilePath := getIndexFilePath(basePath, name)
+
+	fileExists, err := s.disk.IsFileExists(tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to check if file exists: %w", err)
+	}
+
+	if fileExists {
+		return fmt.Errorf("file %s already exists", tableFilePath)
+	}
+
+	file, err := s.disk.Create(tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to create file: %w", err)
+	}
+	_ = file.Close()
+	defer func() {
+		if needToRollback {
+			_ = s.disk.Remove(tableFilePath)
+		}
+	}()
+
+	// update info in metadata
+
+	idxCreateReq := storage.Index{
+		Name:        name,
+		PathToFile:  tableFilePath,
+		FileID:      fileID,
+		TableName:   tableName,
+		TableKind:   tableKind,
+		Columns:     columns,
+		KeyBytesCnt: keyBytesCnt,
+	}
+
+	err = s.catalog.AddIndex(idxCreateReq)
+	if err != nil {
+		return fmt.Errorf("unable to add index to catalog: %w", err)
+	}
+	defer func() {
+		if needToRollback {
+			_ = s.catalog.DropIndex(name)
+		}
+	}()
+
+	err = s.catalog.Save()
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+
+	needToRollback = false
+
+	return nil
 }
 
-func (s *StorageEngine) DropIndex(txnID txns.TxnID, name string) {
-	panic("unimplemented")
+func (s *StorageEngine) DropIndex(txnID txns.TxnID, name string) error {
+	systemCatalogLockRequest := txns.SystemCatalogLockRequest{
+		TxnID:    txnID,
+		LockMode: txns.SystemCatalogExclusive,
+	}
+
+	if !s.lock.GetSystemCatalogLock(systemCatalogLockRequest) {
+		return errors.New("unable to get system catalog lock")
+	}
+
+	// do not delete file, just remove from catalog
+
+	err := s.catalog.DropIndex(name)
+	if err != nil {
+		return fmt.Errorf("unable to drop vertex table: %w", err)
+	}
+
+	err = s.catalog.Save()
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+
+	return nil
 }
