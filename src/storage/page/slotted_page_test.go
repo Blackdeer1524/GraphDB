@@ -132,7 +132,7 @@ func TestDeleteRemovesData(t *testing.T) {
 	assert.Equal(
 		t,
 		SlotStatusDeleted,
-		ptr.RecordInfo(),
+		ptr.slotInfo(),
 		"Slot status should be Deleted",
 	)
 
@@ -229,7 +229,7 @@ func TestUndoDelete_RestoresDataAndStatus(t *testing.T) {
 	assert.Equal(
 		t,
 		SlotStatusInserted,
-		ptr.RecordInfo(),
+		ptr.slotInfo(),
 		"Slot status should be Inserted after UndoDelete",
 	)
 

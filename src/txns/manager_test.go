@@ -5,13 +5,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
 func TestManagerBasicOperation(t *testing.T) {
-	m := NewManager[PageLockMode, RecordID]()
+	m := NewManager[PageLockMode, common.PageID]()
 
 	// Test queue creation on first lock
-	req := TxnLockRequest[PageLockMode, RecordID]{
+	req := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    1,
 		objectId: 100,
 		lockMode: PAGE_LOCK_SHARED,
@@ -27,7 +29,7 @@ func TestManagerBasicOperation(t *testing.T) {
 	m.qsGuard.Unlock()
 
 	// Successful unlock
-	m.Unlock(TxnUnlockRequest[RecordID]{txnID: 1, objectId: 100})
+	m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 100})
 
 	// Verify queue persists after unlock
 	m.qsGuard.Lock()
@@ -38,7 +40,7 @@ func TestManagerBasicOperation(t *testing.T) {
 }
 
 func TestManagerConcurrentRecordAccess(t *testing.T) {
-	m := NewManager[PageLockMode, RecordID]()
+	m := NewManager[PageLockMode, common.PageID]()
 
 	var wg sync.WaitGroup
 
@@ -49,9 +51,9 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 			defer wg.Done()
 
 			//nolint:gosec
-			recordID := RecordID(id & 1) // Two distinct records
-			req := TxnLockRequest[PageLockMode, RecordID]{
-				txnID:    TxnID(id), //nolint:gosec
+			recordID := common.PageID(id & 1) // Two distinct records
+			req := TxnLockRequest[PageLockMode, common.PageID]{
+				txnID:    common.TxnID(id), //nolint:gosec
 				objectId: recordID,
 				lockMode: PAGE_LOCK_SHARED,
 			}
@@ -68,8 +70,8 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 
 			fmt.Printf("before unlock %d\n", id)
 			m.Unlock(
-				TxnUnlockRequest[RecordID]{
-					txnID:    TxnID(id),
+				TxnUnlockRequest[common.PageID]{
+					txnID:    common.TxnID(id),
 					objectId: recordID,
 				},
 			) //nolint:gosec
@@ -81,7 +83,7 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 }
 
 func TestManagerUnlockPanicScenarios(t *testing.T) {
-	m := NewManager[PageLockMode, RecordID]()
+	m := NewManager[PageLockMode, common.PageID]()
 
 	// Test non-existent record panic
 	t.Run("NonExistentRecord", func(t *testing.T) {
@@ -90,7 +92,7 @@ func TestManagerUnlockPanicScenarios(t *testing.T) {
 				t.Error("Expected panic for non-existent record")
 			}
 		}()
-		m.Unlock(TxnUnlockRequest[RecordID]{txnID: 1, objectId: 999})
+		m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 999})
 	})
 
 	// Test double unlock panic
@@ -101,26 +103,26 @@ func TestManagerUnlockPanicScenarios(t *testing.T) {
 			}
 		}()
 
-		req := TxnLockRequest[PageLockMode, RecordID]{
+		req := TxnLockRequest[PageLockMode, common.PageID]{
 			txnID:    1,
 			objectId: 200,
 			lockMode: PAGE_LOCK_EXCLUSIVE,
 		}
 		notifier := m.Lock(req)
 		expectClosedChannel(t, notifier, "Lock should be granted")
-		m.Unlock(TxnUnlockRequest[RecordID]{txnID: 1, objectId: 200})
+		m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 200})
 		m.Unlock(
-			TxnUnlockRequest[RecordID]{txnID: 1, objectId: 200},
+			TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 200},
 		) // Panic here
 	})
 }
 
 func TestManagerLockContention(t *testing.T) {
-	m := NewManager[PageLockMode, RecordID]()
-	recordID := RecordID(300)
+	m := NewManager[PageLockMode, common.PageID]()
+	recordID := common.PageID(300)
 
 	// First exclusive lock
-	req1 := TxnLockRequest[PageLockMode, RecordID]{
+	req1 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    5,
 		objectId: recordID,
 		lockMode: PAGE_LOCK_EXCLUSIVE,
@@ -129,7 +131,7 @@ func TestManagerLockContention(t *testing.T) {
 	expectClosedChannel(t, notifier1, "First exclusive lock should be granted")
 
 	// Second exclusive lock (should block)
-	req2 := TxnLockRequest[PageLockMode, RecordID]{
+	req2 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    4,
 		objectId: recordID,
 		lockMode: PAGE_LOCK_EXCLUSIVE,
@@ -138,7 +140,7 @@ func TestManagerLockContention(t *testing.T) {
 	expectOpenChannel(t, notifier2, "Second exclusive lock should block")
 
 	// Concurrent shared lock (should also block)
-	req3 := TxnLockRequest[PageLockMode, RecordID]{
+	req3 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    3,
 		objectId: recordID,
 		lockMode: PAGE_LOCK_SHARED,
@@ -147,13 +149,13 @@ func TestManagerLockContention(t *testing.T) {
 	expectOpenChannel(t, notifier3, "Shared lock should block behind exclusive")
 
 	// Unlock first and verify chain
-	m.Unlock(TxnUnlockRequest[RecordID]{txnID: 5, objectId: recordID})
+	m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 5, objectId: recordID})
 	expectClosedChannel(
 		t,
 		notifier2,
 		"Second lock should be granted after unlock",
 	)
-	m.Unlock(TxnUnlockRequest[RecordID]{txnID: 4, objectId: recordID})
+	m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 4, objectId: recordID})
 	expectClosedChannel(
 		t,
 		notifier3,
@@ -162,11 +164,11 @@ func TestManagerLockContention(t *testing.T) {
 }
 
 func TestManagerUnlockRetry(t *testing.T) {
-	m := NewManager[PageLockMode, RecordID]()
-	recordID := RecordID(400)
+	m := NewManager[PageLockMode, common.PageID]()
+	recordID := common.PageID(400)
 
 	// Setup lock
-	req := TxnLockRequest[PageLockMode, RecordID]{
+	req := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    1,
 		objectId: recordID,
 		lockMode: PAGE_LOCK_EXCLUSIVE,
@@ -188,17 +190,17 @@ func TestManagerUnlockRetry(t *testing.T) {
 	}()
 
 	// This should retry until successful
-	m.Unlock(TxnUnlockRequest[RecordID]{txnID: 1, objectId: recordID})
+	m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: recordID})
 	wg.Wait()
 }
 
 func TestManagerUnlockAll(t *testing.T) {
-	m := NewManager[PageLockMode, RecordID]()
+	m := NewManager[PageLockMode, common.PageID]()
 
-	waitingTxn := TxnID(0)
-	runningTxn := TxnID(1)
+	waitingTxn := common.TxnID(0)
+	runningTxn := common.TxnID(1)
 
-	notifier1x := m.Lock(TxnLockRequest[PageLockMode, RecordID]{
+	notifier1x := m.Lock(TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    runningTxn,
 		objectId: 1,
 		lockMode: PAGE_LOCK_EXCLUSIVE,
@@ -209,7 +211,7 @@ func TestManagerUnlockAll(t *testing.T) {
 		"Txn 1 should have been granted the Exclusive Lock on 1",
 	)
 
-	notifier0s := m.Lock(TxnLockRequest[PageLockMode, RecordID]{
+	notifier0s := m.Lock(TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    waitingTxn,
 		objectId: 1,
 		lockMode: PAGE_LOCK_SHARED,

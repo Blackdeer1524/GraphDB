@@ -4,59 +4,12 @@ import (
 	"encoding"
 	"fmt"
 
-	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
-	"github.com/Blackdeer1524/GraphDB/src/txns"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
-type LSN uint64
-
-var NIL_LSN LSN = LSN(0)
-
-type FileLocation struct {
-	PageID  uint64
-	SlotNum uint16
-}
-
-type RecordID struct {
-	FileID  uint64
-	PageID  uint64
-	SlotNum uint16
-}
-
-func (r RecordID) PageIdentity() bufferpool.PageIdentity {
-	return bufferpool.PageIdentity{
-		FileID: r.FileID,
-		PageID: r.PageID,
-	}
-}
-
-func (r RecordID) FileLocation() FileLocation {
-	return FileLocation{
-		PageID:  r.PageID,
-		SlotNum: r.SlotNum,
-	}
-}
-
-// is considered NIL iff lsn is NIL_LSN
-type LogRecordLocationInfo struct {
-	Lsn      LSN
-	Location FileLocation
-}
-
-func NewNilLogRecordLocation() LogRecordLocationInfo {
-	return LogRecordLocationInfo{
-		Lsn:      NIL_LSN,
-		Location: FileLocation{},
-	}
-}
-
-func (p *LogRecordLocationInfo) isNil() bool {
-	return p.Lsn == NIL_LSN
-}
-
 type LogRecord interface {
-	LSN() LSN
+	LSN() common.LSN
 	String() string
 	encoding.BinaryMarshaler
 	encoding.BinaryUnmarshaler
@@ -65,8 +18,8 @@ type LogRecord interface {
 type RevertableLogRecord interface {
 	LogRecord
 	Undo(
-		newLSN LSN,
-		parentLogLocation LogRecordLocationInfo,
+		newLSN common.LSN,
+		parentLogLocation common.LogRecordLocInfo,
 	) CompensationLogRecord
 }
 
@@ -84,18 +37,18 @@ var (
 )
 
 type BeginLogRecord struct {
-	lsn   LSN
-	txnID txns.TxnID
+	lsn   common.LSN
+	txnID common.TxnID
 }
 
-func NewBeginLogRecord(lsn LSN, txnID txns.TxnID) BeginLogRecord {
+func NewBeginLogRecord(lsn common.LSN, txnID common.TxnID) BeginLogRecord {
 	return BeginLogRecord{
 		lsn:   lsn,
 		txnID: txnID,
 	}
 }
 
-func (l *BeginLogRecord) LSN() LSN {
+func (l *BeginLogRecord) LSN() common.LSN {
 	return l.lsn
 }
 
@@ -104,15 +57,15 @@ func (l *BeginLogRecord) String() string {
 }
 
 type UpdateLogRecord struct {
-	lsn               LSN
-	txnID             txns.TxnID
-	parentLogLocation LogRecordLocationInfo
-	modifiedRecordID  RecordID
+	lsn               common.LSN
+	txnID             common.TxnID
+	parentLogLocation common.LogRecordLocInfo
+	modifiedRecordID  common.RecordID
 	beforeValue       []byte
 	afterValue        []byte
 }
 
-func (r *UpdateLogRecord) LSN() LSN {
+func (r *UpdateLogRecord) LSN() common.LSN {
 	return r.lsn
 }
 
@@ -129,8 +82,8 @@ func (r *UpdateLogRecord) String() string {
 }
 
 func (r *UpdateLogRecord) Undo(
-	lsn LSN,
-	parentLogLocation LogRecordLocationInfo,
+	lsn common.LSN,
+	parentLogLocation common.LogRecordLocInfo,
 ) CompensationLogRecord {
 	return NewCompensationLogRecord(
 		lsn,
@@ -145,10 +98,10 @@ func (r *UpdateLogRecord) Undo(
 }
 
 func NewUpdateLogRecord(
-	lsn LSN,
-	txnID txns.TxnID,
-	parentLogLocation LogRecordLocationInfo,
-	modifiedRecordID RecordID,
+	lsn common.LSN,
+	txnID common.TxnID,
+	parentLogLocation common.LogRecordLocInfo,
+	modifiedRecordID common.RecordID,
 	beforeValue []byte,
 	afterValue []byte,
 ) UpdateLogRecord {
@@ -165,14 +118,14 @@ func NewUpdateLogRecord(
 }
 
 type InsertLogRecord struct {
-	lsn               LSN
-	txnID             txns.TxnID
-	parentLogLocation LogRecordLocationInfo
-	modifiedRecordID  RecordID
+	lsn               common.LSN
+	txnID             common.TxnID
+	parentLogLocation common.LogRecordLocInfo
+	modifiedRecordID  common.RecordID
 	value             []byte
 }
 
-func (r *InsertLogRecord) LSN() LSN {
+func (r *InsertLogRecord) LSN() common.LSN {
 	return r.lsn
 }
 
@@ -188,10 +141,10 @@ func (r *InsertLogRecord) String() string {
 }
 
 func NewInsertLogRecord(
-	lsn LSN,
-	txnID txns.TxnID,
-	parentLogLocation LogRecordLocationInfo,
-	modifiedRecordID RecordID,
+	lsn common.LSN,
+	txnID common.TxnID,
+	parentLogLocation common.LogRecordLocInfo,
+	modifiedRecordID common.RecordID,
 	value []byte,
 ) InsertLogRecord {
 	return InsertLogRecord{
@@ -204,8 +157,8 @@ func NewInsertLogRecord(
 }
 
 func (r *InsertLogRecord) Undo(
-	lsn LSN,
-	parentLogLocation LogRecordLocationInfo,
+	lsn common.LSN,
+	parentLogLocation common.LogRecordLocInfo,
 ) CompensationLogRecord {
 	return NewCompensationLogRecord(
 		lsn,
@@ -220,17 +173,17 @@ func (r *InsertLogRecord) Undo(
 }
 
 type DeleteLogRecord struct {
-	lsn               LSN
-	txnID             txns.TxnID
-	parentLogLocation LogRecordLocationInfo
-	modifiedRecordID  RecordID
+	lsn               common.LSN
+	txnID             common.TxnID
+	parentLogLocation common.LogRecordLocInfo
+	modifiedRecordID  common.RecordID
 }
 
 func NewDeleteLogRecord(
-	lsn LSN,
-	txnID txns.TxnID,
-	parentLogLocation LogRecordLocationInfo,
-	modifiedRecordID RecordID,
+	lsn common.LSN,
+	txnID common.TxnID,
+	parentLogLocation common.LogRecordLocInfo,
+	modifiedRecordID common.RecordID,
 ) DeleteLogRecord {
 	return DeleteLogRecord{
 		lsn:               lsn,
@@ -240,7 +193,7 @@ func NewDeleteLogRecord(
 	}
 }
 
-func (r *DeleteLogRecord) LSN() LSN {
+func (r *DeleteLogRecord) LSN() common.LSN {
 	return r.lsn
 }
 
@@ -255,8 +208,8 @@ func (r *DeleteLogRecord) String() string {
 }
 
 func (r *DeleteLogRecord) Undo(
-	lsn LSN,
-	parentLogLocation LogRecordLocationInfo,
+	lsn common.LSN,
+	parentLogLocation common.LogRecordLocInfo,
 ) CompensationLogRecord {
 	return NewCompensationLogRecord(
 		lsn,
@@ -271,19 +224,19 @@ func (r *DeleteLogRecord) Undo(
 }
 
 type CommitLogRecord struct {
-	lsn               LSN
-	txnID             txns.TxnID
-	parentLogLocation LogRecordLocationInfo
+	lsn               common.LSN
+	txnID             common.TxnID
+	parentLogLocation common.LogRecordLocInfo
 }
 
-func (r *CommitLogRecord) LSN() LSN {
+func (r *CommitLogRecord) LSN() common.LSN {
 	return r.lsn
 }
 
 func NewCommitLogRecord(
-	lsn LSN,
-	txnID txns.TxnID,
-	parentLogLocation LogRecordLocationInfo,
+	lsn common.LSN,
+	txnID common.TxnID,
+	parentLogLocation common.LogRecordLocInfo,
 ) CommitLogRecord {
 	return CommitLogRecord{
 		lsn:               lsn,
@@ -302,12 +255,12 @@ func (r *CommitLogRecord) String() string {
 }
 
 type AbortLogRecord struct {
-	lsn               LSN
-	txnID             txns.TxnID
-	parentLogLocation LogRecordLocationInfo
+	lsn               common.LSN
+	txnID             common.TxnID
+	parentLogLocation common.LogRecordLocInfo
 }
 
-func (r *AbortLogRecord) LSN() LSN {
+func (r *AbortLogRecord) LSN() common.LSN {
 	return r.lsn
 }
 
@@ -320,8 +273,8 @@ func (r *AbortLogRecord) String() string {
 	)
 }
 
-func NewAbortLogRecord(lsn LSN, txnID txns.TxnID,
-	parentLogLocation LogRecordLocationInfo,
+func NewAbortLogRecord(lsn common.LSN, txnID common.TxnID,
+	parentLogLocation common.LogRecordLocInfo,
 ) AbortLogRecord {
 	return AbortLogRecord{
 		lsn:               lsn,
@@ -331,17 +284,17 @@ func NewAbortLogRecord(lsn LSN, txnID txns.TxnID,
 }
 
 type TxnEndLogRecord struct {
-	lsn               LSN
-	txnID             txns.TxnID
-	parentLogLocation LogRecordLocationInfo
+	lsn               common.LSN
+	txnID             common.TxnID
+	parentLogLocation common.LogRecordLocInfo
 }
 
-func (r *TxnEndLogRecord) LSN() LSN {
+func (r *TxnEndLogRecord) LSN() common.LSN {
 	return r.lsn
 }
 
-func NewTxnEndLogRecord(lsn LSN, txnID txns.TxnID,
-	parentLogLocation LogRecordLocationInfo) TxnEndLogRecord {
+func NewTxnEndLogRecord(lsn common.LSN, txnID common.TxnID,
+	parentLogLocation common.LogRecordLocInfo) TxnEndLogRecord {
 	return TxnEndLogRecord{
 		lsn:               lsn,
 		txnID:             txnID,
@@ -367,17 +320,17 @@ const (
 )
 
 type CompensationLogRecord struct {
-	lsn               LSN
-	txnID             txns.TxnID
-	parentLogLocation LogRecordLocationInfo
-	nextUndoLSN       LSN
+	lsn               common.LSN
+	txnID             common.TxnID
+	parentLogLocation common.LogRecordLocInfo
+	nextUndoLSN       common.LSN
 	clrType           CLRtype
-	modifiedRecordID  RecordID
+	modifiedRecordID  common.RecordID
 	beforeValue       []byte
 	afterValue        []byte
 }
 
-func (r *CompensationLogRecord) LSN() LSN {
+func (r *CompensationLogRecord) LSN() common.LSN {
 	return r.lsn
 }
 
@@ -396,12 +349,12 @@ func (r *CompensationLogRecord) String() string {
 }
 
 func NewCompensationLogRecord(
-	lsn LSN,
-	txnID txns.TxnID,
-	parentLogLocation LogRecordLocationInfo,
-	modifiedRecordID RecordID,
+	lsn common.LSN,
+	txnID common.TxnID,
+	parentLogLocation common.LogRecordLocInfo,
+	modifiedRecordID common.RecordID,
 	clrType CLRtype,
-	nextUndoLSN LSN,
+	nextUndoLSN common.LSN,
 	beforeValue []byte,
 	afterValue []byte,
 ) CompensationLogRecord {
@@ -422,14 +375,14 @@ func (r *CompensationLogRecord) Activate() {
 }
 
 type CheckpointBeginLogRecord struct {
-	lsn LSN
+	lsn common.LSN
 }
 
-func NewCheckpointBegin(lsn LSN) CheckpointBeginLogRecord {
+func NewCheckpointBegin(lsn common.LSN) CheckpointBeginLogRecord {
 	return CheckpointBeginLogRecord{lsn: lsn}
 }
 
-func (l *CheckpointBeginLogRecord) LSN() LSN {
+func (l *CheckpointBeginLogRecord) LSN() common.LSN {
 	return l.lsn
 }
 
@@ -438,15 +391,15 @@ func (l *CheckpointBeginLogRecord) String() string {
 }
 
 type CheckpointEndLogRecord struct {
-	lsn                LSN
-	activeTransactions []txns.TxnID
-	dirtyPageTable     map[bufferpool.PageIdentity]LogRecordLocationInfo
+	lsn                common.LSN
+	activeTransactions []common.TxnID
+	dirtyPageTable     map[common.PageIdentity]common.LogRecordLocInfo
 }
 
 func NewCheckpointEnd(
-	lsn LSN,
-	activeTransacitons []txns.TxnID,
-	dirtyPageTable map[bufferpool.PageIdentity]LogRecordLocationInfo,
+	lsn common.LSN,
+	activeTransacitons []common.TxnID,
+	dirtyPageTable map[common.PageIdentity]common.LogRecordLocInfo,
 ) CheckpointEndLogRecord {
 	return CheckpointEndLogRecord{
 		lsn:                lsn,
@@ -455,7 +408,7 @@ func NewCheckpointEnd(
 	}
 }
 
-func (l *CheckpointEndLogRecord) LSN() LSN {
+func (l *CheckpointEndLogRecord) LSN() common.LSN {
 	return l.lsn
 }
 

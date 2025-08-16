@@ -1,14 +1,9 @@
 package txns
 
-import "github.com/Blackdeer1524/GraphDB/src/pkg/assert"
-
-type RecordID uint64
-type TableID uint64
-
-/* a monotonically increasing counter. It is guaranteed to be unique between transactions
- * WARN: there might be problems with synchronization
- *       in distributed systems that use this kind of transaction IDs */
-type TxnID uint64
+import (
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+)
 
 type TaggedType[T any] struct{ v T } // this trick forbids casting one lock mode to another
 
@@ -191,13 +186,13 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 }
 
 type TxnLockRequest[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {
-	txnID    TxnID
+	txnID    common.TxnID
 	objectId ObjectIDType
 	lockMode LockModeType
 }
 
 func NewTxnLockRequest[LockModeType GranularLock[LockModeType], ObjectIDType comparable](
-	txnID TxnID,
+	txnID common.TxnID,
 	objectId ObjectIDType,
 	lockMode LockModeType,
 ) *TxnLockRequest[LockModeType, ObjectIDType] {
@@ -209,12 +204,12 @@ func NewTxnLockRequest[LockModeType GranularLock[LockModeType], ObjectIDType com
 }
 
 type TxnUnlockRequest[ObjectIDType comparable] struct {
-	txnID    TxnID
+	txnID    common.TxnID
 	objectId ObjectIDType
 }
 
 func NewTxnUnlockRequest[ObjectIDType comparable](
-	txnID TxnID,
+	txnID common.TxnID,
 	objectId ObjectIDType,
 ) *TxnUnlockRequest[ObjectIDType] {
 	return &TxnUnlockRequest[ObjectIDType]{

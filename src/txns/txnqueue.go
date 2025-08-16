@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
 type entryStatus byte
@@ -78,7 +79,7 @@ type txnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparable] 
 	tail *txnQueueEntry[LockModeType, ObjectIDType]
 
 	mu       sync.Mutex
-	txnNodes map[TxnID]*txnQueueEntry[LockModeType, ObjectIDType]
+	txnNodes map[common.TxnID]*txnQueueEntry[LockModeType, ObjectIDType]
 }
 
 // processBatch processes a batch of transactions in the txnQueue starting from
@@ -154,13 +155,16 @@ func newTxnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparabl
 		tail: tail,
 
 		mu:       sync.Mutex{},
-		txnNodes: map[TxnID]*txnQueueEntry[LockModeType, ObjectIDType]{},
+		txnNodes: map[common.TxnID]*txnQueueEntry[LockModeType, ObjectIDType]{},
 	}
 
 	return q
 }
 
-func checkDeadlockCondition(enqueuedTxnID TxnID, requestingTxnID TxnID) bool {
+func checkDeadlockCondition(
+	enqueuedTxnID common.TxnID,
+	requestingTxnID common.TxnID,
+) bool {
 	// Deadlock prevention policy
 	// Only older transactions can wait for younger ones.
 	// Ohterwise, a younger transaction is aborted

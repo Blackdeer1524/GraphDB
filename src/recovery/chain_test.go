@@ -8,14 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
-	"github.com/Blackdeer1524/GraphDB/src/txns"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
 func TestChainSanity(t *testing.T) {
 	pool := bufferpool.NewBufferPoolMock()
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinned()) }()
 
-	logPageId := bufferpool.PageIdentity{
+	logPageId := common.PageIdentity{
 		FileID: 42,
 		PageID: 321,
 	}
@@ -25,30 +25,30 @@ func TestChainSanity(t *testing.T) {
 		mu:              sync.Mutex{},
 		logRecordsCount: 0,
 		logfileID:       logPageId.FileID,
-		lastLogLocation: LogRecordLocationInfo{
+		lastLogLocation: common.LogRecordLocInfo{
 			Lsn: 123,
-			Location: FileLocation{
+			Location: common.FileLocation{
 				PageID:  logPageId.PageID,
 				SlotNum: 0,
 			},
 		},
-		getActiveTransactions: func() []txns.TxnID {
+		getActiveTransactions: func() []common.TxnID {
 			panic("TODO")
 		},
 	}
 
-	txnID := txns.TxnID(89)
+	txnID := common.TxnID(89)
 	chain := NewTxnLogChain(logger, txnID)
 
 	insertSlotNumber := uint16(6)
-	insertPageID := bufferpool.PageIdentity{
+	insertPageID := common.PageIdentity{
 		FileID: 1,
 		PageID: 2,
 	}
 	insert := []byte("insert")
 
 	updateSlotNumber := uint16(7)
-	updatePageID := bufferpool.PageIdentity{
+	updatePageID := common.PageIdentity{
 		FileID: 2,
 		PageID: 1,
 	}
@@ -56,19 +56,19 @@ func TestChainSanity(t *testing.T) {
 	updateTo := []byte("updateNew")
 
 	deleteSlotNumber := uint16(8)
-	deletePageID := bufferpool.PageIdentity{
+	deletePageID := common.PageIdentity{
 		FileID: 3,
 		PageID: 1,
 	}
 
-	checkpointATT := []txns.TxnID{1, 2, 3}
-	checkpointDPT := map[bufferpool.PageIdentity]LogRecordLocationInfo{
+	checkpointATT := []common.TxnID{1, 2, 3}
+	checkpointDPT := map[common.PageIdentity]common.LogRecordLocInfo{
 		{
 			FileID: 42,
 			PageID: 123,
 		}: {
 			Lsn: 5,
-			Location: FileLocation{
+			Location: common.FileLocation{
 				PageID:  6,
 				SlotNum: 7,
 			},
@@ -76,9 +76,9 @@ func TestChainSanity(t *testing.T) {
 	}
 
 	chain.Begin().
-		Insert(RecordID{FileID: insertPageID.FileID, PageID: insertPageID.PageID, SlotNum: insertSlotNumber}, insert).
-		Update(RecordID{FileID: updatePageID.FileID, PageID: updatePageID.PageID, SlotNum: updateSlotNumber}, updateFrom, updateTo).
-		Delete(RecordID{FileID: deletePageID.FileID, PageID: deletePageID.PageID, SlotNum: deleteSlotNumber}).
+		Insert(common.RecordID{FileID: insertPageID.FileID, PageID: insertPageID.PageID, SlotNum: insertSlotNumber}, insert).
+		Update(common.RecordID{FileID: updatePageID.FileID, PageID: updatePageID.PageID, SlotNum: updateSlotNumber}, updateFrom, updateTo).
+		Delete(common.RecordID{FileID: deletePageID.FileID, PageID: deletePageID.PageID, SlotNum: deleteSlotNumber}).
 		Abort().
 		Commit().
 		CheckpointBegin().
@@ -238,7 +238,7 @@ func TestChainSanity(t *testing.T) {
 func TestChain(t *testing.T) {
 	pool := bufferpool.NewBufferPoolMock()
 
-	logPageId := bufferpool.PageIdentity{
+	logPageId := common.PageIdentity{
 		FileID: 42,
 		PageID: 23,
 	}
@@ -248,37 +248,37 @@ func TestChain(t *testing.T) {
 		mu:              sync.Mutex{},
 		logRecordsCount: 0,
 		logfileID:       logPageId.FileID,
-		lastLogLocation: LogRecordLocationInfo{
+		lastLogLocation: common.LogRecordLocInfo{
 			Lsn: 0,
-			Location: FileLocation{
+			Location: common.FileLocation{
 				PageID:  logPageId.PageID,
 				SlotNum: 0,
 			},
 		},
-		getActiveTransactions: func() []txns.TxnID {
+		getActiveTransactions: func() []common.TxnID {
 			panic("TODO")
 		},
 	}
 
-	dataPageId := bufferpool.PageIdentity{
+	dataPageId := common.PageIdentity{
 		FileID: 1,
 		PageID: 0,
 	}
 
-	TransactionID_1 := txns.TxnID(1)
-	TransactionID_2 := txns.TxnID(2)
+	TransactionID_1 := common.TxnID(1)
+	TransactionID_2 := common.TxnID(2)
 
 	chain := NewTxnLogChain(logger, TransactionID_1)
 
 	// interleaving
 	chain.Begin().
-		Insert(RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 0}, []byte("first")).
+		Insert(common.RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 0}, []byte("first")).
 		SwitchTransactionID(TransactionID_2).
 		Begin().
-		Insert(RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 1}, []byte("second")).
-		Update(RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 1}, []byte("second"), []byte("sec0nd")).
+		Insert(common.RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 1}, []byte("second")).
+		Update(common.RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 1}, []byte("second"), []byte("sec0nd")).
 		SwitchTransactionID(TransactionID_1).
-		Update(RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 0}, []byte("first"), []byte("updat"))
+		Update(common.RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 0}, []byte("first"), []byte("updat"))
 
 	require.NoError(t, chain.Err())
 	require.NoError(t, pool.EnsureAllPagesUnpinned())

@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
 type BufferPool_mock struct {
 	pagesMu sync.RWMutex
-	pages   map[PageIdentity]*page.SlottedPage
+	pages   map[common.PageIdentity]*page.SlottedPage
 
 	pinCountMu sync.RWMutex
-	pinCounts  map[PageIdentity]int
+	pinCounts  map[common.PageIdentity]int
 }
 
 var (
@@ -21,12 +22,12 @@ var (
 
 func NewBufferPoolMock() *BufferPool_mock {
 	return &BufferPool_mock{
-		pages:     make(map[PageIdentity]*page.SlottedPage),
-		pinCounts: make(map[PageIdentity]int),
+		pages:     make(map[common.PageIdentity]*page.SlottedPage),
+		pinCounts: make(map[common.PageIdentity]int),
 	}
 }
 
-func (b *BufferPool_mock) Unpin(pageID PageIdentity) error {
+func (b *BufferPool_mock) Unpin(pageID common.PageIdentity) error {
 	b.pinCountMu.Lock()
 	defer b.pinCountMu.Unlock()
 
@@ -45,7 +46,7 @@ func (b *BufferPool_mock) Unpin(pageID PageIdentity) error {
 }
 
 func (b *BufferPool_mock) GetPage(
-	pageID PageIdentity,
+	pageID common.PageIdentity,
 ) (*page.SlottedPage, error) {
 	b.pagesMu.RLock()
 	p, exists := b.pages[pageID]
@@ -79,7 +80,7 @@ func (b *BufferPool_mock) GetPage(
 }
 
 func (b *BufferPool_mock) GetPageNoCreate(
-	pageID PageIdentity,
+	pageID common.PageIdentity,
 ) (*page.SlottedPage, error) {
 	b.pagesMu.RLock()
 	p, exists := b.pages[pageID]
@@ -95,7 +96,7 @@ func (b *BufferPool_mock) GetPageNoCreate(
 	return p, nil
 }
 
-func (b *BufferPool_mock) FlushPage(pageID PageIdentity) error {
+func (b *BufferPool_mock) FlushPage(pageID common.PageIdentity) error {
 	return nil
 }
 
@@ -103,7 +104,7 @@ func (b *BufferPool_mock) EnsureAllPagesUnpinned() error {
 	b.pinCountMu.RLock()
 	defer b.pinCountMu.RUnlock()
 
-	pinnedIDs := map[PageIdentity]int{}
+	pinnedIDs := map[common.PageIdentity]int{}
 	for pageID, pinCount := range b.pinCounts {
 		if pinCount != 0 {
 			pinnedIDs[pageID] = pinCount

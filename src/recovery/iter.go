@@ -4,20 +4,21 @@ import (
 	"errors"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
 type LogRecordsIter struct {
-	logfileID uint64
-	curLoc    FileLocation
+	logfileID common.FileID
+	curLoc    common.FileLocation
 
 	pool       bufferpool.BufferPool[*page.SlottedPage]
 	lockedPage *page.SlottedPage
 }
 
 func newLogRecordIter(
-	logfileID uint64,
-	curLoc FileLocation,
+	logfileID common.FileID,
+	curLoc common.FileLocation,
 	pool bufferpool.BufferPool[*page.SlottedPage],
 	lockedPage *page.SlottedPage,
 ) *LogRecordsIter {
@@ -38,17 +39,17 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 		return true, nil
 	}
 
-	curPageID := bufferpool.PageIdentity{
+	curPageID := common.PageIdentity{
 		FileID: iter.logfileID,
 		PageID: iter.curLoc.PageID,
 	}
-	defer func(pageID bufferpool.PageIdentity) { err = iter.pool.Unpin(pageID) }(
+	defer func(pageID common.PageIdentity) { err = iter.pool.Unpin(pageID) }(
 		curPageID,
 	)
 	defer iter.lockedPage.RUnlock()
 
 	newPage, err := iter.pool.GetPageNoCreate(
-		bufferpool.PageIdentity{
+		common.PageIdentity{
 			FileID: iter.logfileID,
 			PageID: iter.curLoc.PageID + 1,
 		})
@@ -73,6 +74,6 @@ func (iter *LogRecordsIter) ReadRecord() (LogRecordTypeTag, any, error) {
 	return readLogRecord(d)
 }
 
-func (iter *LogRecordsIter) Location() FileLocation {
+func (iter *LogRecordsIter) Location() common.FileLocation {
 	return iter.curLoc
 }

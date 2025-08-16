@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
-	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 // generateSequence creates a random sequence of log record operations for
@@ -38,7 +38,7 @@ import (
 func generateSequence(
 	t *testing.T,
 	chain *TxnLogChain,
-	dataPageId bufferpool.PageIdentity,
+	dataPageId common.PageIdentity,
 	length int,
 ) []LogRecordTypeTag {
 	chain.Begin()
@@ -53,7 +53,7 @@ func generateSequence(
 
 			//nolint:gosec
 			chain.Insert(
-				RecordID{
+				common.RecordID{
 					FileID:  dataPageId.FileID,
 					PageID:  dataPageId.PageID,
 					SlotNum: uint16(i),
@@ -65,7 +65,7 @@ func generateSequence(
 
 			//nolint:gosec
 			chain.Update(
-				RecordID{
+				common.RecordID{
 					FileID:  dataPageId.FileID,
 					PageID:  dataPageId.PageID,
 					SlotNum: uint16(i),
@@ -78,7 +78,7 @@ func generateSequence(
 
 			//nolint:gosec
 			chain.Delete(
-				RecordID{
+				common.RecordID{
 					FileID:  dataPageId.FileID,
 					PageID:  dataPageId.PageID,
 					SlotNum: uint16(i),
@@ -103,7 +103,7 @@ func TestIterSanity(t *testing.T) {
 	pool := bufferpool.NewBufferPoolMock()
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinned()) }()
 
-	logPageId := bufferpool.PageIdentity{
+	logPageId := common.PageIdentity{
 		FileID: 42,
 		PageID: 321,
 	}
@@ -113,28 +113,28 @@ func TestIterSanity(t *testing.T) {
 		mu:              sync.Mutex{},
 		logRecordsCount: 0,
 		logfileID:       logPageId.FileID,
-		lastLogLocation: LogRecordLocationInfo{
+		lastLogLocation: common.LogRecordLocInfo{
 			Lsn: 0,
-			Location: FileLocation{
+			Location: common.FileLocation{
 				PageID:  logPageId.PageID,
 				SlotNum: 0,
 			},
 		},
-		getActiveTransactions: func() []txns.TxnID {
+		getActiveTransactions: func() []common.TxnID {
 			panic("TODO")
 		},
 	}
 
-	dataPageId := bufferpool.PageIdentity{
+	dataPageId := common.PageIdentity{
 		FileID: 123,
 		PageID: 23,
 	}
 
-	TransactionID := txns.TxnID(1)
+	TransactionID := common.TxnID(1)
 	chain := NewTxnLogChain(logger, TransactionID)
 
 	types := generateSequence(t, chain, dataPageId, 100)
-	iter, err := logger.iter(FileLocation{
+	iter, err := logger.iter(common.FileLocation{
 		PageID:  logPageId.PageID,
 		SlotNum: 0,
 	})

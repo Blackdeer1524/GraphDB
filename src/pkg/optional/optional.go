@@ -4,7 +4,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 )
 
-type optionalTagT int
+type optionalTagT byte
 
 const (
 	optionalNoneTag optionalTagT = iota

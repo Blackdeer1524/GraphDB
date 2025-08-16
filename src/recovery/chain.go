@@ -3,29 +3,31 @@ package recovery
 import (
 	"fmt"
 
-	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
-	"github.com/Blackdeer1524/GraphDB/src/txns"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
 type TxnLogChain struct {
 	logger        *TxnLogger
-	TransactionID txns.TxnID
+	TransactionID common.TxnID
 
-	lastLocations map[txns.TxnID]LogRecordLocationInfo
+	lastLocations map[common.TxnID]common.LogRecordLocInfo
 	err           error
 }
 
-func NewTxnLogChain(logger *TxnLogger, TransactionID txns.TxnID) *TxnLogChain {
+func NewTxnLogChain(
+	logger *TxnLogger,
+	TransactionID common.TxnID,
+) *TxnLogChain {
 	return &TxnLogChain{
 		logger:        logger,
 		TransactionID: TransactionID,
 
-		lastLocations: map[txns.TxnID]LogRecordLocationInfo{},
+		lastLocations: map[common.TxnID]common.LogRecordLocInfo{},
 	}
 }
 
 func (c *TxnLogChain) SwitchTransactionID(
-	TransactionID txns.TxnID,
+	TransactionID common.TxnID,
 ) *TxnLogChain {
 	if c.err != nil {
 		return c
@@ -48,7 +50,7 @@ func (c *TxnLogChain) Begin() *TxnLogChain {
 }
 
 func (c *TxnLogChain) Insert(
-	recordID RecordID,
+	recordID common.RecordID,
 	value []byte,
 ) *TxnLogChain {
 	if c.err != nil {
@@ -71,7 +73,7 @@ func (c *TxnLogChain) Insert(
 }
 
 func (c *TxnLogChain) Update(
-	recordID RecordID,
+	recordID common.RecordID,
 	beforeValue, afterValue []byte,
 ) *TxnLogChain {
 	if c.err != nil {
@@ -95,7 +97,7 @@ func (c *TxnLogChain) Update(
 }
 
 func (c *TxnLogChain) Delete(
-	recordID RecordID,
+	recordID common.RecordID,
 ) *TxnLogChain {
 	if c.err != nil {
 		return c
@@ -180,8 +182,8 @@ func (c *TxnLogChain) CheckpointBegin() *TxnLogChain {
 }
 
 func (c *TxnLogChain) CheckpointEnd(
-	ATT []txns.TxnID,
-	DPT map[bufferpool.PageIdentity]LogRecordLocationInfo,
+	ATT []common.TxnID,
+	DPT map[common.PageIdentity]common.LogRecordLocInfo,
 ) *TxnLogChain {
 	if c.err != nil {
 		return c
@@ -192,7 +194,7 @@ func (c *TxnLogChain) CheckpointEnd(
 	return c
 }
 
-func (c *TxnLogChain) Loc() LogRecordLocationInfo {
+func (c *TxnLogChain) Loc() common.LogRecordLocInfo {
 	return c.lastLocations[c.TransactionID]
 }
 

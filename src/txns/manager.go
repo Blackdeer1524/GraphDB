@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
 type Manager[LockModeType GranularLock[LockModeType], ID comparable] struct {
@@ -11,7 +12,7 @@ type Manager[LockModeType GranularLock[LockModeType], ID comparable] struct {
 	qs      map[ID]*txnQueue[LockModeType, ID]
 
 	lockedRecordsGuard sync.Mutex
-	lockedRecords      map[TxnID]map[ID]struct{}
+	lockedRecords      map[common.TxnID]map[ID]struct{}
 }
 
 func NewManager[LockModeType GranularLock[LockModeType], ObjectID comparable]() *Manager[LockModeType, ObjectID] {
@@ -19,7 +20,7 @@ func NewManager[LockModeType GranularLock[LockModeType], ObjectID comparable]() 
 		qsGuard:            sync.Mutex{},
 		qs:                 map[ObjectID]*txnQueue[LockModeType, ObjectID]{},
 		lockedRecordsGuard: sync.Mutex{},
-		lockedRecords:      map[TxnID]map[ObjectID]struct{}{},
+		lockedRecords:      map[common.TxnID]map[ObjectID]struct{}{},
 	}
 }
 
@@ -161,7 +162,9 @@ func (m *Manager[LockModeType, ObjectID]) Unlock(
 	}()
 }
 
-func (m *Manager[LockModeType, ObjectID]) UnlockAll(TransactionID TxnID) {
+func (m *Manager[LockModeType, ObjectID]) UnlockAll(
+	TransactionID common.TxnID,
+) {
 	lockedRecords := func() map[ObjectID]struct{} {
 		m.lockedRecordsGuard.Lock()
 		defer m.lockedRecordsGuard.Unlock()
