@@ -117,6 +117,9 @@ func (b *BufferPool_mock) FlushPage(pageID common.PageIdentity) error {
 		return ErrNoSuchPage
 	}
 
+	_, ok = b.isDirty[pageID]
+	assert.Assert(ok, "expected to see record %+v in the isDirty", pageID)
+
 	delete(b.isDirty, pageID)
 	delete(b.DPT, pageID)
 

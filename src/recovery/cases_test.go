@@ -253,8 +253,7 @@ func TestBankTransactions(t *testing.T) {
 
 		firstPage.Lock()
 		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
-		logLoc, err = firstPage.UpdateWithLogs(firstNewBalance, first,
-			logger)
+		logLoc, err = firstPage.UpdateWithLogs(firstNewBalance, first, logger)
 		pool.MarkDirty(first.PageIdentity(), logLoc)
 		require.NoError(t, err)
 		firstPage.Unlock()
