@@ -3,6 +3,7 @@ package bufferpool
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
@@ -45,8 +46,10 @@ type BufferPool interface {
 	Unpin(common.PageIdentity)
 	GetPage(common.PageIdentity) (*page.SlottedPage, error)
 	GetPageNoCreate(common.PageIdentity) (*page.SlottedPage, error)
-	MarkDirty(common.PageIdentity)
+	MarkDirty(common.PageIdentity, common.LogRecordLocInfo)
+	GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo
 	FlushPage(common.PageIdentity) error
+	FlushAllPages() error
 }
 
 type frameInfo struct {
@@ -60,6 +63,8 @@ type Manager struct {
 	pageTable   map[common.PageIdentity]frameInfo
 	frames      []page.SlottedPage
 	emptyFrames []uint64
+
+	dirtyPageTable map[common.PageIdentity]common.LogRecordLocInfo
 
 	replacer Replacer
 
@@ -210,7 +215,10 @@ func (m *Manager) GetPage(
 	return page, nil
 }
 
-func (m *Manager) MarkDirty(pageIdent common.PageIdentity) {
+func (m *Manager) MarkDirty(
+	pageIdent common.PageIdentity,
+	loc common.LogRecordLocInfo,
+) {
 	m.fastPath.Lock()
 	defer m.fastPath.Unlock()
 
@@ -222,6 +230,9 @@ func (m *Manager) MarkDirty(pageIdent common.PageIdentity) {
 	)
 	frameInfo.isDirty = true
 	m.pageTable[pageIdent] = frameInfo
+	if _, ok := m.dirtyPageTable[pageIdent]; !ok {
+		m.dirtyPageTable[pageIdent] = loc
+	}
 }
 
 func (m *Manager) reserveFrame() uint64 {
@@ -266,19 +277,29 @@ func (m *Manager) FlushAllPages() error {
 	defer m.fastPath.Unlock()
 
 	var err error
-	for pgIdent, pgInfo := range m.pageTable {
+	tmp := maps.Clone(m.pageTable)
+	for pgIdent, pgInfo := range tmp {
 		if !pgInfo.isDirty {
 			continue
 		}
 
 		frame := &m.frames[pgInfo.frameID]
-		frame.Lock()
+		if !frame.TryLock() {
+			continue
+		}
 		err = errors.Join(err, m.diskManager.WritePage(frame, pgIdent))
 		frame.Unlock()
-
 		pgInfo.isDirty = false
 		m.pageTable[pgIdent] = pgInfo
+
+		delete(m.dirtyPageTable, pgIdent)
 	}
 
 	return err
+}
+
+func (m *Manager) GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {
+	m.fastPath.Lock()
+	defer m.fastPath.Unlock()
+	return maps.Clone(m.dirtyPageTable)
 }

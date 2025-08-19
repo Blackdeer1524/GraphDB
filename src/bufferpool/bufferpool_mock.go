@@ -3,6 +3,7 @@ package bufferpool
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
@@ -13,7 +14,9 @@ import (
 type BufferPool_mock struct {
 	pagesMu sync.RWMutex
 	pages   map[common.PageIdentity]*page.SlottedPage
+
 	isDirty map[common.PageIdentity]bool
+	DPT     map[common.PageIdentity]common.LogRecordLocInfo
 
 	pinCountMu sync.RWMutex
 	pinCounts  map[common.PageIdentity]int
@@ -113,12 +116,19 @@ func (b *BufferPool_mock) FlushPage(pageID common.PageIdentity) error {
 		return ErrNoSuchPage
 	}
 
+	_, ok = b.isDirty[pageID]
+	assert.Assert(ok, "expected to see record %+v in the isDirty", pageID)
+
 	b.isDirty[pageID] = false
+	delete(b.DPT, pageID)
 
 	return nil
 }
 
-func (b *BufferPool_mock) MarkDirty(pageID common.PageIdentity) {
+func (b *BufferPool_mock) MarkDirty(
+	pageID common.PageIdentity,
+	loc common.LogRecordLocInfo,
+) {
 	b.pagesMu.Lock()
 	defer b.pagesMu.Unlock()
 
@@ -126,6 +136,36 @@ func (b *BufferPool_mock) MarkDirty(pageID common.PageIdentity) {
 	assert.Assert(ok)
 
 	b.isDirty[pageID] = true
+	if _, ok := b.DPT[pageID]; !ok {
+		b.DPT[pageID] = loc
+	}
+}
+
+func (b *BufferPool_mock) GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {
+	b.pagesMu.Lock()
+	defer b.pagesMu.Unlock()
+	return maps.Clone(b.DPT)
+}
+
+func (b *BufferPool_mock) FlushAllPages() error {
+	b.pagesMu.Lock()
+	defer b.pagesMu.Unlock()
+
+	for pageID, page := range b.pages {
+		isDirty, ok := b.isDirty[pageID]
+		assert.Assert(ok)
+		if !isDirty {
+			continue
+		}
+
+		if !page.TryLock() {
+			continue
+		}
+		delete(b.DPT, pageID)
+		page.Unlock()
+	}
+
+	return nil
 }
 
 func (b *BufferPool_mock) EnsureAllPagesUnpinnedAndUnlocked() error {
