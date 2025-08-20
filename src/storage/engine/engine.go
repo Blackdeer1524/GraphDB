@@ -36,8 +36,6 @@ type SystemCatalog interface {
 	DropIndex(name string) error
 
 	Save() error
-	CommitSystemCatalog() error
-	RollbackSystemCatalog()
 }
 
 type Filesystem interface {
