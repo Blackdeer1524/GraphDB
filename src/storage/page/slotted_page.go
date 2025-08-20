@@ -1,6 +1,7 @@
 package page
 
 import (
+	"encoding"
 	"errors"
 	"sync"
 	"unsafe"
@@ -79,10 +80,21 @@ func NewSlottedPage() *SlottedPage {
 	p := &SlottedPage{
 		data: [PageSize]byte{},
 	}
+	p.setupHeader()
+	return p
+}
+
+func (p *SlottedPage) setupHeader() {
 	head := p.getHeader()
 	head.freeStart = uint16(unsafe.Sizeof(header{}))
 	head.freeEnd = PageSize
-	return p
+}
+
+func (p *SlottedPage) Clear() {
+	for i := range PageSize {
+		p.data[i] = 0
+	}
+	p.setupHeader()
 }
 
 func (p *SlottedPage) PageLSN() common.LSN {
@@ -95,35 +107,7 @@ func (p *SlottedPage) SetPageLSN(lsn common.LSN) {
 	header.pageLSN = lsn
 }
 
-var ErrNoSpaceLeft error = errors.New("the page is full")
-
-func (p *SlottedPage) InsertWithLogs(
-	data []byte,
-	pageIdent common.PageIdentity,
-	ctxLogger common.ITxnLoggerWithContext,
-) (uint16, common.LogRecordLocInfo, error) {
-	slotOpt := p.InsertPrepare(data)
-	if slotOpt.IsNone() {
-		return 0, common.NewNilLogRecordLocation(), ErrNoSpaceLeft
-	}
-
-	slot := slotOpt.Unwrap()
-	recordID := common.RecordID{
-		FileID:  pageIdent.FileID,
-		PageID:  pageIdent.PageID,
-		SlotNum: slot,
-	}
-	logRecordLoc, err := ctxLogger.AppendInsert(recordID, data)
-	if err != nil {
-		return 0, common.NewNilLogRecordLocation(), err
-	}
-
-	p.InsertCommit(slot)
-	p.SetPageLSN(logRecordLoc.Lsn)
-	return slot, logRecordLoc, err
-}
-
-func (p *SlottedPage) InsertPrepare(data []byte) optional.Optional[uint16] {
+func (p *SlottedPage) insertPrepare(data []byte) optional.Optional[uint16] {
 	header := p.getHeader()
 	// space required to store both the array and it's length
 	requiredLength := int(unsafe.Sizeof(uint16(1))) + len(data)
@@ -162,7 +146,7 @@ func (p *SlottedPage) InsertPrepare(data []byte) optional.Optional[uint16] {
 	return optional.Some(curSlot)
 }
 
-func (p *SlottedPage) InsertCommit(slotHandle uint16) {
+func (p *SlottedPage) insertCommit(slotHandle uint16) {
 	header := p.getHeader()
 	assert.Assert(
 		uint16(slotHandle) < header.slotsCount,
@@ -178,6 +162,43 @@ func (p *SlottedPage) InsertCommit(slotHandle uint16) {
 		"tried to commit an insert to a wrong slot",
 	)
 	slots[slotHandle] = newSlotPtr(SlotStatusInserted, ptr.RecordOffset())
+}
+
+func (p *SlottedPage) Insert(data []byte) optional.Optional[uint16] {
+	slotOpt := p.insertPrepare(data)
+	if slotOpt.IsNone() {
+		return optional.None[uint16]()
+	}
+	p.insertCommit(slotOpt.Unwrap())
+	return slotOpt
+}
+
+var ErrNoSpaceLeft error = errors.New("the page is full")
+
+func (p *SlottedPage) InsertWithLogs(
+	data []byte,
+	pageIdent common.PageIdentity,
+	ctxLogger common.ITxnLoggerWithContext,
+) (uint16, common.LogRecordLocInfo, error) {
+	slotOpt := p.insertPrepare(data)
+	if slotOpt.IsNone() {
+		return 0, common.NewNilLogRecordLocation(), ErrNoSpaceLeft
+	}
+
+	slot := slotOpt.Unwrap()
+	recordID := common.RecordID{
+		FileID:  pageIdent.FileID,
+		PageID:  pageIdent.PageID,
+		SlotNum: slot,
+	}
+	logRecordLoc, err := ctxLogger.AppendInsert(recordID, data)
+	if err != nil {
+		return 0, common.NewNilLogRecordLocation(), err
+	}
+
+	p.insertCommit(slot)
+	p.SetPageLSN(logRecordLoc.Lsn)
+	return slot, logRecordLoc, err
 }
 
 func (p *SlottedPage) UndoInsert(slotID uint16) {
@@ -290,6 +311,10 @@ func (p *SlottedPage) UpdateWithLogs(
 	return logRecordLoc, err
 }
 
+func (p *SlottedPage) TryLock() bool {
+	return p.getHeader().latch.TryLock()
+}
+
 func (p *SlottedPage) Lock() {
 	p.getHeader().latch.Lock()
 }
@@ -324,4 +349,22 @@ func (p *SlottedPage) UnsafeOverrideSlotStatus(
 	slot := header.getSlots()[slotNumber]
 
 	header.getSlots()[slotNumber] = newSlotPtr(newStatus, slot.RecordOffset())
+}
+
+func Get[T encoding.BinaryUnmarshaler](
+	p *SlottedPage,
+	slotID uint16,
+	dst T,
+) error {
+	data := p.Read(slotID)
+	return dst.UnmarshalBinary(data)
+}
+
+func InsertSerializable[T encoding.BinaryMarshaler](
+	p *SlottedPage,
+	obj T,
+) optional.Optional[uint16] {
+	bytes, err := obj.MarshalBinary()
+	assert.NoError(err)
+	return p.Insert(bytes)
 }

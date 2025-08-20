@@ -7,10 +7,17 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
+	"github.com/spf13/afero"
 )
 
 const (
-	catalogFile = "system_catalog.json"
+	currentVersionFile = "CURRENT"
+	zeroVersion        = uint64(0)
 )
 
 var (
@@ -18,25 +25,43 @@ var (
 	ErrEntityExists   = errors.New("entity already exists")
 )
 
+type CurrentFileManager interface {
+	GetPage(common.PageIdentity) (*page.SlottedPage, error)
+}
+
 type Data struct {
-	Metadata     Metadata               `json:"metadata"`
-	VertexTables map[string]VertexTable `json:"vertex_tables"`
-	EdgeTables   map[string]EdgeTable   `json:"edge_tables"`
-	Indexes      map[string]Index       `json:"indexes"`
+	Metadata     storage.Metadata               `json:"metadata"`
+	VertexTables map[string]storage.VertexTable `json:"vertex_tables"`
+	EdgeTables   map[string]storage.EdgeTable   `json:"edge_tables"`
+	Indexes      map[string]storage.Index       `json:"indexes"`
 }
 
 type Manager struct {
-	basePath string
-
-	mx *sync.RWMutex
-
+	fs        afero.Fs
+	basePath  string
+	data      *Data
 	maxFileID uint64
 
-	data *Data
+	bp                 CurrentFileManager
+	currentVersionPage *page.SlottedPage
+
+	// currentVersion uses for cache if version from file is equal to
+	// this then we don't need to reread it from disk
+	currentVersion uint64
+
+	mx *sync.RWMutex
 }
 
-func isFileExists(path string) (bool, error) {
-	_, err := os.Stat(path)
+func GetSystemCatalogVersionFileName(basePath string) string {
+	return filepath.Join(basePath, currentVersionFile)
+}
+
+func getSystemCatalogFilename(basePath string, v uint64) string {
+	return filepath.Join(basePath, "system_catalog_"+fmt.Sprint(v)+".json")
+}
+
+func isFileExists(fs afero.Fs, path string) (bool, error) {
+	_, err := fs.Stat(path)
 	if err == nil {
 		return true, nil
 	}
@@ -48,72 +73,170 @@ func isFileExists(path string) (bool, error) {
 	return false, err
 }
 
-func New(basePath string) (*Manager, error) {
-	path := filepath.Join(basePath, catalogFile)
+func initializeVersionFile(fs afero.Fs, versionFile string) (err error) {
+	p := page.NewSlottedPage()
 
-	ok, err := isFileExists(path)
+	p.InsertPrepare(utils.Uint64ToBytes(zeroVersion))
+
+	data := p.GetData()
+
+	file, err := fs.OpenFile(
+		filepath.Clean(versionFile),
+		os.O_WRONLY|os.O_CREATE,
+		0600,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check existence of catalog file: %w", err)
+		return fmt.Errorf("failed to open current version file: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, file.Close())
+	}()
+
+	_, err = file.WriteAt(data, 0)
+	if err != nil {
+		return fmt.Errorf("failed to write at file: %w", err)
 	}
 
-	sc := &Data{
-		Metadata: Metadata{
-			Version: "1.0",
-			Name:    "graphdb",
-		},
-		VertexTables: make(map[string]VertexTable),
-		EdgeTables:   make(map[string]EdgeTable),
-		Indexes:      make(map[string]Index),
+	return nil
+}
+
+// InitSystemCatalog - initializes system catalogs if files not exist.
+// If there is no current version file then we have to create it
+// and fill it with zeroVersion and create default system catalog file.
+func InitSystemCatalog(basePath string, fs afero.Fs) error {
+	versionFile := GetSystemCatalogVersionFileName(basePath)
+
+	ok, err := isFileExists(fs, versionFile)
+	if err != nil {
+		return fmt.Errorf("failed to check existence of current version file: %w", err)
+	}
+
+	if ok {
+		return nil
+	}
+
+	err = initializeVersionFile(fs, versionFile)
+	if err != nil {
+		return fmt.Errorf("failed to initialize version file: %w", err)
+	}
+
+	scFilename := getSystemCatalogFilename(basePath, zeroVersion)
+
+	var d Data
+
+	data, err := json.Marshal(d)
+	if err != nil {
+		return fmt.Errorf("failed to marshal to json: %w", err)
+	}
+
+	file, err := fs.OpenFile(
+		filepath.Clean(scFilename),
+		os.O_WRONLY|os.O_CREATE,
+		0600,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open current version file: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, file.Close())
+	}()
+
+	_, err = file.WriteAt(data, 0)
+	if err != nil {
+		return fmt.Errorf("failed to write at file: %w", err)
+	}
+
+	return nil
+}
+
+// New creates new system catalog manager. It reads current version from current version file
+// and reads system catalog file with this version. Also, it allocates page for current version.
+// Page is used for concurrency control.
+func New(basePath string, fs afero.Fs, bp CurrentFileManager) (*Manager, error) {
+	versionFile := GetSystemCatalogVersionFileName(basePath)
+
+	ok, err := isFileExists(fs, versionFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existence of current version file: %w", err)
 	}
 
 	if !ok {
-		data, err := json.Marshal(sc)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal to json: %w", err)
-		}
-
-		err = os.WriteFile(path, data, 0644)
-		if err != nil {
-			return nil, fmt.Errorf("failed to write catalog file: %w", err)
-		}
-	} else {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read catalog file: %w", err)
-		}
-
-		err = json.Unmarshal(data, sc)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal catalog file: %w", err)
-		}
+		return nil, fmt.Errorf("failed to : %w", err)
 	}
 
-	maxFileID := uint64(0)
-
-	for _, table := range sc.VertexTables {
-		if table.FileID > maxFileID {
-			maxFileID = table.FileID
-		}
+	cvp, err := bp.GetPage(common.PageIdentity{FileID: 0, PageID: 0})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get page with version: %w", err)
 	}
 
-	for _, table := range sc.EdgeTables {
-		if table.FileID > maxFileID {
-			maxFileID = table.FileID
-		}
+	versionNum := utils.BytesToUin64(cvp.Read(0))
+
+	sysCatFilename := getSystemCatalogFilename(basePath, versionNum)
+
+	dataBytes, err := afero.ReadFile(fs, sysCatFilename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read system catalog file: %w", err)
 	}
 
-	for _, index := range sc.Indexes {
-		if index.FileID > maxFileID {
-			maxFileID = index.FileID
-		}
+	var data *Data
+
+	err = json.Unmarshal(dataBytes, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal system catalog file: %w", err)
 	}
 
 	return &Manager{
-		basePath:  basePath,
-		data:      sc,
-		mx:        new(sync.RWMutex),
-		maxFileID: maxFileID,
+		bp:                 bp,
+		currentVersionPage: cvp,
+		currentVersion:     versionNum,
+		basePath:           basePath,
+		data:               data,
+		fs:                 fs,
+
+		mx: new(sync.RWMutex),
 	}, nil
+}
+
+func (m *Manager) updateSystemCatalogData() error {
+	m.mx.RLock()
+
+	versionNum := utils.BytesToUin64(m.currentVersionPage.Read(0))
+
+	if m.currentVersion == versionNum {
+		m.mx.RUnlock()
+
+		return nil
+	}
+
+	m.mx.RUnlock()
+
+	m.mx.Lock()
+	defer m.mx.Unlock()
+
+	versionNum = utils.BytesToUin64(m.currentVersionPage.Read(0))
+
+	if m.currentVersion == versionNum {
+		return nil
+	}
+
+	sysCatFilename := getSystemCatalogFilename(m.basePath, versionNum)
+
+	dataBytes, err := afero.ReadFile(m.fs, sysCatFilename)
+	if err != nil {
+		return fmt.Errorf("failed to read system catalog file: %w", err)
+	}
+
+	var data Data
+
+	err = json.Unmarshal(dataBytes, &data)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal system catalog file: %w", err)
+	}
+
+	m.data = &data
+	m.currentVersion = versionNum
+
+	return nil
 }
 
 func (m *Manager) GetBasePath() string {
@@ -127,17 +250,32 @@ func (m *Manager) Save() error {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
-	data, err := json.MarshalIndent(m.data, "", "  ")
+	nVersion := m.currentVersion + 1
+
+	data, err := json.Marshal(m.data)
 	if err != nil {
-		return fmt.Errorf("failed to marshal catalog: %w", err)
+		return fmt.Errorf("failed to marshal system catalog data: %w", err)
 	}
 
-	path := filepath.Join(m.basePath, catalogFile)
+	sysCatFilename := getSystemCatalogFilename(m.basePath, nVersion)
 
-	err = os.WriteFile(path, data, 0644)
+	file, err := m.fs.OpenFile(
+		filepath.Clean(sysCatFilename),
+		os.O_WRONLY|os.O_CREATE,
+		0600,
+	)
 	if err != nil {
-		return fmt.Errorf("failed to write catalog file: %w", err)
+		return fmt.Errorf("failed to open system catalog file: %w", err)
 	}
+
+	_, err = file.WriteAt(data, 0)
+	if err != nil {
+		return fmt.Errorf("failed to write at file: %w", err)
+	}
+
+	m.currentVersionPage.Update(0, utils.Uint64ToBytes(zeroVersion))
+
+	m.currentVersionPage.SetDirtiness(true)
 
 	return nil
 }
@@ -151,7 +289,12 @@ func (m *Manager) GetNewFileID() uint64 {
 	return m.maxFileID
 }
 
-func (m *Manager) GetVertexTableMeta(name string) (*VertexTable, error) {
+func (m *Manager) GetVertexTableMeta(name string) (*storage.VertexTable, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -163,7 +306,12 @@ func (m *Manager) GetVertexTableMeta(name string) (*VertexTable, error) {
 	return &table, nil
 }
 
-func (m *Manager) AddVertexTable(req VertexTable) error {
+func (m *Manager) AddVertexTable(req storage.VertexTable) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -178,6 +326,11 @@ func (m *Manager) AddVertexTable(req VertexTable) error {
 }
 
 func (m *Manager) DropVertexTable(name string) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -191,7 +344,12 @@ func (m *Manager) DropVertexTable(name string) error {
 	return nil
 }
 
-func (m *Manager) VertexGetIndexes(name string) ([]Index, error) {
+func (m *Manager) VertexGetIndexes(name string) ([]storage.Index, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -200,7 +358,7 @@ func (m *Manager) VertexGetIndexes(name string) ([]Index, error) {
 		return nil, ErrEntityNotFound
 	}
 
-	indexes := make([]Index, 0)
+	indexes := make([]storage.Index, 0)
 
 	for _, index := range m.data.Indexes {
 		if index.TableName == name && index.TableKind == "vertex" {
@@ -211,7 +369,12 @@ func (m *Manager) VertexGetIndexes(name string) ([]Index, error) {
 	return indexes, nil
 }
 
-func (m *Manager) GetEdgeTableMeta(name string) (*EdgeTable, error) {
+func (m *Manager) GetEdgeTableMeta(name string) (*storage.EdgeTable, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -223,7 +386,12 @@ func (m *Manager) GetEdgeTableMeta(name string) (*EdgeTable, error) {
 	return &table, nil
 }
 
-func (m *Manager) AddEdgeTable(req EdgeTable) error {
+func (m *Manager) AddEdgeTable(req storage.EdgeTable) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -238,6 +406,11 @@ func (m *Manager) AddEdgeTable(req EdgeTable) error {
 }
 
 func (m *Manager) DropEdgeTable(name string) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -251,7 +424,12 @@ func (m *Manager) DropEdgeTable(name string) error {
 	return nil
 }
 
-func (m *Manager) EdgeGetIndexes(name string) ([]Index, error) {
+func (m *Manager) EdgeGetIndexes(name string) ([]storage.Index, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -260,7 +438,7 @@ func (m *Manager) EdgeGetIndexes(name string) ([]Index, error) {
 		return nil, ErrEntityNotFound
 	}
 
-	indexes := make([]Index, 0)
+	indexes := make([]storage.Index, 0)
 
 	for _, index := range m.data.Indexes {
 		if index.TableName == name && index.TableKind == "edge" {
@@ -271,7 +449,12 @@ func (m *Manager) EdgeGetIndexes(name string) ([]Index, error) {
 	return indexes, nil
 }
 
-func (m *Manager) GetIndex(name string) (*Index, error) {
+func (m *Manager) GetIndex(name string) (*storage.Index, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
@@ -283,7 +466,12 @@ func (m *Manager) GetIndex(name string) (*Index, error) {
 	return &index, nil
 }
 
-func (m *Manager) AddIndex(index Index) error {
+func (m *Manager) AddIndex(index storage.Index) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -304,6 +492,11 @@ func (m *Manager) AddIndex(index Index) error {
 }
 
 func (m *Manager) DropIndex(name string) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
@@ -316,23 +509,28 @@ func (m *Manager) DropIndex(name string) error {
 	return nil
 }
 
-func (m *Manager) CopyData() *Data {
+func (m *Manager) CopyData() (*Data, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return nil, err
+	}
+
 	m.mx.RLock()
 	defer m.mx.RUnlock()
 
-	metadata := Metadata{
+	metadata := storage.Metadata{
 		Version: m.data.Metadata.Version,
 		Name:    m.data.Metadata.Name,
 	}
 
-	vertexTables := make(map[string]VertexTable, len(m.data.VertexTables))
+	vertexTables := make(map[string]storage.VertexTable, len(m.data.VertexTables))
 	for name, table := range m.data.VertexTables {
-		properties := make(map[string]Column, len(table.Schema))
+		properties := make(map[string]storage.Column, len(table.Schema))
 		for k, v := range table.Schema {
 			properties[k] = v
 		}
 
-		vertexTables[name] = VertexTable{
+		vertexTables[name] = storage.VertexTable{
 			Name:       table.Name,
 			PathToFile: table.PathToFile,
 			FileID:     table.FileID,
@@ -340,14 +538,14 @@ func (m *Manager) CopyData() *Data {
 		}
 	}
 
-	edgeTables := make(map[string]EdgeTable, len(m.data.EdgeTables))
+	edgeTables := make(map[string]storage.EdgeTable, len(m.data.EdgeTables))
 	for name, table := range m.data.EdgeTables {
-		properties := make(map[string]Column, len(table.Schema))
+		properties := make(map[string]storage.Column, len(table.Schema))
 		for k, v := range table.Schema {
 			properties[k] = v
 		}
 
-		edgeTables[name] = EdgeTable{
+		edgeTables[name] = storage.EdgeTable{
 			Name:       table.Name,
 			PathToFile: table.PathToFile,
 			FileID:     table.FileID,
@@ -355,12 +553,12 @@ func (m *Manager) CopyData() *Data {
 		}
 	}
 
-	indexes := make(map[string]Index, len(m.data.Indexes))
+	indexes := make(map[string]storage.Index, len(m.data.Indexes))
 	for name, index := range m.data.Indexes {
 		columns := make([]string, len(index.Columns))
 		copy(columns, index.Columns)
 
-		indexes[name] = Index{
+		indexes[name] = storage.Index{
 			Name:      index.Name,
 			FileID:    index.FileID,
 			TableName: index.TableName,
@@ -374,5 +572,23 @@ func (m *Manager) CopyData() *Data {
 		VertexTables: vertexTables,
 		EdgeTables:   edgeTables,
 		Indexes:      indexes,
+	}, nil
+}
+
+func (m *Manager) GetFileIDToPathMap() map[common.FileID]string {
+	mp := make(map[common.FileID]string)
+
+	for _, v := range m.data.Indexes {
+		mp[common.FileID(v.FileID)] = v.PathToFile
 	}
+
+	for _, v := range m.data.EdgeTables {
+		mp[common.FileID(v.FileID)] = v.PathToFile
+	}
+
+	for _, v := range m.data.VertexTables {
+		mp[common.FileID(v.FileID)] = v.PathToFile
+	}
+
+	return mp
 }

@@ -46,6 +46,25 @@ type FileLocation struct {
 	SlotNum uint16
 }
 
+func (f *FileLocation) MarshalBinary() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	if err := binary.Write(buf, binary.BigEndian, f.PageID); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.BigEndian, f.SlotNum); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (f *FileLocation) UnmarshalBinary(data []byte) error {
+	rd := bytes.NewReader(data)
+	if err := binary.Read(rd, binary.BigEndian, &f.PageID); err != nil {
+		return err
+	}
+	return binary.Read(rd, binary.BigEndian, &f.SlotNum)
+}
+
 type RecordID struct {
 	FileID  FileID
 	PageID  PageID

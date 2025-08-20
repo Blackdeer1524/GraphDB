@@ -22,9 +22,9 @@ func TestInsertAndGet(t *testing.T) {
 	var slotIDs []uint16
 
 	for _, rec := range records {
-		slot := page.InsertPrepare(rec)
+		slot := page.insertPrepare(rec)
 		require.NotEqual(t, slot, None[uint16]())
-		page.InsertCommit(slot.Unwrap())
+		page.insertCommit(slot.Unwrap())
 		slotIDs = append(slotIDs, slot.Unwrap())
 	}
 
@@ -43,11 +43,11 @@ func TestInsertAndGetLarger(t *testing.T) {
 	page := NewSlottedPage()
 	i := 0
 	for {
-		handle := page.InsertPrepare([]byte(strconv.Itoa(i)))
+		handle := page.insertPrepare([]byte(strconv.Itoa(i)))
 		if handle.IsNone() {
 			break
 		}
-		page.InsertCommit(handle.Unwrap())
+		page.insertCommit(handle.Unwrap())
 		i++
 	}
 
@@ -62,8 +62,8 @@ func TestFreeSpaceReduction(t *testing.T) {
 	page := NewSlottedPage()
 	initialFree := page.getHeader().freeEnd - page.getHeader().freeStart
 
-	slot := page.InsertPrepare([]byte("1234567890"))
-	page.InsertCommit(slot.Unwrap())
+	slot := page.insertPrepare([]byte("1234567890"))
+	page.insertCommit(slot.Unwrap())
 
 	used := page.getHeader().freeEnd - page.getHeader().freeStart
 	assert.Less(t, used, initialFree, "Free space did not reduce correctly")
@@ -73,7 +73,7 @@ func TestInsertTooLarge(t *testing.T) {
 	page := NewSlottedPage()
 
 	tooBig := make([]byte, PageSize)
-	handle := page.InsertPrepare(tooBig)
+	handle := page.insertPrepare(tooBig)
 	assert.Equal(t, None[uint16](), handle)
 }
 
@@ -89,9 +89,9 @@ func TestInvalidSlotID(t *testing.T) {
 func TestUpdateSuccess(t *testing.T) {
 	page := NewSlottedPage()
 	orig := []byte("original")
-	slot := page.InsertPrepare(orig)
+	slot := page.insertPrepare(orig)
 	require.NotEqual(t, slot, None[uint16]())
-	page.InsertCommit(slot.Unwrap())
+	page.insertCommit(slot.Unwrap())
 
 	newData := []byte("changed0")
 	page.Update(slot.Unwrap(), newData)
@@ -103,9 +103,9 @@ func TestUpdateSuccess(t *testing.T) {
 func TestUpdateTooLarge(t *testing.T) {
 	page := NewSlottedPage()
 	orig := []byte("short")
-	slot := page.InsertPrepare(orig)
+	slot := page.insertPrepare(orig)
 	require.NotEqual(t, slot, None[uint16]())
-	page.InsertCommit(slot.Unwrap())
+	page.insertCommit(slot.Unwrap())
 
 	newData := []byte("this is too long")
 	require.Panics(t, func() {
@@ -120,9 +120,9 @@ func TestUpdateTooLarge(t *testing.T) {
 func TestDeleteRemovesData(t *testing.T) {
 	page := NewSlottedPage()
 	orig := []byte("todelete")
-	slot := page.InsertPrepare(orig)
+	slot := page.insertPrepare(orig)
 	require.NotEqual(t, slot, None[uint16]())
-	page.InsertCommit(slot.Unwrap())
+	page.insertCommit(slot.Unwrap())
 
 	page.Delete(slot.Unwrap())
 
@@ -161,9 +161,9 @@ func TestDeleteInvalidSlotPanics(t *testing.T) {
 func TestDeleteTwicePanics(t *testing.T) {
 	page := NewSlottedPage()
 	orig := []byte("doubledelete")
-	slot := page.InsertPrepare(orig)
+	slot := page.insertPrepare(orig)
 	require.NotEqual(t, slot, None[uint16]())
-	page.InsertCommit(slot.Unwrap())
+	page.insertCommit(slot.Unwrap())
 
 	page.Delete(slot.Unwrap())
 	assert.Panics(t, func() {
@@ -174,9 +174,9 @@ func TestDeleteTwicePanics(t *testing.T) {
 func TestGetBytes_ValidSlot(t *testing.T) {
 	page := NewSlottedPage()
 	data := []byte("testdata")
-	slot := page.InsertPrepare(data)
+	slot := page.insertPrepare(data)
 	require.NotEqual(t, slot, None[uint16]())
-	page.InsertCommit(slot.Unwrap())
+	page.insertCommit(slot.Unwrap())
 
 	got := page.Read(slot.Unwrap())
 	assert.Equal(t, data, got, "GetBytes should return the correct data")
@@ -192,7 +192,7 @@ func TestGetBytes_InvalidSlotID_Panics(t *testing.T) {
 func TestGetBytes_NotCommitted_Panics(t *testing.T) {
 	page := NewSlottedPage()
 	data := []byte("pending")
-	slot := page.InsertPrepare(data)
+	slot := page.insertPrepare(data)
 	// Not calling InsertCommit
 	assert.Panics(t, func() {
 		_ = page.Read(slot.Unwrap())
@@ -202,9 +202,9 @@ func TestGetBytes_NotCommitted_Panics(t *testing.T) {
 func TestGetBytes_DeletedSlot_Panics(t *testing.T) {
 	page := NewSlottedPage()
 	data := []byte("todelete")
-	slot := page.InsertPrepare(data)
+	slot := page.insertPrepare(data)
 	require.NotEqual(t, slot, None[uint16]())
-	page.InsertCommit(slot.Unwrap())
+	page.insertCommit(slot.Unwrap())
 	page.Delete(slot.Unwrap())
 
 	assert.Panics(t, func() {
@@ -215,9 +215,9 @@ func TestGetBytes_DeletedSlot_Panics(t *testing.T) {
 func TestUndoDelete_RestoresDataAndStatus(t *testing.T) {
 	page := NewSlottedPage()
 	orig := []byte("restoreme")
-	slot := page.InsertPrepare(orig)
+	slot := page.insertPrepare(orig)
 	require.NotEqual(t, slot, None[uint16]())
-	page.InsertCommit(slot.Unwrap())
+	page.insertCommit(slot.Unwrap())
 
 	// Delete the slot
 	page.Delete(slot.Unwrap())
@@ -246,9 +246,9 @@ func TestUndoDelete_RestoresDataAndStatus(t *testing.T) {
 func TestUndoDelete_PanicsIfSlotNotDeleted(t *testing.T) {
 	page := NewSlottedPage()
 	orig := []byte("notdeleted")
-	slot := page.InsertPrepare(orig)
+	slot := page.insertPrepare(orig)
 	require.NotEqual(t, slot, None[uint16]())
-	page.InsertCommit(slot.Unwrap())
+	page.insertCommit(slot.Unwrap())
 
 	// Try UndoDelete on a slot that is not deleted
 	assert.Panics(t, func() {

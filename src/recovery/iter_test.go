@@ -2,7 +2,6 @@ package recovery
 
 import (
 	"math/rand"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,7 +57,7 @@ func generateSequence(
 					PageID:  dataPageId.PageID,
 					SlotNum: uint16(i),
 				},
-				utils.Uint32ToBytes(uint32(i)),
+				utils.ToBytes[uint32](uint32(i)),
 			)
 		case 1:
 			res[i] = TypeUpdate
@@ -70,8 +69,8 @@ func generateSequence(
 					PageID:  dataPageId.PageID,
 					SlotNum: uint16(i),
 				},
-				utils.Uint32ToBytes(uint32(i)),
-				utils.Uint32ToBytes(uint32(i+1)),
+				utils.ToBytes[uint32](uint32(i)),
+				utils.ToBytes[uint32](uint32(i+1)),
 			)
 		case 2:
 			res[i] = TypeDelete
@@ -100,30 +99,31 @@ func generateSequence(
 }
 
 func TestIterSanity(t *testing.T) {
-	pool := bufferpool.NewBufferPoolMock()
-	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinned()) }()
-
 	logPageId := common.PageIdentity{
 		FileID: 42,
 		PageID: 321,
 	}
 
-	logger := &TxnLogger{
-		pool:            pool,
-		mu:              sync.Mutex{},
-		logRecordsCount: 0,
-		logfileID:       logPageId.FileID,
-		lastLogLocation: common.LogRecordLocInfo{
-			Lsn: 0,
-			Location: common.FileLocation{
-				PageID:  logPageId.PageID,
-				SlotNum: 0,
-			},
-		},
-		getActiveTransactions: func() []common.TxnID {
-			panic("TODO")
-		},
+	masterRecordPageIdent := common.PageIdentity{
+		FileID: logPageId.FileID,
+		PageID: masterRecordPage,
 	}
+	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
+		masterRecordPageIdent,
+	})
+
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	setupLoggerMasterPage(
+		t,
+		pool,
+		masterRecordPageIdent,
+		common.LogRecordLocInfo{
+			Lsn:      1,
+			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
+		},
+	)
+	logger := NewTxnLogger(pool, logPageId.FileID)
 
 	dataPageId := common.PageIdentity{
 		FileID: 123,
@@ -134,6 +134,8 @@ func TestIterSanity(t *testing.T) {
 	chain := NewTxnLogChain(logger, TransactionID)
 
 	types := generateSequence(t, chain, dataPageId, 100)
+	assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+
 	iter, err := logger.iter(common.FileLocation{
 		PageID:  logPageId.PageID,
 		SlotNum: 0,

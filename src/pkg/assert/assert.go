@@ -6,13 +6,13 @@ import (
 	"runtime"
 )
 
-func Assert(condition bool, args ...any) bool {
+func assertWithDepth(condition bool, depth int, args ...any) bool {
 	if condition {
 		return true
 	}
 
 	// Get caller info (skip 1 frame to get the caller of Assert)
-	_, file, line, ok := runtime.Caller(1)
+	_, file, line, ok := runtime.Caller(depth)
 	if !ok {
 		file = "unknown"
 		line = 0
@@ -36,12 +36,16 @@ func Assert(condition bool, args ...any) bool {
 	panic(m)
 }
 
-func NoError(err error) {
-	Assert(err == nil, "expected no error, got: %v", err)
+func Assert(condition bool, args ...any) bool {
+	return assertWithDepth(condition, 2, args...)
 }
 
-func NoErrorWithMessage(err error, message string) {
-	Assert(err == nil, message, err)
+func NoError(err error) bool {
+	return assertWithDepth(err == nil, 2, "expected no error, got: %v", err)
+}
+
+func NoErrorWithMessage(err error, args ...any) bool {
+	return assertWithDepth(err == nil, 2, args...)
 }
 
 // Cast attempts to cast the provided value 'data' to the specified
@@ -57,6 +61,6 @@ func NoErrorWithMessage(err error, message string) {
 //	Panics if 'data' cannot be cast to type 'T'.
 func Cast[T any](data any) T {
 	castedData, ok := data.(T)
-	Assert(ok, "couldn't perform a type cast")
+	assertWithDepth(ok, 2, "couldn't perform a type cast")
 	return castedData
 }

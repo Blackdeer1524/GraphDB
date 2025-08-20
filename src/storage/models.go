@@ -1,4 +1,4 @@
-package systemcatalog
+package storage
 
 type Schema map[string]Column
 
@@ -17,11 +17,13 @@ type EdgeTable struct {
 }
 
 type Index struct {
-	Name      string   `json:"name"`
-	FileID    uint64   `json:"id"`
-	TableName string   `json:"table_name"`
-	Columns   []string `json:"columns"`
-	TableKind string   `json:"table_kind"`
+	Name        string   `json:"name"`
+	PathToFile  string   `json:"path_to_file"`
+	FileID      uint64   `json:"id"`
+	TableName   string   `json:"table_name"`
+	TableKind   string   `json:"table_kind"`
+	Columns     []string `json:"columns"`
+	KeyBytesCnt uint32   `json:"key_bytes_cnt"`
 }
 
 type Column struct {

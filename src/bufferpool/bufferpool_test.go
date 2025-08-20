@@ -25,8 +25,8 @@ func TestGetPage_Cached(t *testing.T) {
 	}
 
 	p := page.NewSlottedPage()
-	insertOpt := p.InsertPrepare([]byte("cached data"))
-	p.InsertCommit(insertOpt.Unwrap())
+	slotOpt := p.Insert([]byte("cached data"))
+	require.True(t, slotOpt.IsSome())
 
 	frameID := uint64(0)
 	manager.frames[frameID] = *p
@@ -64,8 +64,8 @@ func TestGetPage_LoadFromDisk(t *testing.T) {
 	}
 
 	expectedPage := page.NewSlottedPage()
-	slotOpt := expectedPage.InsertPrepare([]byte("disk data"))
-	expectedPage.InsertCommit(slotOpt.Unwrap())
+	slotOpt := expectedPage.Insert([]byte("disk data"))
+	require.True(t, slotOpt.IsSome())
 
 	mockDisk.On("ReadPage", pageIdent).Return(expectedPage, nil)
 	mockReplacer.On("Pin", pageIdent).Return()
@@ -98,8 +98,8 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 	existingFileID, existingPageID := uint64(1), uint64(0)
 
 	existingPage := page.NewSlottedPage()
-	slotOpt := existingPage.InsertPrepare([]byte("existing data"))
-	existingPage.InsertCommit(slotOpt.Unwrap())
+	slotOpt := existingPage.Insert([]byte("existing data"))
+	require.True(t, slotOpt.IsSome())
 
 	existingPageData := common.PageIdentity{
 		FileID: common.FileID(existingFileID),
@@ -119,8 +119,8 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 	newPageID := uint64(1)
 
 	newPage := page.NewSlottedPage()
-	newInsertSlotOpt := newPage.InsertPrepare([]byte("new data"))
-	newPage.InsertCommit(newInsertSlotOpt.Unwrap())
+	newSlotOpt := newPage.Insert([]byte("new data"))
+	require.True(t, newSlotOpt.IsSome())
 
 	pIdent := common.PageIdentity{
 		FileID: common.FileID(newFileID),
@@ -155,8 +155,8 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	existingFileID, existingPageID := uint64(1), uint64(0)
 
 	existingPage := page.NewSlottedPage()
-	slotOpt := existingPage.InsertPrepare([]byte("old data"))
-	existingPage.InsertCommit(slotOpt.Unwrap())
+	slotOpt := existingPage.Insert([]byte("old data"))
+	require.True(t, slotOpt.IsSome())
 
 	existingPageIdent := common.PageIdentity{
 		FileID: common.FileID(existingFileID),
@@ -173,8 +173,8 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	manager.emptyFrames = []uint64{}
 
 	newPage := page.NewSlottedPage()
-	newInsertSlotOpt := newPage.InsertPrepare([]byte("new data"))
-	newPage.InsertCommit(newInsertSlotOpt.Unwrap())
+	newSlotOpt := newPage.Insert([]byte("new data"))
+	require.True(t, newSlotOpt.IsSome())
 
 	mockReplacer.On("ChooseVictim").Return(existingPageIdent, nil)
 	mockDisk.On("WritePage", existingPage, existingPageIdent).Return(nil)

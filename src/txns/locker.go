@@ -2,12 +2,13 @@ package txns
 
 import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
 
 type Locker struct {
-	catalogLockManager *Manager[GranularLockMode, struct{}]
-	fileLockManager    *Manager[GranularLockMode, common.FileID] // for indexes and tables
-	pageLockManager    *Manager[PageLockMode, common.PageIdentity]
+	catalogLockManager *lockManager[GranularLockMode, struct{}]
+	fileLockManager    *lockManager[GranularLockMode, common.FileID] // for indexes and tables
+	pageLockManager    *lockManager[PageLockMode, common.PageIdentity]
 }
 
 func NewLocker() *Locker {
@@ -175,4 +176,22 @@ func (l *Locker) UpgradePageLock(
 	}
 	<-n
 	return true
+}
+
+func (l *Locker) GetActiveTransactions() []common.TxnID {
+	catalogLockingTxns := l.catalogLockManager.GetActiveTransactions()
+	fileLockingTxns := l.fileLockManager.GetActiveTransactions()
+	pageLockingTxns := l.pageLockManager.GetActiveTransactions()
+
+	merge := utils.MergeMaps(
+		catalogLockingTxns,
+		fileLockingTxns,
+		pageLockingTxns,
+	)
+	res := make([]common.TxnID, 0, len(merge))
+	for k := range merge {
+		res = append(res, k)
+	}
+
+	return res
 }

@@ -24,15 +24,40 @@ func (p Pair[T, K]) Destruct() (T, K) {
 	return p.First, p.Second
 }
 
-func Uint32ToBytes(num uint32) []byte {
+func ToBytes[T any](v T) []byte {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.BigEndian, v)
+	assert.NoError(err)
+	return buf.Bytes()
+}
+
+func FromBytes[T any](b []byte) T {
+	var v T
+	buf := bytes.NewReader(b)
+	err := binary.Read(buf, binary.BigEndian, &v)
+	assert.NoError(err)
+	return v
+}
+
+func MergeMaps[K comparable, V any](maps ...map[K]V) map[K]V {
+	result := make(map[K]V)
+	for _, m := range maps {
+		for k, v := range m {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+func Uint64ToBytes(num uint64) []byte {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.BigEndian, num)
 	assert.NoError(err)
 	return buf.Bytes()
 }
 
-func BytesToUint32(b []byte) uint32 {
-	var num uint32
+func BytesToUin64(b []byte) uint64 {
+	var num uint64
 	buf := bytes.NewReader(b)
 	err := binary.Read(buf, binary.BigEndian, &num)
 	assert.NoError(err)
