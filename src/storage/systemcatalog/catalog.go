@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,8 +26,9 @@ var (
 	ErrEntityExists   = errors.New("entity already exists")
 )
 
-type CurrentFileManager interface {
+type BufferPool interface {
 	GetPage(common.PageIdentity) (*page.SlottedPage, error)
+	MarkDirty(common.PageIdentity)
 }
 
 type Data struct {
@@ -42,7 +44,7 @@ type Manager struct {
 	data      *Data
 	maxFileID uint64
 
-	bp                 CurrentFileManager
+	bp                 BufferPool
 	currentVersionPage *page.SlottedPage
 
 	// currentVersion uses for cache if version from file is equal to
@@ -76,7 +78,8 @@ func isFileExists(fs afero.Fs, path string) (bool, error) {
 func initializeVersionFile(fs afero.Fs, versionFile string) (err error) {
 	p := page.NewSlottedPage()
 
-	p.InsertPrepare(utils.Uint64ToBytes(zeroVersion))
+	slotOpt := p.Insert(utils.ToBytes(zeroVersion))
+	assert.Assert(slotOpt.IsSome())
 
 	data := p.GetData()
 
@@ -152,7 +155,7 @@ func InitSystemCatalog(basePath string, fs afero.Fs) error {
 // New creates new system catalog manager. It reads current version from current version file
 // and reads system catalog file with this version. Also, it allocates page for current version.
 // Page is used for concurrency control.
-func New(basePath string, fs afero.Fs, bp CurrentFileManager) (*Manager, error) {
+func New(basePath string, fs afero.Fs, bp BufferPool) (*Manager, error) {
 	versionFile := GetSystemCatalogVersionFileName(basePath)
 
 	ok, err := isFileExists(fs, versionFile)
@@ -169,7 +172,7 @@ func New(basePath string, fs afero.Fs, bp CurrentFileManager) (*Manager, error) 
 		return nil, fmt.Errorf("failed to get page with version: %w", err)
 	}
 
-	versionNum := utils.BytesToUin64(cvp.Read(0))
+	versionNum := utils.FromBytes[uint64](cvp.Read(0))
 
 	sysCatFilename := getSystemCatalogFilename(basePath, versionNum)
 
@@ -200,7 +203,7 @@ func New(basePath string, fs afero.Fs, bp CurrentFileManager) (*Manager, error) 
 func (m *Manager) updateSystemCatalogData() error {
 	m.mx.RLock()
 
-	versionNum := utils.BytesToUin64(m.currentVersionPage.Read(0))
+	versionNum := utils.FromBytes[uint64](m.currentVersionPage.Read(0))
 
 	if m.currentVersion == versionNum {
 		m.mx.RUnlock()
@@ -213,7 +216,7 @@ func (m *Manager) updateSystemCatalogData() error {
 	m.mx.Lock()
 	defer m.mx.Unlock()
 
-	versionNum = utils.BytesToUin64(m.currentVersionPage.Read(0))
+	versionNum = utils.FromBytes[uint64](m.currentVersionPage.Read(0))
 
 	if m.currentVersion == versionNum {
 		return nil
@@ -273,9 +276,12 @@ func (m *Manager) Save() error {
 		return fmt.Errorf("failed to write at file: %w", err)
 	}
 
-	m.currentVersionPage.Update(0, utils.Uint64ToBytes(zeroVersion))
+	m.currentVersionPage.Update(0, utils.ToBytes(zeroVersion))
 
-	m.currentVersionPage.SetDirtiness(true)
+	m.bp.MarkDirty(common.PageIdentity{
+		FileID: 0,
+		PageID: 0,
+	})
 
 	return nil
 }
