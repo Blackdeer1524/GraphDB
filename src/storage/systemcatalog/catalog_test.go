@@ -2,6 +2,7 @@ package systemcatalog
 
 import (
 	"encoding/json"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog/mocks"
@@ -65,6 +66,10 @@ func Test_GetFileIDToPathMap(t *testing.T) {
 func TestManager_Save_CreatesNewVersionFile(t *testing.T) {
 	dir := t.TempDir()
 
+	p := page.NewSlottedPage()
+
+	p.Insert(utils.ToBytes(uint64(0)))
+
 	m := &Manager{
 		basePath: dir,
 		fs:       afero.NewOsFs(),
@@ -75,7 +80,7 @@ func TestManager_Save_CreatesNewVersionFile(t *testing.T) {
 			Indexes:      map[string]storage.Index{},
 		},
 		currentVersion:     0,
-		currentVersionPage: page.NewSlottedPage(),
+		currentVersionPage: p,
 		bp:                 &mocks.MockDataBufferPool{},
 
 		mu: new(sync.RWMutex),
@@ -83,16 +88,54 @@ func TestManager_Save_CreatesNewVersionFile(t *testing.T) {
 
 	err := m.Save()
 	require.NoError(t, err)
-	require.Equal(t, 1, m.currentVersion)
+	require.Equal(t, uint64(1), m.currentVersion)
 
 	fname := filepath.Join(dir, "system_catalog_1.json")
 	data, err := os.ReadFile(fname)
 	require.NoError(t, err)
 
-	var restored map[string]string
-	if err := json.Unmarshal(data, &restored); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
+	var restored Data
+	err = json.Unmarshal(data, &restored)
+	require.NoError(t, err)
+
+	require.Equal(t, m.data, &restored)
+}
+
+func TestManager_Save_Twice_IncrementsVersion(t *testing.T) {
+	dir := t.TempDir()
+
+	p := page.NewSlottedPage()
+
+	p.Insert(utils.ToBytes(uint64(0)))
+
+	m := &Manager{
+		basePath: dir,
+		fs:       afero.NewOsFs(),
+		data: &Data{
+			Metadata:     storage.Metadata{},
+			VertexTables: map[string]storage.VertexTable{},
+			EdgeTables:   map[string]storage.EdgeTable{},
+			Indexes:      map[string]storage.Index{},
+		},
+		currentVersion:     0,
+		currentVersionPage: p,
+		bp:                 &mocks.MockDataBufferPool{},
+
+		mu: new(sync.RWMutex),
 	}
 
-	require.Equal(t, "bar", restored["foo"])
+	err := m.Save()
+	require.NoError(t, err)
+
+	err = m.Save()
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(2), m.currentVersion)
+
+	for i := 1; i <= 2; i++ {
+		fname := getSystemCatalogFilename(dir, uint64(i))
+
+		_, err = os.Stat(fname)
+		require.NoError(t, err)
+	}
 }

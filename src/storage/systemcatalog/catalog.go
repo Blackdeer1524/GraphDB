@@ -309,11 +309,6 @@ func (m *Manager) Save() (err error) {
 	m.bp.MarkDirty(common.PageIdentity{FileID: 0, PageID: 0})
 	m.currentVersion = nVersion
 
-	m.bp.MarkDirty(common.PageIdentity{
-		FileID: 0,
-		PageID: 0,
-	})
-
 	return nil
 }
 
