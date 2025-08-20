@@ -56,12 +56,12 @@ func (m PageLockMode) Upgradable(to PageLockMode) bool {
 	case PAGE_LOCK_SHARED:
 		switch to {
 		case PAGE_LOCK_SHARED:
-			return true
+			return false
 		case PAGE_LOCK_EXCLUSIVE:
 			return true
 		}
 	case PAGE_LOCK_EXCLUSIVE:
-		return to == PAGE_LOCK_EXCLUSIVE
+		return false
 	}
 	return false
 }
@@ -145,9 +145,6 @@ func (m GranularLockMode) Compatible(other GranularLockMode) bool {
 }
 
 func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
-	if m == to {
-		return true
-	}
 	switch m {
 	case GRANULAR_LOCK_INTENTION_SHARED:
 		switch to {

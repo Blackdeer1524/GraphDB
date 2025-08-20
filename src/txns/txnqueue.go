@@ -304,7 +304,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	)
 	oldLockMode := upgradingEntry.r.lockMode
 
-	if r.lockMode.Upgradable(oldLockMode) {
+	if r.lockMode.Equal(oldLockMode) || r.lockMode.Upgradable(oldLockMode) {
 		// check whether we request for a weaker lock
 		upgradingEntry.mu.Unlock()
 		return upgradingEntry.notifier
