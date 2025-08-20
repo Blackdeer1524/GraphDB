@@ -246,16 +246,19 @@ func TestBankTransactions(t *testing.T) {
 
 		myPage.Lock()
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
-		_, err = myPage.UpdateWithLogs(myNewBalance, me, logger)
-		// logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
-		// pool.MarkDirty(me.PageIdentity(), logLoc)
+		// _, err = myPage.UpdateWithLogs(myNewBalance, me, logger)
+		logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
+		pool.MarkDirty(me.PageIdentity(), logLoc)
 		require.NoError(t, err)
 		myPage.Unlock()
 
 		firstPage.Lock()
-		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
-		_, err = firstPage.UpdateWithLogs(firstNewBalance, first, logger)
-		// pool.MarkDirty(first.PageIdentity(), logLoc)
+		firstNewBalance := utils.ToBytes[uint32](firstBalance +
+			transferAmount)
+		// _, err = firstPage.UpdateWithLogs(firstNewBalance, first, logger)
+		logLoc, err = firstPage.UpdateWithLogs(firstNewBalance, first,
+			logger)
+		pool.MarkDirty(first.PageIdentity(), logLoc)
 		require.NoError(t, err)
 		firstPage.Unlock()
 
@@ -345,4 +348,24 @@ func TestBankTransactions(t *testing.T) {
 		pool.Unpin(id.PageIdentity())
 	}
 	require.Equal(t, finalTotalMoney, totalMoney)
+}
+
+// ensureAllQueuesEmpty is a helper function that can be used in tests to verify
+// that all transaction queues become empty after all transactions unlock their
+// pages.
+// This helps catch memory leaks and ensures proper cleanup.
+func ensureAllQueuesEmpty(t *testing.T, locker *txns.Locker) {
+	if !locker.AreAllQueuesEmpty() {
+		activeTxns := locker.GetActiveTransactions()
+		t.Errorf(
+			"Not all queues are empty. Active transactions: %+v",
+			activeTxns,
+		)
+	}
+
+	require.True(
+		t,
+		locker.AreAllQueuesEmpty(),
+		"All queues should be empty after test cleanup",
+	)
 }
