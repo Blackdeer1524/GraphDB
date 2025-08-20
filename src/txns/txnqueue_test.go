@@ -129,11 +129,7 @@ func TestConcurrentAccess(t *testing.T) {
 				lockMode: PAGE_LOCK_SHARED,
 			}
 
-			fmt.Printf("before lock %d\n", id)
-
 			notifier := q.Lock(req)
-			fmt.Printf("after lock %d\n", id)
-
 			expectClosedChannel(
 				t,
 				notifier,
@@ -382,5 +378,162 @@ func TestManagerUpgradeWithUpgradeWaiter(t *testing.T) {
 		t,
 		upgradeNotifier2,
 		"upgrade should be allowed to run [compatible locks]",
+	)
+}
+
+func TestLockUpgradeIdempotent(t *testing.T) {
+	q := newTxnQueue[PageLockMode, common.PageID]()
+
+	// Start with a shared lock
+	req := TxnLockRequest[PageLockMode, common.PageID]{
+		txnID:    10,
+		objectId: 1,
+		lockMode: PAGE_LOCK_SHARED,
+	}
+
+	notifier := q.Lock(req)
+	expectClosedChannel(
+		t,
+		notifier,
+		"shared lock should be granted immediately",
+	)
+
+	// First upgrade to exclusive
+	req.lockMode = PAGE_LOCK_EXCLUSIVE
+	notifier1 := q.Upgrade(req)
+	expectClosedChannel(
+		t,
+		notifier1,
+		"first upgrade to exclusive should be granted immediately",
+	)
+
+	// Second upgrade to the same exclusive mode (idempotent)
+	req.lockMode = PAGE_LOCK_EXCLUSIVE
+	notifier2 := q.Upgrade(req)
+	expectClosedChannel(
+		t,
+		notifier2,
+		"second upgrade to same mode should be idempotent",
+	)
+
+	// Verify both notifiers are the same channel (idempotent behavior)
+	require.Equal(
+		t,
+		notifier1,
+		notifier2,
+		"idempotent upgrades should return the same notifier",
+	)
+
+	// Third upgrade to the same exclusive mode (still idempotent)
+	req.lockMode = PAGE_LOCK_EXCLUSIVE
+	notifier3 := q.Upgrade(req)
+	expectClosedChannel(
+		t,
+		notifier3,
+		"third upgrade to same mode should still be idempotent",
+	)
+
+	// All notifiers should be the same
+	require.Equal(
+		t,
+		notifier1,
+		notifier2,
+		"all idempotent upgrades should return the same notifier",
+	)
+	require.Equal(
+		t,
+		notifier2,
+		notifier3,
+		"all idempotent upgrades should return the same notifier",
+	)
+
+	// Verify the lock is still exclusive
+	upgradingEntry, ok := q.txnNodes[req.txnID]
+	require.True(t, ok, "transaction should still exist in the queue")
+	require.Equal(
+		t,
+		PAGE_LOCK_EXCLUSIVE,
+		upgradingEntry.r.lockMode,
+		"lock mode should remain exclusive",
+	)
+}
+
+func TestLockUpgradeIdempotentWithGranularLocks(t *testing.T) {
+	q := newTxnQueue[GranularLockMode, common.FileID]()
+
+	// Start with a shared lock
+	req := TxnLockRequest[GranularLockMode, common.FileID]{
+		txnID:    15,
+		objectId: 1,
+		lockMode: GRANULAR_LOCK_SHARED,
+	}
+
+	notifier := q.Lock(req)
+	expectClosedChannel(
+		t,
+		notifier,
+		"shared lock should be granted immediately",
+	)
+
+	// First upgrade to shared intention exclusive
+	req.lockMode = GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE
+	notifier1 := q.Upgrade(req)
+	expectClosedChannel(
+		t,
+		notifier1,
+		"first upgrade to SIX should be granted immediately",
+	)
+
+	// Second upgrade to the same SIX mode (idempotent)
+	req.lockMode = GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE
+	notifier2 := q.Upgrade(req)
+	expectClosedChannel(
+		t,
+		notifier2,
+		"second upgrade to same SIX mode should be idempotent",
+	)
+
+	// Verify both notifiers are the same channel (idempotent behavior)
+	require.Equal(
+		t,
+		notifier1,
+		notifier2,
+		"idempotent upgrades should return the same notifier",
+	)
+
+	// Third upgrade to exclusive
+	req.lockMode = GRANULAR_LOCK_EXCLUSIVE
+	notifier3 := q.Upgrade(req)
+	expectClosedChannel(
+		t,
+		notifier3,
+		"upgrade to exclusive should be granted immediately",
+	)
+
+	// Fourth upgrade to the same exclusive mode (idempotent)
+	req.lockMode = GRANULAR_LOCK_EXCLUSIVE
+	notifier4 := q.Upgrade(req)
+	expectClosedChannel(
+		t,
+		notifier4,
+		"upgrade to same exclusive mode should be idempotent",
+	)
+
+	// Verify the exclusive upgrade notifiers are the same
+	require.Equal(
+		t,
+		notifier3,
+		notifier4,
+		"idempotent exclusive upgrades should return the same notifier",
+	)
+
+	// Verify the lock is now exclusive
+	upgradingEntry, ok := q.txnNodes[req.txnID]
+	require.True(t, ok, "transaction should still exist in the queue")
+	require.Equal(
+		t,
+		GRANULAR_LOCK_EXCLUSIVE,
+		upgradingEntry.r.lockMode,
+		"lock mode should be exclusive",
 	)
 }

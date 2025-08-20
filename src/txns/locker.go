@@ -195,3 +195,9 @@ func (l *Locker) GetActiveTransactions() []common.TxnID {
 
 	return res
 }
+
+func (l *Locker) AreAllQueuesEmpty() bool {
+	return l.catalogLockManager.AreAllQueuesEmpty() &&
+		l.fileLockManager.AreAllQueuesEmpty() &&
+		l.pageLockManager.AreAllQueuesEmpty()
+}

@@ -38,6 +38,7 @@ func NewBufferPoolMock(leakedPages []common.PageIdentity) *BufferPool_mock {
 		pages:       make(map[common.PageIdentity]*page.SlottedPage),
 		pinCounts:   make(map[common.PageIdentity]int),
 		isDirty:     make(map[common.PageIdentity]bool),
+		DPT:         map[common.PageIdentity]common.LogRecordLocInfo{},
 		leakedPages: m,
 	}
 }

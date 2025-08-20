@@ -193,3 +193,16 @@ func (m *lockManager[LockModeType, ObjectID]) GetActiveTransactions() map[common
 	}
 	return activeTxns
 }
+
+func (m *lockManager[LockModeType, ObjectID]) AreAllQueuesEmpty() bool {
+	m.qsGuard.Lock()
+	defer m.qsGuard.Unlock()
+
+	for _, q := range m.qs {
+		if !q.IsEmpty() {
+			return false
+		}
+	}
+
+	return true
+}

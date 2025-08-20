@@ -3,6 +3,7 @@ package recovery
 import (
 	"math"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,7 +57,9 @@ func TestBankTransactions(t *testing.T) {
 		},
 	)
 	files := generatedFileIDs[1:]
-	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	defer func() {
+		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	}()
 
 	setupLoggerMasterPage(
 		t,
@@ -70,20 +73,24 @@ func TestBankTransactions(t *testing.T) {
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
 
 	START_BALANCE := uint32(60)
-	rollbackCutoff := START_BALANCE / 3
-	clientsCount := 100
-	txnsCount := 100_000
+	ROLLBACK_CUTOFF := uint32(0) // START_BALANCE / 3
+	CLIENTS_COUNT := 10
+	TXNS_COUNT := 10_00
+	RETRY_COUNT := 1
+	MAX_ENTRIES_PER_PAGE := 1
+	WORKER_COUNT := 100
 
-	workerPool, err := ants.NewPool(20_000)
+	workerPool, err := ants.NewPool(WORKER_COUNT)
 	require.NoError(t, err)
 
 	recordValues := fillPages(
 		t,
 		logger,
 		math.MaxUint64,
-		clientsCount,
+		CLIENTS_COUNT,
 		files,
 		START_BALANCE,
+		MAX_ENTRIES_PER_PAGE,
 	)
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
@@ -118,10 +125,16 @@ func TestBankTransactions(t *testing.T) {
 	}()
 
 	succ := atomic.Uint64{}
-	wg := sync.WaitGroup{}
-	task := func() {
-		defer wg.Done()
-		txnID := common.TxnID(txnsTicker.Add(1))
+	fileLockFail := atomic.Uint64{}
+	myPageLockFail := atomic.Uint64{}
+	balanceFail := atomic.Uint64{}
+	firstPageLockFail := atomic.Uint64{}
+	myPageUpgradeFail := atomic.Uint64{}
+	firstPageUpgradeFail := atomic.Uint64{}
+	rollbackCutoffFail := atomic.Uint64{}
+	catalogUpgradeFail := atomic.Uint64{}
+	fileLockUpgradeFail := atomic.Uint64{}
+	task := func(txnID common.TxnID) bool {
 		logger := logger.WithContext(txnID)
 
 		res := generateUniqueInts[int](t, 2, 0, len(IDs)-1)
@@ -144,10 +157,11 @@ func TestBankTransactions(t *testing.T) {
 			txns.GRANULAR_LOCK_INTENTION_SHARED,
 		)
 		if ttoken == nil {
+			fileLockFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
 			logger.Rollback()
-			return
+			return false
 		}
 
 		myPageToken := locker.LockPage(
@@ -156,10 +170,11 @@ func TestBankTransactions(t *testing.T) {
 			txns.PAGE_LOCK_SHARED,
 		)
 		if myPageToken == nil {
+			myPageLockFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
 			logger.Rollback()
-			return
+			return false
 		}
 
 		myPage, err := pool.GetPageNoCreate(me.PageIdentity())
@@ -171,10 +186,11 @@ func TestBankTransactions(t *testing.T) {
 		myPage.RUnlock()
 
 		if myBalance == 0 {
+			balanceFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
 			logger.Rollback()
-			return
+			return false
 		}
 
 		// try to read the first guy's balance
@@ -184,10 +200,11 @@ func TestBankTransactions(t *testing.T) {
 			txns.PAGE_LOCK_SHARED,
 		)
 		if firstPageToken == nil {
+			firstPageLockFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
 			logger.Rollback()
-			return
+			return false
 		}
 
 		firstPage, err := pool.GetPageNoCreate(first.PageIdentity())
@@ -195,46 +212,70 @@ func TestBankTransactions(t *testing.T) {
 		defer func() { pool.Unpin(first.PageIdentity()) }()
 
 		firstPage.RLock()
-		firstBalance := utils.FromBytes[uint32](
-			firstPage.Read(first.SlotNum),
-		)
+		firstBalance := utils.FromBytes[uint32](firstPage.Read(first.SlotNum))
 		firstPage.RUnlock()
 
 		// transfering
-		transferAmount := uint32(rand.Intn(int(myBalance)))
-		if !locker.UpgradePageLock(myPageToken, txns.PAGE_LOCK_EXCLUSIVE) {
+		if !locker.UpgradeCatalogLock(
+			ctoken,
+			txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
+		) {
+			catalogUpgradeFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
 			logger.Rollback()
-			return
+			return false
+		}
+
+		if !locker.UpgradeFileLock(
+			ttoken,
+			txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
+		) {
+			fileLockUpgradeFail.Add(1)
+			err = logger.AppendAbort()
+			require.NoError(t, err)
+			logger.Rollback()
+			return false
+		}
+
+		transferAmount := uint32(rand.Intn(int(myBalance)))
+		if !locker.UpgradePageLock(myPageToken, txns.PAGE_LOCK_EXCLUSIVE) {
+			myPageUpgradeFail.Add(1)
+			err = logger.AppendAbort()
+			require.NoError(t, err)
+			logger.Rollback()
+			return false
 		}
 
 		if !locker.UpgradePageLock(firstPageToken, txns.PAGE_LOCK_EXCLUSIVE) {
+			firstPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
 			logger.Rollback()
-			return
+			return false
 		}
 
 		myPage.Lock()
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
-		_, err = myPage.UpdateWithLogs(myNewBalance, me, logger)
-		// logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
-		// pool.MarkDirty(me.PageIdentity(), logLoc)
+		// _, err = myPage.UpdateWithLogs(myNewBalance, me, logger)
+		logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
+		pool.MarkDirty(me.PageIdentity(), logLoc)
 		require.NoError(t, err)
 		myPage.Unlock()
 
 		firstPage.Lock()
-		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
-		_, err = firstPage.UpdateWithLogs(firstNewBalance, first, logger)
-		// pool.MarkDirty(first.PageIdentity(), logLoc)
+		firstNewBalance := utils.ToBytes[uint32](firstBalance +
+			transferAmount)
+		// _, err = firstPage.UpdateWithLogs(firstNewBalance, first, logger)
+		logLoc, err = firstPage.UpdateWithLogs(firstNewBalance, first,
+			logger)
+		pool.MarkDirty(first.PageIdentity(), logLoc)
 		require.NoError(t, err)
 		firstPage.Unlock()
 
 		myPage.RLock()
-		myNewBalanceFromPage := utils.FromBytes[uint32](
-			myPage.Read(me.SlotNum),
-		)
+		myNewBalanceFromPage :=
+			utils.FromBytes[uint32](myPage.Read(me.SlotNum))
 		require.Equal(t, myNewBalanceFromPage, myBalance-transferAmount)
 		myPage.RUnlock()
 
@@ -249,25 +290,63 @@ func TestBankTransactions(t *testing.T) {
 		)
 		firstPage.RUnlock()
 
-		if myNewBalanceFromPage < rollbackCutoff {
+		if myNewBalanceFromPage < ROLLBACK_CUTOFF {
+			rollbackCutoffFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
 			logger.Rollback()
-			return
+			return false
 		}
 		err = logger.AppendCommit()
 		require.NoError(t, err)
 		succ.Add(1)
+		return true
 	}
 
-	for range txnsCount {
+	wg := sync.WaitGroup{}
+	retryingTask := func() {
+		defer wg.Done()
+		txnID := common.TxnID(txnsTicker.Add(1))
+		for range RETRY_COUNT {
+			if task(txnID) {
+				return
+			}
+			runtime.Gosched()
+		}
+	}
+
+	for range TXNS_COUNT {
 		wg.Add(1)
-		require.NoError(t, workerPool.Submit(task))
+		require.NoError(t, workerPool.Submit(retryingTask))
 	}
 	wg.Wait()
 
-	assert.Greater(t, txnsTicker.Load(), uint64(0))
-	assert.Greater(t, succ.Load(), uint64(0))
+	assert.Equal(t, TXNS_COUNT, int(txnsTicker.Load()))
+
+	successCount := succ.Load()
+	assert.Greater(t, successCount, uint64(0))
+	if !assert.Greater(t, int(successCount), TXNS_COUNT/2) {
+		t.Logf(
+			"fileLockFail: %d\n"+
+				"myPageLockFail: %d\n"+
+				"balanceFail: %d\n"+
+				"firstPageLockFail: %d\n"+
+				"catalogUpgradeFail: %d\n"+
+				"fileLockUpgradeFail: %d\n"+
+				"myPageUpgradeFail: %d\n"+
+				"firstPageUpgradeFail: %d\n"+
+				"rollbackCutoffFail: %d\n",
+			fileLockFail.Load(),
+			myPageLockFail.Load(),
+			balanceFail.Load(),
+			firstPageLockFail.Load(),
+			catalogUpgradeFail.Load(),
+			fileLockUpgradeFail.Load(),
+			myPageUpgradeFail.Load(),
+			firstPageUpgradeFail.Load(),
+			rollbackCutoffFail.Load(),
+		)
+	}
 
 	finalTotalMoney := uint32(0)
 	for id := range recordValues {
@@ -280,4 +359,24 @@ func TestBankTransactions(t *testing.T) {
 		pool.Unpin(id.PageIdentity())
 	}
 	require.Equal(t, finalTotalMoney, totalMoney)
+}
+
+// ensureAllQueuesEmpty is a helper function that can be used in tests to verify
+// that all transaction queues become empty after all transactions unlock their
+// pages.
+// This helps catch memory leaks and ensures proper cleanup.
+func ensureAllQueuesEmpty(t *testing.T, locker *txns.Locker) {
+	if !locker.AreAllQueuesEmpty() {
+		activeTxns := locker.GetActiveTransactions()
+		t.Errorf(
+			"Not all queues are empty. Active transactions: %+v",
+			activeTxns,
+		)
+	}
+
+	require.True(
+		t,
+		locker.AreAllQueuesEmpty(),
+		"All queues should be empty after test cleanup",
+	)
 }

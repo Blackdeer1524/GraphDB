@@ -13,6 +13,7 @@ type GranularLockMode TaggedType[uint16]
 type GranularLock[Lock any] interface {
 	Compatible(Lock) bool
 	Upgradable(Lock) bool
+	Equal(Lock) bool
 }
 
 var (
@@ -63,6 +64,10 @@ func (m PageLockMode) Upgradable(to PageLockMode) bool {
 		return to == PAGE_LOCK_EXCLUSIVE
 	}
 	return false
+}
+
+func (m PageLockMode) Equal(other PageLockMode) bool {
+	return m == other
 }
 
 // https://www.geeksforgeeks.org/dbms/multiple-granularity-locking-in-dbms/
@@ -183,6 +188,10 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 	default:
 		return false
 	}
+}
+
+func (m GranularLockMode) Equal(other GranularLockMode) bool {
+	return m == other
 }
 
 type TxnLockRequest[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {

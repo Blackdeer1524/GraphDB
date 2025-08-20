@@ -291,13 +291,19 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 		"can only upgrade running transactions",
 	)
 	oldLockMode := upgradingEntry.r.lockMode
-	upgradingEntry.mu.Unlock()
+
+	if oldLockMode.Equal(r.lockMode) {
+		upgradingEntry.mu.Unlock()
+		return upgradingEntry.notifier
+	}
 
 	assert.Assert(
 		oldLockMode.Upgradable(r.lockMode),
 		"can only upgrade to a compatible lock mode. given: %v -> %v",
 		oldLockMode,
 		r.lockMode)
+
+	upgradingEntry.mu.Unlock()
 
 	deadlockCond := false
 	compatible := true
@@ -435,10 +441,20 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Unlock(
 	deletingNode.mu.Unlock()
 	cur.mu.Unlock()
 
+	q.mu.Lock()
+	delete(q.txnNodes, r.txnID)
+	q.mu.Unlock()
+
 	if deletingNodeStatus == entryStatusRunning && cur == q.head &&
 		next.status != entryStatusRunning {
 		q.processBatch(next)
 		return
 	}
 	next.mu.Unlock()
+}
+
+func (q *txnQueue[LockModeType, ObjectIDType]) IsEmpty() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.head.next == q.tail
 }
