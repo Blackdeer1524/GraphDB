@@ -48,18 +48,3 @@ func MergeMaps[K comparable, V any](maps ...map[K]V) map[K]V {
 	}
 	return result
 }
-
-func Uint64ToBytes(num uint64) []byte {
-	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.BigEndian, num)
-	assert.NoError(err)
-	return buf.Bytes()
-}
-
-func BytesToUin64(b []byte) uint64 {
-	var num uint64
-	buf := bytes.NewReader(b)
-	err := binary.Read(buf, binary.BigEndian, &num)
-	assert.NoError(err)
-	return num
-}
