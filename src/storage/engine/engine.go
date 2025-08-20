@@ -119,6 +119,8 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 
 	tableFilePath := getVertexTableFilePath(basePath, name)
 
+	// Existence of the file is not the proof of existence of the table (we don't remove file on drop),
+	// and it is why we do not check if the table exists in system catalog.
 	ok, err := s.catalog.VertexTableExists(name)
 	if err != nil {
 		return fmt.Errorf("unable to check if vertex table exists: %w", err)
@@ -222,6 +224,17 @@ func (s *StorageEngine) CreateEdgesTable(txnID common.TxnID, name string, schema
 
 	tableFilePath := getEdgeTableFilePath(basePath, name)
 
+	// Existence of the file is not the proof of existence of the table (we don't remove file on drop),
+	// and it is why we do not check if the table exists in system catalog.
+	ok, err := s.catalog.EdgeTableExists(name)
+	if err != nil {
+		return fmt.Errorf("unable to check if vertex table exists: %w", err)
+	}
+
+	if ok {
+		return fmt.Errorf("vertex table %s already exists", name)
+	}
+
 	fileExists, err := s.disk.IsFileExists(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to check if file exists: %w", err)
@@ -319,6 +332,17 @@ func (s *StorageEngine) CreateIndex(
 	fileID := s.catalog.GetNewFileID()
 
 	tableFilePath := getIndexFilePath(basePath, name)
+
+	// Existence of the file is not the proof of existence of the index (we don't remove file on drop),
+	// and it is why we do not check if the table exists in system catalog.
+	ok, err := s.catalog.EdgeTableExists(name)
+	if err != nil {
+		return fmt.Errorf("unable to check if vertex table exists: %w", err)
+	}
+
+	if ok {
+		return fmt.Errorf("vertex table %s already exists", name)
+	}
 
 	fileExists, err := s.disk.IsFileExists(tableFilePath)
 	if err != nil {
