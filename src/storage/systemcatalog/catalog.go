@@ -302,11 +302,6 @@ func (m *Manager) Save() (err error) {
 
 	err = file.Close()
 	if err != nil {
-		err1 := file.Close()
-		if err1 != nil {
-			err = errors.Join(err, err1)
-		}
-
 		return fmt.Errorf("failed to close system catalog file: %w", err)
 	}
 
