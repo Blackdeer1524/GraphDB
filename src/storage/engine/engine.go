@@ -27,10 +27,17 @@ type SystemCatalog interface {
 	GetNewFileID() uint64
 	GetBasePath() string
 
+	GetVertexTableMeta(name string) (storage.VertexTable, error)
+	VertexTableExists(name string) (bool, error)
 	AddVertexTable(req storage.VertexTable) error
 	DropVertexTable(name string) error
+
+	GetEdgeTableMeta(name string) (storage.EdgeTable, error)
+	EdgeTableExists(name string) (bool, error)
 	AddEdgeTable(req storage.EdgeTable) error
 	DropEdgeTable(name string) error
+
+	IndexExists(name string) (bool, error)
 	AddIndex(req storage.Index) error
 	DropIndex(name string) error
 
@@ -112,13 +119,25 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 
 	tableFilePath := getVertexTableFilePath(basePath, name)
 
+	ok, err := s.catalog.VertexTableExists(name)
+	if err != nil {
+		return fmt.Errorf("unable to check if vertex table exists: %w", err)
+	}
+
+	if ok {
+		return fmt.Errorf("vertex table %s already exists", name)
+	}
+
 	fileExists, err := s.disk.IsFileExists(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to check if file exists: %w", err)
 	}
 
 	if fileExists {
-		return fmt.Errorf("file %s already exists", tableFilePath)
+		err = s.disk.Remove(tableFilePath)
+		if err != nil {
+			return fmt.Errorf("unable to remove file: %w", err)
+		}
 	}
 
 	file, err := s.disk.Create(tableFilePath)

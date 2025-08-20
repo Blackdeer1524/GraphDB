@@ -195,8 +195,6 @@ func New(basePath string, fs afero.Fs, bp BufferPool) (*Manager, error) {
 		return nil, fmt.Errorf("failed to unmarshal system catalog file: %w", err)
 	}
 
-	maxFileID := calcMaxFileID(&data)
-
 	return &Manager{
 		bp:                 bp,
 		currentVersionPage: cvp,
@@ -204,7 +202,7 @@ func New(basePath string, fs afero.Fs, bp BufferPool) (*Manager, error) {
 		basePath:           basePath,
 		data:               &data,
 		fs:                 fs,
-		maxFileID:          maxFileID,
+		maxFileID:          calcMaxFileID(&data),
 
 		mu: new(sync.RWMutex),
 	}, nil
@@ -338,6 +336,20 @@ func (m *Manager) GetVertexTableMeta(name string) (storage.VertexTable, error) {
 	return table, nil
 }
 
+func (m *Manager) VertexTableExists(name string) (bool, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return false, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.VertexTables[name]
+
+	return exists, nil
+}
+
 func (m *Manager) AddVertexTable(req storage.VertexTable) error {
 	err := m.updateSystemCatalogData()
 	if err != nil {
@@ -418,6 +430,20 @@ func (m *Manager) GetEdgeTableMeta(name string) (storage.EdgeTable, error) {
 	return table, nil
 }
 
+func (m *Manager) EdgeTableExists(name string) (bool, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return false, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.EdgeTables[name]
+
+	return exists, nil
+}
+
 func (m *Manager) AddEdgeTable(req storage.EdgeTable) error {
 	err := m.updateSystemCatalogData()
 	if err != nil {
@@ -479,6 +505,20 @@ func (m *Manager) EdgeGetIndexes(name string) ([]storage.Index, error) {
 	}
 
 	return indexes, nil
+}
+
+func (m *Manager) IndexExists(name string) (bool, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return false, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.Indexes[name]
+
+	return exists, nil
 }
 
 func (m *Manager) GetIndex(name string) (storage.Index, error) {
