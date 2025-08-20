@@ -218,18 +218,8 @@ func NewTxnUnlockRequest[ObjectIDType comparable](
 	}
 }
 
-type PageLockMode int
-
-const (
-	PageIntentionShared PageLockMode = iota
-	PageIntentionExclusive
-	PageShared
-	PageSharedIntentionExclusive
-	PageExclusive
-)
-
 type PageLockRequest struct {
-	TxnID    TxnID
+	TxnID    common.TxnID
 	LockMode PageLockMode
 	PageID   uint64
 }
@@ -245,6 +235,6 @@ const (
 )
 
 type SystemCatalogLockRequest struct {
-	TxnID    TxnID
+	TxnID    common.TxnID
 	LockMode SystemCatalogLock
 }

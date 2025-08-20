@@ -42,24 +42,17 @@ type SystemCatalog interface {
 	DropIndex(name string) error
 
 	Save() error
-}
-
-type Filesystem interface {
-	Stat(name string) (os.FileInfo, error)
-	Create(name string) (*os.File, error)
-	Remove(name string) error
-	MkdirAll(path string, perm os.FileMode) error
-	IsFileExists(path string) (bool, error)
+	CurrentVersion() uint64
 }
 
 type StorageEngine struct {
 	lock    Locker
 	catalog SystemCatalog
 
-	disk Filesystem
+	fs afero.Fs
 }
 
-func New(basePath string, poolSize uint64, fs afero.Fs, l Locker, d Filesystem) (*StorageEngine, error) {
+func New(basePath string, poolSize uint64, fs afero.Fs, l Locker, d afero.Fs) (*StorageEngine, error) {
 	err := systemcatalog.InitSystemCatalog(basePath, fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to : %w", err)
@@ -86,7 +79,7 @@ func New(basePath string, poolSize uint64, fs afero.Fs, l Locker, d Filesystem) 
 	return &StorageEngine{
 		catalog: sysCat,
 		lock:    l,
-		disk:    d,
+		fs:      d,
 	}, nil
 }
 
@@ -130,26 +123,32 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 		return fmt.Errorf("vertex table %s already exists", name)
 	}
 
-	fileExists, err := s.disk.IsFileExists(tableFilePath)
+	fileExists := true
+
+	_, err = s.fs.Stat(tableFilePath)
 	if err != nil {
-		return fmt.Errorf("unable to check if file exists: %w", err)
+		fileExists = false
+
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("unable to check if file exists: %w", err)
+		}
 	}
 
 	if fileExists {
-		err = s.disk.Remove(tableFilePath)
+		err = s.fs.Remove(tableFilePath)
 		if err != nil {
 			return fmt.Errorf("unable to remove file: %w", err)
 		}
 	}
 
-	file, err := s.disk.Create(tableFilePath)
+	file, err := s.fs.Create(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to create directory: %w", err)
 	}
 	_ = file.Close()
 	defer func() {
 		if needToRollback {
-			_ = s.disk.Remove(tableFilePath)
+			_ = s.fs.Remove(tableFilePath)
 		}
 	}()
 
@@ -235,23 +234,29 @@ func (s *StorageEngine) CreateEdgesTable(txnID common.TxnID, name string, schema
 		return fmt.Errorf("vertex table %s already exists", name)
 	}
 
-	fileExists, err := s.disk.IsFileExists(tableFilePath)
+	fileExists := true
+
+	_, err = s.fs.Stat(tableFilePath)
 	if err != nil {
-		return fmt.Errorf("unable to check if file exists: %w", err)
+		fileExists = false
+
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("unable to check if file exists: %w", err)
+		}
 	}
 
 	if fileExists {
 		return fmt.Errorf("file %s already exists", tableFilePath)
 	}
 
-	file, err := s.disk.Create(tableFilePath)
+	file, err := s.fs.Create(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to create directory: %w", err)
 	}
 	_ = file.Close()
 	defer func() {
 		if needToRollback {
-			_ = s.disk.Remove(tableFilePath)
+			_ = s.fs.Remove(tableFilePath)
 		}
 	}()
 
@@ -344,23 +349,29 @@ func (s *StorageEngine) CreateIndex(
 		return fmt.Errorf("vertex table %s already exists", name)
 	}
 
-	fileExists, err := s.disk.IsFileExists(tableFilePath)
+	fileExists := true
+
+	_, err = s.fs.Stat(tableFilePath)
 	if err != nil {
-		return fmt.Errorf("unable to check if file exists: %w", err)
+		fileExists = false
+
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("unable to check if file exists: %w", err)
+		}
 	}
 
 	if fileExists {
 		return fmt.Errorf("file %s already exists", tableFilePath)
 	}
 
-	file, err := s.disk.Create(tableFilePath)
+	file, err := s.fs.Create(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to create file: %w", err)
 	}
 	_ = file.Close()
 	defer func() {
 		if needToRollback {
-			_ = s.disk.Remove(tableFilePath)
+			_ = s.fs.Remove(tableFilePath)
 		}
 	}()
 

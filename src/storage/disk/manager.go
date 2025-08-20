@@ -23,7 +23,6 @@ type Page interface {
 	GetData() []byte
 	SetData(d []byte)
 
-	// latch methods
 	Lock()
 	Unlock()
 	RLock()
@@ -146,4 +145,11 @@ func (m *Manager[T]) UpdateFileMap(mp map[common.FileID]string) {
 	defer m.mu.Unlock()
 
 	m.fileIDToPath = mp
+}
+
+func (m *Manager[T]) InsertToFileMap(id common.FileID, path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.fileIDToPath[id] = path
 }

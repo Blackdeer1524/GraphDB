@@ -693,3 +693,10 @@ func calcMaxFileID(data *Data) uint64 {
 
 	return maxFileID
 }
+
+func (m *Manager) CurrentVersion() uint64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.currentVersion
+}
