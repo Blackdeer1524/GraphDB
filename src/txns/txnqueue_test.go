@@ -574,6 +574,7 @@ func assertQueueConsistency[LockModeType GranularLock[LockModeType], ObjectIDTyp
 
 	cur := q.head.next
 	cur.mu.Lock()
+	cur = cur.SafeNext()
 	for ; cur != q.tail; cur = cur.SafeNext() {
 		qLen++
 		txnNodes[cur] = struct{}{}
