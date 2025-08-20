@@ -188,10 +188,12 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	upgradingEntry, ok := q.txnNodes[r.txnID]
 	q.mu.Unlock()
 	if ok {
+		upgradingEntry.mu.Lock()
 		assert.Assert(
 			upgradingEntry.status == entryStatusRunning,
 			"can only upgrade running transactions",
 		)
+		upgradingEntry.mu.Unlock()
 		return q.Upgrade(r)
 	}
 

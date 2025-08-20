@@ -52,11 +52,11 @@ func TestBankTransactions(t *testing.T) {
 
 	START_BALANCE := uint32(60)
 	ROLLBACK_CUTOFF := uint32(0) // START_BALANCE / 3
-	CLIENTS_COUNT := 10
-	TXNS_COUNT := 10_00
-	RETRY_COUNT := 1
-	MAX_ENTRIES_PER_PAGE := 1
-	WORKER_COUNT := 100
+	CLIENTS_COUNT := 100_000
+	TXNS_COUNT := 1_000
+	RETRY_COUNT := 5
+	MAX_ENTRIES_PER_PAGE := 30
+	WORKER_COUNT := 2000
 
 	workerPool, err := ants.NewPool(WORKER_COUNT)
 	require.NoError(t, err)
@@ -100,6 +100,7 @@ func TestBankTransactions(t *testing.T) {
 			"There are still locked transactions: %+v",
 			stillLockedTxns,
 		)
+		assert.True(t, locker.AreAllQueuesEmpty())
 	}()
 
 	succ := atomic.Uint64{}
@@ -235,16 +236,13 @@ func TestBankTransactions(t *testing.T) {
 
 		myPage.Lock()
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
-		// _, err = myPage.UpdateWithLogs(myNewBalance, me, logger)
 		logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
 		pool.MarkDirty(me.PageIdentity(), logLoc)
 		require.NoError(t, err)
 		myPage.Unlock()
 
 		firstPage.Lock()
-		firstNewBalance := utils.ToBytes[uint32](firstBalance +
-			transferAmount)
-		// _, err = firstPage.UpdateWithLogs(firstNewBalance, first, logger)
+		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
 		logLoc, err = firstPage.UpdateWithLogs(firstNewBalance, first,
 			logger)
 		pool.MarkDirty(first.PageIdentity(), logLoc)
@@ -337,24 +335,4 @@ func TestBankTransactions(t *testing.T) {
 		pool.Unpin(id.PageIdentity())
 	}
 	require.Equal(t, finalTotalMoney, totalMoney)
-}
-
-// ensureAllQueuesEmpty is a helper function that can be used in tests to verify
-// that all transaction queues become empty after all transactions unlock their
-// pages.
-// This helps catch memory leaks and ensures proper cleanup.
-func ensureAllQueuesEmpty(t *testing.T, locker *txns.Locker) {
-	if !locker.AreAllQueuesEmpty() {
-		activeTxns := locker.GetActiveTransactions()
-		t.Errorf(
-			"Not all queues are empty. Active transactions: %+v",
-			activeTxns,
-		)
-	}
-
-	require.True(
-		t,
-		locker.AreAllQueuesEmpty(),
-		"All queues should be empty after test cleanup",
-	)
 }

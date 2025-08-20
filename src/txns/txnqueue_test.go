@@ -567,12 +567,60 @@ func assertQueueConsistency[LockModeType GranularLock[LockModeType], ObjectIDTyp
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	qLen := -1
+	txnNodes := make(map[*txnQueueEntry[LockModeType, ObjectIDType]]struct{})
+
+	qLen := 0
 	cur := q.head
 	cur.mu.Lock()
+	cur = cur.SafeNext()
 	for ; cur != q.tail; cur = cur.SafeNext() {
 		qLen++
+		txnNodes[cur] = struct{}{}
 	}
+	cur.mu.Unlock()
 
 	assert.Equal(t, qLen, len(q.txnNodes), "queue length should match")
+	for _, v := range q.txnNodes {
+		_, ok := txnNodes[v]
+		assert.True(t, ok, "transaction should exist in the queue")
+	}
+}
+
+func TestAllowWeakerLock(t *testing.T) {
+	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
+	recordID := common.PageID(500)
+
+	req := TxnLockRequest[PageLockMode, common.PageID]{
+		txnID:    1,
+		objectId: recordID,
+		lockMode: PAGE_LOCK_EXCLUSIVE,
+	}
+	notifier := q.Lock(req)
+	expectClosedChannel(t, notifier, "Lock should be granted")
+
+	req.lockMode = PAGE_LOCK_SHARED
+	notifier2 := q.Lock(req)
+	expectClosedChannel(t, notifier, "Lock should be granted")
+	assert.Equal(t, notifier, notifier2)
+}
+
+func TestReinterpretLockAsUpgrade(t *testing.T) {
+	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
+	req := TxnLockRequest[PageLockMode, common.PageID]{
+		txnID:    1,
+		objectId: 1,
+		lockMode: PAGE_LOCK_SHARED,
+	}
+
+	notifier := q.Lock(req)
+	expectClosedChannel(t, notifier, "Lock should be granted")
+
+	req.lockMode = PAGE_LOCK_EXCLUSIVE
+	notifier2 := q.Lock(req)
+	expectClosedChannel(t, notifier2, "Lock should be granted")
+	assert.Equal(t, notifier, notifier2)
 }
