@@ -176,9 +176,6 @@ func (m GranularLockMode) Compatible(other GranularLockMode) bool {
 }
 
 func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
-	if m == to {
-		return true
-	}
 	switch m {
 	case GRANULAR_LOCK_INTENTION_SHARED:
 		switch to {
