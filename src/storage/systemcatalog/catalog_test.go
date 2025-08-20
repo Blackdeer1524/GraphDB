@@ -2,16 +2,16 @@ package systemcatalog
 
 import (
 	"encoding/json"
-	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
-	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/Blackdeer1524/GraphDB/src/storage/page"
-	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog/mocks"
-	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
+	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog/mocks"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,4 +138,98 @@ func TestManager_Save_Twice_IncrementsVersion(t *testing.T) {
 		_, err = os.Stat(fname)
 		require.NoError(t, err)
 	}
+}
+
+func TestManager_updateSystemCatalogData(t *testing.T) {
+	dir := t.TempDir()
+
+	data := Data{
+		Metadata: storage.Metadata{
+			Version: "v228",
+			Name:    "TestCatalog",
+		},
+		VertexTables: map[string]storage.VertexTable{
+			"User": {
+				Name: "User",
+			},
+		},
+		EdgeTables: map[string]storage.EdgeTable{},
+		Indexes:    map[string]storage.Index{},
+	}
+
+	filename := getSystemCatalogFilename(dir, 1)
+	fileBytes, _ := json.Marshal(data)
+	if err := os.WriteFile(filename, fileBytes, 0600); err != nil {
+		t.Fatalf("failed to write catalog file: %v", err)
+	}
+
+	p := page.NewSlottedPage()
+	p.Insert(utils.ToBytes(uint64(1)))
+
+	m := &Manager{
+		basePath:           dir,
+		fs:                 afero.NewOsFs(),
+		currentVersionPage: p,
+		currentVersion:     0,
+
+		mu: new(sync.RWMutex),
+	}
+
+	err := m.updateSystemCatalogData()
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(1), m.currentVersion)
+
+	_, ok := m.data.VertexTables["User"]
+	require.True(t, ok)
+
+	require.Equal(t, "v228", m.data.Metadata.Version)
+}
+
+func TestManager_updateSystemCatalogData_NoUpdate(t *testing.T) {
+	dir := t.TempDir()
+
+	data := Data{
+		Metadata: storage.Metadata{
+			Version: "v228",
+			Name:    "TestCatalog",
+		},
+		VertexTables: map[string]storage.VertexTable{
+			"User": {
+				Name: "User",
+			},
+		},
+		EdgeTables: map[string]storage.EdgeTable{},
+		Indexes:    map[string]storage.Index{},
+	}
+
+	filename := getSystemCatalogFilename(dir, 1)
+	fileBytes, _ := json.Marshal(data)
+	if err := os.WriteFile(filename, fileBytes, 0600); err != nil {
+		t.Fatalf("failed to write catalog file: %v", err)
+	}
+
+	p := page.NewSlottedPage()
+	p.Insert(utils.ToBytes(uint64(1)))
+
+	m := &Manager{
+		basePath:           dir,
+		fs:                 afero.NewOsFs(),
+		currentVersionPage: p,
+		currentVersion:     1,
+		data: &Data{
+			Metadata: storage.Metadata{
+				Version: "not-updated",
+			},
+		},
+
+		mu: new(sync.RWMutex),
+	}
+
+	err := m.updateSystemCatalogData()
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(1), m.currentVersion)
+
+	require.Equal(t, "not-updated", m.data.Metadata.Version)
 }
