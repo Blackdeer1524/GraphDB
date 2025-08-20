@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
@@ -32,6 +33,8 @@ func expectOpenChannel(t *testing.T, ch <-chan struct{}, mes string) {
 // TestSharedLockCompatibility shows proper lock compatibility
 func TestSharedLockCompatibility(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
 	req1 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    1,
 		objectId: 1,
@@ -61,6 +64,8 @@ func TestSharedLockCompatibility(t *testing.T) {
 // TestExclusiveBlocking demonstrates lock queueing
 func TestExclusiveBlocking(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
 	req1 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    2,
 		objectId: 1,
@@ -86,6 +91,7 @@ func TestExclusiveBlocking(t *testing.T) {
 // TestDeadlockPrevention verifies transaction age ordering
 func TestDeadlockPrevention(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
 
 	// Older transaction (lower ID) first
 	oldReq := TxnLockRequest[PageLockMode, common.PageID]{
@@ -114,6 +120,7 @@ func TestDeadlockPrevention(t *testing.T) {
 // TestConcurrentAccess checks for race conditions
 func TestConcurrentAccess(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
 
 	var wg sync.WaitGroup
 
@@ -137,7 +144,7 @@ func TestConcurrentAccess(t *testing.T) {
 			)
 
 			fmt.Printf("before unlock %d\n", id)
-			q.Unlock(
+			q.unlock(
 				TxnUnlockRequest[common.PageID]{
 					txnID:    common.TxnID(id),
 					objectId: 1,
@@ -153,6 +160,8 @@ func TestConcurrentAccess(t *testing.T) {
 // TestExclusiveOrdering validates exclusive locks ordering
 func TestExclusiveOrdering(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
 	req1 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    9,
 		objectId: 1,
@@ -174,7 +183,7 @@ func TestExclusiveOrdering(t *testing.T) {
 		"shouldn't have granted the lock in presence of concurrent exclusive lock",
 	)
 
-	q.Unlock(TxnUnlockRequest[common.PageID]{txnID: 9, objectId: 1})
+	q.unlock(TxnUnlockRequest[common.PageID]{txnID: 9, objectId: 1})
 
 	expectClosedChannel(t, notifier2, "empty queue -> grant the lock")
 }
@@ -184,6 +193,8 @@ func TestExclusiveOrdering(t *testing.T) {
 // another transaction that have already requested a lock on a tuple
 func TestLockFairness(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
 	req1 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    9,
 		objectId: 1,
@@ -215,6 +226,8 @@ func TestLockFairness(t *testing.T) {
 
 func TestLockcpgradeAlwaysAllowIfSingle(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
 	req := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    10,
 		objectId: 1,
@@ -236,6 +249,8 @@ func TestLockcpgradeAlwaysAllowIfSingle(t *testing.T) {
 
 func TestLockUpgradeAllowIfSingleWhenNoPendingUpgrades(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
 	req := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    10,
 		objectId: 1,
@@ -269,6 +284,8 @@ func TestLockUpgradeAllowIfSingleWhenNoPendingUpgrades(t *testing.T) {
 
 func TestLockUpgradeForbidUpgradeIfDeadlock(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
+
 	req := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    3,
 		objectId: 1,
@@ -298,6 +315,8 @@ func TestLockUpgradeForbidUpgradeIfDeadlock(t *testing.T) {
 
 func TestLockUpgradeCompatibleLocks(t *testing.T) {
 	q := newTxnQueue[GranularLockMode, common.FileID]()
+	defer assertQueueConsistency(t, q)
+
 	req := TxnLockRequest[GranularLockMode, common.FileID]{
 		txnID:    4,
 		objectId: 1,
@@ -328,7 +347,7 @@ func TestLockUpgradeCompatibleLocks(t *testing.T) {
 		"no deadlock -> upgrade should be allowed [wait]",
 	)
 
-	q.Unlock(TxnUnlockRequest[common.FileID]{
+	q.unlock(TxnUnlockRequest[common.FileID]{
 		txnID:    4,
 		objectId: 1,
 	})
@@ -338,6 +357,7 @@ func TestLockUpgradeCompatibleLocks(t *testing.T) {
 
 func TestManagerUpgradeWithUpgradeWaiter(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.FileID]()
+	defer assertQueueConsistency(t, q)
 
 	req := TxnLockRequest[PageLockMode, common.FileID]{
 		txnID:    4,
@@ -369,7 +389,7 @@ func TestManagerUpgradeWithUpgradeWaiter(t *testing.T) {
 	upgradeNotifier1 := q.Upgrade(req)
 
 	require.Nil(t, upgradeNotifier1)
-	q.Unlock(TxnUnlockRequest[common.FileID]{
+	q.unlock(TxnUnlockRequest[common.FileID]{
 		txnID:    req.txnID,
 		objectId: req.objectId,
 	})
@@ -383,6 +403,7 @@ func TestManagerUpgradeWithUpgradeWaiter(t *testing.T) {
 
 func TestLockUpgradeIdempotent(t *testing.T) {
 	q := newTxnQueue[PageLockMode, common.PageID]()
+	defer assertQueueConsistency(t, q)
 
 	// Start with a shared lock
 	req := TxnLockRequest[PageLockMode, common.PageID]{
@@ -460,6 +481,7 @@ func TestLockUpgradeIdempotent(t *testing.T) {
 
 func TestLockUpgradeIdempotentWithGranularLocks(t *testing.T) {
 	q := newTxnQueue[GranularLockMode, common.FileID]()
+	defer assertQueueConsistency(t, q)
 
 	// Start with a shared lock
 	req := TxnLockRequest[GranularLockMode, common.FileID]{
@@ -536,4 +558,21 @@ func TestLockUpgradeIdempotentWithGranularLocks(t *testing.T) {
 		upgradingEntry.r.lockMode,
 		"lock mode should be exclusive",
 	)
+}
+
+func assertQueueConsistency[LockModeType GranularLock[LockModeType], ObjectIDType comparable](
+	t *testing.T,
+	q *txnQueue[LockModeType, ObjectIDType],
+) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	qLen := -1
+	cur := q.head
+	cur.mu.Lock()
+	for ; cur != q.tail; cur = cur.SafeNext() {
+		qLen++
+	}
+
+	assert.Equal(t, qLen, len(q.txnNodes), "queue length should match")
 }

@@ -184,6 +184,17 @@ func checkDeadlockCondition(
 func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	r TxnLockRequest[LockModeType, ObjectIDType],
 ) <-chan struct{} {
+	q.mu.Lock()
+	upgradingEntry, ok := q.txnNodes[r.txnID]
+	q.mu.Unlock()
+	if ok {
+		assert.Assert(
+			upgradingEntry.status == entryStatusRunning,
+			"can only upgrade running transactions",
+		)
+		return q.Upgrade(r)
+	}
+
 	// Fast path - locks are compatible
 	cur := q.head
 	cur.mu.Lock()
@@ -202,7 +213,6 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 		q.mu.Lock()
 		q.txnNodes[r.txnID] = newNode
 		q.mu.Unlock()
-
 		return notifier
 	}
 
@@ -210,11 +220,11 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	locksAreCompatible := true
 	deadlockCondition := false
 	for cur.status == entryStatusRunning {
-		if cur.r.txnID == r.txnID {
-			// the current transaction already owns the lock
-			// grant the lock immediately
-			return cur.notifier
-		}
+		assert.Assert(
+			cur.r.txnID != r.txnID,
+			"impossible, because it should have been upgraded earlier. request: %+v",
+			r,
+		)
 
 		deadlockCondition = deadlockCondition ||
 			checkDeadlockCondition(cur.r.txnID, r.txnID)
@@ -292,14 +302,15 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	)
 	oldLockMode := upgradingEntry.r.lockMode
 
-	if oldLockMode.Equal(r.lockMode) {
+	if r.lockMode.Upgradable(oldLockMode) {
+		// check whether we request for a weaker lock
 		upgradingEntry.mu.Unlock()
 		return upgradingEntry.notifier
 	}
 
 	assert.Assert(
 		oldLockMode.Upgradable(r.lockMode),
-		"can only upgrade to a compatible lock mode. given: %v -> %v",
+		"can only upgrade to a compatible lock mode. given: %#v -> %#v",
 		oldLockMode,
 		r.lockMode)
 
@@ -417,7 +428,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	}
 }
 
-func (q *txnQueue[LockModeType, ObjectIDType]) Unlock(
+func (q *txnQueue[LockModeType, ObjectIDType]) unlock(
 	r TxnUnlockRequest[ObjectIDType],
 ) {
 	q.mu.Lock()

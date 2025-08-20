@@ -18,34 +18,12 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-type Integer interface {
-	~int64 | ~uint64 | ~int
-}
-
-func generateUniqueInts[T Integer](t *testing.T, n, min, max int) []T {
-	assert.LessOrEqual(t, min, max)
-
-	nums := make(map[T]struct{}, n)
-	res := make([]T, 0, n)
-	for len(res) < n {
-		for {
-			val := T(rand.Intn(max-min+1) + min)
-			if _, exists := nums[val]; !exists {
-				nums[val] = struct{}{}
-				res = append(res, val)
-				break
-			}
-		}
-	}
-	return res
-}
-
 func TestBankTransactions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping slow test in short mode")
 	}
 
-	generatedFileIDs := generateUniqueInts[common.FileID](t, 2, 0, 1024)
+	generatedFileIDs := utils.GenerateUniqueInts[common.FileID](2, 0, 1024)
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: generatedFileIDs[0],
@@ -137,7 +115,7 @@ func TestBankTransactions(t *testing.T) {
 	task := func(txnID common.TxnID) bool {
 		logger := logger.WithContext(txnID)
 
-		res := generateUniqueInts[int](t, 2, 0, len(IDs)-1)
+		res := utils.GenerateUniqueInts[int](2, 0, len(IDs)-1)
 		me := IDs[res[0]]
 		first := IDs[res[1]]
 

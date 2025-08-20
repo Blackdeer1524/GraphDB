@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"encoding/binary"
+	"math/rand"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 )
@@ -47,4 +48,26 @@ func MergeMaps[K comparable, V any](maps ...map[K]V) map[K]V {
 		}
 	}
 	return result
+}
+
+type Integer interface {
+	~int64 | ~uint64 | ~int
+}
+
+func GenerateUniqueInts[T Integer](n, min, max int) []T {
+	assert.Assert(min <= max, "min must be less than or equal to max")
+
+	nums := make(map[T]struct{}, n)
+	res := make([]T, 0, n)
+	for len(res) < n {
+		for {
+			val := T(rand.Intn(max-min+1) + min)
+			if _, exists := nums[val]; !exists {
+				nums[val] = struct{}{}
+				res = append(res, val)
+				break
+			}
+		}
+	}
+	return res
 }

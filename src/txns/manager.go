@@ -125,7 +125,7 @@ func (m *lockManager[LockModeType, ObjectID]) Unlock(
 		return q
 	}()
 
-	q.Unlock(r)
+	q.unlock(r)
 
 	func() {
 		m.lockedRecordsGuard.Lock()
@@ -179,7 +179,7 @@ func (m *lockManager[LockModeType, ObjectID]) UnlockAll(
 		}()
 
 		unlockRequest.objectId = r
-		q.Unlock(unlockRequest)
+		q.unlock(unlockRequest)
 	}
 }
 

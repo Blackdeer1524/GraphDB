@@ -1,7 +1,6 @@
 package txns
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -58,24 +57,19 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 				lockMode: PAGE_LOCK_SHARED,
 			}
 
-			fmt.Printf("before lock %d\n", id)
-
 			notifier := m.Lock(req)
-			fmt.Printf("after lock %d\n", id)
 			expectClosedChannel(
 				t,
 				notifier,
 				"Concurrent access to different records should work",
 			)
 
-			fmt.Printf("before unlock %d\n", id)
 			m.Unlock(
 				TxnUnlockRequest[common.PageID]{
 					txnID:    common.TxnID(id),
 					objectId: recordID,
 				},
 			) //nolint:gosec
-			fmt.Printf("after unlock %d\n", id)
 		}(i)
 	}
 
@@ -196,6 +190,11 @@ func TestManagerUnlockRetry(t *testing.T) {
 
 func TestManagerUnlockAll(t *testing.T) {
 	m := NewManager[PageLockMode, common.PageID]()
+	defer func() {
+		for _, q := range m.qs {
+			assertQueueConsistency(t, q)
+		}
+	}()
 
 	waitingTxn := common.TxnID(0)
 	runningTxn := common.TxnID(1)
@@ -224,4 +223,121 @@ func TestManagerUnlockAll(t *testing.T) {
 		notifier0s,
 		"Txn 0 should have been granted the lock after the running transaction has finished",
 	)
+}
+
+func TestManagerConcurrency(t *testing.T) {
+	m := NewManager[PageLockMode, common.PageID]()
+	defer func() {
+		for _, q := range m.qs {
+			assertQueueConsistency(t, q)
+		}
+	}()
+
+	numTxns := 1000
+	numObjects := 300
+	opsPerTxn := 8
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	failedTxns := make(map[common.TxnID]bool)
+
+	lockModes := []PageLockMode{
+		PAGE_LOCK_SHARED,
+		PAGE_LOCK_EXCLUSIVE,
+	}
+
+	for txnID := 0; txnID < numTxns; txnID++ {
+		wg.Add(1)
+
+		func(txnID int) {
+			defer wg.Done()
+
+			txn := common.TxnID(txnID)
+			lockedObjects := make(map[common.PageID]PageLockMode)
+
+			defer func() {
+				if len(lockedObjects) > 0 {
+					m.UnlockAll(txn)
+				}
+			}()
+
+			for op := 0; op < opsPerTxn; op++ {
+				if len(lockedObjects) > 0 && op%3 == 0 {
+					for objectID, currentMode := range lockedObjects {
+						if currentMode == PAGE_LOCK_SHARED {
+							upgradeReq := TxnLockRequest[PageLockMode, common.PageID]{
+								txnID:    txn,
+								objectId: objectID,
+								lockMode: PAGE_LOCK_EXCLUSIVE,
+							}
+
+							notifier := m.Upgrade(upgradeReq)
+							if notifier != nil {
+								<-notifier
+								lockedObjects[objectID] = PAGE_LOCK_EXCLUSIVE
+							} else {
+								mu.Lock()
+								failedTxns[txn] = true
+								mu.Unlock()
+								m.UnlockAll(txn)
+								return
+							}
+							break
+						}
+					}
+				} else {
+					objectID := common.PageID(txnID % numObjects)
+
+					lockMode := lockModes[txnID%len(lockModes)]
+
+					req := TxnLockRequest[PageLockMode, common.PageID]{
+						txnID:    txn,
+						objectId: objectID,
+						lockMode: lockMode,
+					}
+
+					notifier := m.Lock(req)
+					if notifier == nil {
+						mu.Lock()
+						failedTxns[txn] = true
+						mu.Unlock()
+						m.UnlockAll(txn)
+						return
+					}
+
+					<-notifier
+					lockedObjects[objectID] = lockMode
+				}
+
+				time.Sleep(time.Millisecond * time.Duration(txnID%3))
+			}
+		}(txnID)
+	}
+
+	wg.Wait()
+
+	// Verify final state
+	mu.Lock()
+	numFailed := len(failedTxns)
+	mu.Unlock()
+
+	t.Logf(
+		"Concurrency test completed. Failed transactions: %d/%d",
+		numFailed,
+		numTxns,
+	)
+
+	// Verify that all queues are empty after all transactions complete
+	if !m.AreAllQueuesEmpty() {
+		t.Error("Some queues are not empty after all transactions completed")
+	}
+
+	// Verify that no active transactions remain
+	activeTxns := m.GetActiveTransactions()
+	if len(activeTxns) != 0 {
+		t.Errorf(
+			"Expected no active transactions, but found %d",
+			len(activeTxns),
+		)
+	}
 }

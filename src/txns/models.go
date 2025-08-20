@@ -145,11 +145,12 @@ func (m GranularLockMode) Compatible(other GranularLockMode) bool {
 }
 
 func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
+	if m == to {
+		return true
+	}
 	switch m {
 	case GRANULAR_LOCK_INTENTION_SHARED:
 		switch to {
-		case GRANULAR_LOCK_INTENTION_SHARED:
-			return true
 		case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
 			return true
 		case GRANULAR_LOCK_SHARED:
@@ -165,8 +166,6 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 		return false // Cannot upgrade from intention exclusive in 2PL
 	case GRANULAR_LOCK_SHARED:
 		switch to {
-		case GRANULAR_LOCK_SHARED:
-			return true
 		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
 			return true
 		case GRANULAR_LOCK_EXCLUSIVE:
@@ -176,8 +175,6 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 		}
 	case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
 		switch to {
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
-			return true
 		case GRANULAR_LOCK_EXCLUSIVE:
 			return true
 		default:
