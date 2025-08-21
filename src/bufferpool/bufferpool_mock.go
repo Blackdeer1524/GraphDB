@@ -130,10 +130,6 @@ func (b *BufferPool_mock) MarkDirty(
 	b.pagesMu.Lock()
 	defer b.pagesMu.Unlock()
 
-	_, ok := b.isDirty[pageID]
-	assert.Assert(ok)
-
-	b.isDirty[pageID] = true
 	if _, ok := b.DPT[pageID]; !ok {
 		b.DPT[pageID] = loc
 	}

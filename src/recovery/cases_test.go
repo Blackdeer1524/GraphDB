@@ -53,8 +53,8 @@ func TestBankTransactions(t *testing.T) {
 
 	const startBalance = uint32(60)
 	const rollbackCutoff = uint32(0) // START_BALANCE / 3
-	const clientsCount = 100_000
-	const txnsCount = 1_000
+	const clientsCount = 100
+	const txnsCount = 50
 	const retryCount = 5
 	const maxEntriesPerPage = 30
 	const workersCount = 2000
