@@ -469,7 +469,8 @@ func TestLockUpgradeIdempotent(t *testing.T) {
 	)
 
 	// Verify the lock is still exclusive
-	upgradingEntry, ok := q.txnNodes[req.txnID]
+	upgradingEntryAny, ok := q.txnNodes.Load(req.txnID)
+	upgradingEntry := upgradingEntryAny.(*txnQueueEntry[PageLockMode, common.PageID])
 	require.True(t, ok, "transaction should still exist in the queue")
 	require.Equal(
 		t,
@@ -550,7 +551,8 @@ func TestLockUpgradeIdempotentWithGranularLocks(t *testing.T) {
 	)
 
 	// Verify the lock is now exclusive
-	upgradingEntry, ok := q.txnNodes[req.txnID]
+	upgradingEntryAny, ok := q.txnNodes.Load(req.txnID)
+	upgradingEntry := upgradingEntryAny.(*txnQueueEntry[GranularLockMode, common.FileID])
 	require.True(t, ok, "transaction should still exist in the queue")
 	require.Equal(
 		t,
@@ -564,26 +566,28 @@ func assertQueueConsistency[LockModeType GranularLock[LockModeType], ObjectIDTyp
 	t *testing.T,
 	q *txnQueue[LockModeType, ObjectIDType],
 ) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
 	txnNodes := make(map[*txnQueueEntry[LockModeType, ObjectIDType]]struct{})
 
 	qLen := 0
-	cur := q.head
+	q.head.mu.Lock()
+	defer q.head.mu.Unlock()
+
+	cur := q.head.next
 	cur.mu.Lock()
-	cur = cur.SafeNext()
 	for ; cur != q.tail; cur = cur.SafeNext() {
 		qLen++
 		txnNodes[cur] = struct{}{}
 	}
 	cur.mu.Unlock()
 
-	assert.Equal(t, qLen, len(q.txnNodes), "queue length should match")
-	for _, v := range q.txnNodes {
-		_, ok := txnNodes[v]
+	qNodesLen := 0
+	q.txnNodes.Range(func(key, value any) bool {
+		_, ok := txnNodes[value.(*txnQueueEntry[LockModeType, ObjectIDType])]
 		assert.True(t, ok, "transaction should exist in the queue")
-	}
+		qNodesLen++
+		return true
+	})
+	assert.Equal(t, qLen, qNodesLen, "queue length should match")
 }
 
 func TestAllowWeakerLock(t *testing.T) {

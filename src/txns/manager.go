@@ -10,8 +10,7 @@ import (
 )
 
 type lockManager[LockModeType GranularLock[LockModeType], ID comparable] struct {
-	qsGuard sync.Mutex
-	qs      map[ID]*txnQueue[LockModeType, ID]
+	qs sync.Map // map[ID]*txnQueue[LockModeType, ID]
 
 	lockedRecordsGuard sync.Mutex
 	lockedRecords      map[common.TxnID]map[ID]struct{}
@@ -94,7 +93,7 @@ func (g txnDependencyGraph[LockModeType]) Dump() string {
 	lock2color := map[string]string{}
 	for txnID, deps := range g {
 		for _, edge := range deps {
-			lockModeStr := fmt.Sprintf("%v", edge.lockMode)
+			lockModeStr := fmt.Sprintf("%#v", edge.lockMode)
 			var edgeColor string
 			if edgeColor, ok := lock2color[lockModeStr]; !ok {
 				assert.Assert(
@@ -124,72 +123,73 @@ func (g txnDependencyGraph[LockModeType]) Dump() string {
 }
 
 func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[LockModeType] {
-	m.qsGuard.Lock()
-	defer m.qsGuard.Unlock()
+	qs := map[ID]*txnQueue[LockModeType, ID]{}
+	m.qs.Range(func(key, value any) bool {
+		qs[key.(ID)] = value.(*txnQueue[LockModeType, ID])
+		qs[key.(ID)].head.mu.Lock()
+		return true
+	})
 
-	for range m.lockedRecords {
-		for _, q := range m.qs {
-			q.mu.Lock()
-			defer q.mu.Unlock() // да, нужно анлокнуть по выходу из функции
+	defer func() {
+		for _, q := range qs {
+			q.head.mu.Unlock()
 		}
-	}
+	}()
 
 	graph := map[common.TxnID][]edgeInfo[LockModeType]{}
-	for txnID := range m.lockedRecords {
-		for _, q := range m.qs {
-			cur := q.head
-			cur.mu.Lock()
-			runningSet := map[common.TxnID]struct{}{}
-			for cur = cur.SafeNext(); cur != q.tail && cur.status == entryStatusRunning; cur = cur.SafeNext() {
-				runningSet[cur.r.txnID] = struct{}{}
-			}
+	for _, q := range qs {
+		cur := q.head.next
+		cur.mu.Lock()
+		runningSet := map[common.TxnID]struct{}{}
+		for ; cur != q.tail && cur.status == entryStatusRunning; cur = cur.SafeNext() {
+			runningSet[cur.r.txnID] = struct{}{}
+		}
 
-			for runner := range runningSet {
-				graph[runner] = []edgeInfo[LockModeType]{}
-			}
-			if cur == q.tail {
-				cur.mu.Unlock()
-				continue
-			}
+		for runner := range runningSet {
+			graph[runner] = []edgeInfo[LockModeType]{}
+		}
+		if cur == q.tail {
+			cur.mu.Unlock()
+			continue
+		}
 
+		assert.Assert(
+			len(runningSet) != 0,
+			"expected a running set to exist for the transaction %+v",
+			cur.r.txnID,
+		)
+
+		for runnerID := range runningSet {
+			graph[cur.r.txnID] = append(
+				graph[cur.r.txnID],
+				edgeInfo[LockModeType]{
+					dst:      runnerID,
+					lockMode: cur.r.lockMode,
+				},
+			)
+		}
+
+		prev := cur
+		cur = cur.next
+		cur.mu.Lock()
+		for cur != q.tail {
 			assert.Assert(
-				len(runningSet) != 0,
-				"expected a running set to exist for the transaction %+v",
-				txnID,
+				cur.status != entryStatusRunning,
+				"only queue prefix can be running",
+			)
+			graph[cur.r.txnID] = append(
+				graph[cur.r.txnID],
+				edgeInfo[LockModeType]{
+					dst:      prev.r.txnID,
+					lockMode: cur.r.lockMode,
+				},
 			)
 
-			for runnerID := range runningSet {
-				graph[cur.r.txnID] = append(
-					graph[cur.r.txnID],
-					edgeInfo[LockModeType]{
-						dst:      runnerID,
-						lockMode: cur.r.lockMode,
-					},
-				)
-			}
-
-			prev := cur
-			cur = cur.next
-			cur.mu.Lock()
-			for cur != q.tail {
-				assert.Assert(
-					cur.status != entryStatusRunning,
-					"only queue prefix can be running",
-				)
-				graph[cur.r.txnID] = append(
-					graph[cur.r.txnID],
-					edgeInfo[LockModeType]{
-						dst:      prev.r.txnID,
-						lockMode: cur.r.lockMode,
-					},
-				)
-
-				cur = cur.SafeNext()
-				prev = prev.SafeNext()
-			}
-			prev.mu.Unlock()
-			cur.mu.Unlock()
+			cur = cur.SafeNext()
+			prev = prev.SafeNext()
 		}
+		prev.mu.Unlock()
+		cur.mu.Unlock()
 	}
 
 	return graph
@@ -197,8 +197,7 @@ func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[Loc
 
 func NewManager[LockModeType GranularLock[LockModeType], ObjectID comparable]() *lockManager[LockModeType, ObjectID] {
 	return &lockManager[LockModeType, ObjectID]{
-		qsGuard:            sync.Mutex{},
-		qs:                 map[ObjectID]*txnQueue[LockModeType, ObjectID]{},
+		qs:                 sync.Map{},
 		lockedRecordsGuard: sync.Mutex{},
 		lockedRecords:      map[common.TxnID]map[ObjectID]struct{}{},
 	}
@@ -214,17 +213,20 @@ func NewManager[LockModeType GranularLock[LockModeType], ObjectID comparable]() 
 func (m *lockManager[LockModeType, ObjectID]) Lock(
 	r TxnLockRequest[LockModeType, ObjectID],
 ) <-chan struct{} {
-	q := func() *txnQueue[LockModeType, ObjectID] {
-		m.qsGuard.Lock()
-		defer m.qsGuard.Unlock()
+	qAny, _ := m.qs.LoadOrStore(
+		r.objectId,
+		newTxnQueue[LockModeType, ObjectID](),
+	)
+	q := qAny.(*txnQueue[LockModeType, ObjectID])
 
-		q, ok := m.qs[r.objectId]
+	func() {
+		m.lockedRecordsGuard.Lock()
+		defer m.lockedRecordsGuard.Unlock()
+
+		_, ok := m.lockedRecords[r.txnID]
 		if !ok {
-			q = newTxnQueue[LockModeType, ObjectID]()
-			m.qs[r.objectId] = q
+			m.lockedRecords[r.txnID] = make(map[ObjectID]struct{})
 		}
-
-		return q
 	}()
 
 	notifier := q.Lock(r)
@@ -235,14 +237,7 @@ func (m *lockManager[LockModeType, ObjectID]) Lock(
 	func() {
 		m.lockedRecordsGuard.Lock()
 		defer m.lockedRecordsGuard.Unlock()
-
-		alreadyLockedRecords, ok := m.lockedRecords[r.txnID]
-		if !ok {
-			alreadyLockedRecords = make(map[ObjectID]struct{})
-			m.lockedRecords[r.txnID] = alreadyLockedRecords
-		}
-
-		alreadyLockedRecords[r.objectId] = struct{}{}
+		m.lockedRecords[r.txnID][r.objectId] = struct{}{}
 	}()
 
 	return notifier
@@ -268,14 +263,12 @@ func (m *lockManager[LockModeType, ObjectID]) Upgrade(
 	r TxnLockRequest[LockModeType, ObjectID],
 ) <-chan struct{} {
 	q := func() *txnQueue[LockModeType, ObjectID] {
-		m.qsGuard.Lock()
-		defer m.qsGuard.Unlock()
-
-		q, present := m.qs[r.objectId]
+		qAny, present := m.qs.Load(r.objectId)
 		assert.Assert(present,
 			"trying to upgrade a lock on the unlocked tuple. request: %+v",
 			r)
 
+		q := qAny.(*txnQueue[LockModeType, ObjectID])
 		return q
 	}()
 
@@ -283,25 +276,23 @@ func (m *lockManager[LockModeType, ObjectID]) Upgrade(
 	return n
 }
 
-// Unlock releases the lock held by a transaction on a specific record.
+// unlock releases the lock held by a transaction on a specific record.
 // It first retrieves the transaction queue associated with the record ID,
 // ensuring that the record is currently locked. It then attempts to unlock
 // the record, retrying if necessary until successful. After unlocking,
 // it removes the record from the set of records locked by the transaction.
 // Panics if the record is not currently locked or if the transaction does not
 // have any locked records.
-func (m *lockManager[LockModeType, ObjectID]) Unlock(
+func (m *lockManager[LockModeType, ObjectID]) unlock(
 	r TxnUnlockRequest[ObjectID],
 ) {
 	q := func() *txnQueue[LockModeType, ObjectID] {
-		m.qsGuard.Lock()
-		defer m.qsGuard.Unlock()
-
-		q, present := m.qs[r.objectId]
+		qAny, present := m.qs.Load(r.objectId)
 		assert.Assert(present,
 			"trying to unlock already unlocked tuple. recordID: %+v",
-			r.objectId)
+			r)
 
+		q := qAny.(*txnQueue[LockModeType, ObjectID])
 		return q
 	}()
 
@@ -321,40 +312,34 @@ func (m *lockManager[LockModeType, ObjectID]) Unlock(
 }
 
 func (m *lockManager[LockModeType, ObjectID]) UnlockAll(
-	TransactionID common.TxnID,
+	txnID common.TxnID,
 ) {
 	lockedRecords := func() map[ObjectID]struct{} {
 		m.lockedRecordsGuard.Lock()
 		defer m.lockedRecordsGuard.Unlock()
 
-		lockedRecords, ok := m.lockedRecords[TransactionID]
+		lockedRecords, ok := m.lockedRecords[txnID]
 		if !ok {
 			return make(map[ObjectID]struct{})
 		}
 
-		assert.Assert(ok,
-			"expected a set of locked records for the transaction %+v to exist",
-			TransactionID)
-		delete(m.lockedRecords, TransactionID)
+		delete(m.lockedRecords, txnID)
 		return lockedRecords
 	}()
 
 	unlockRequest := TxnUnlockRequest[ObjectID]{
-		txnID: TransactionID,
+		txnID: txnID,
 	}
 
 	for r := range lockedRecords {
 		q := func() *txnQueue[LockModeType, ObjectID] {
-			m.qsGuard.Lock()
-			defer m.qsGuard.Unlock()
-
-			q, present := m.qs[r]
+			qAny, present := m.qs.Load(r)
 			assert.Assert(
 				present,
 				"trying to unlock a transaction on an unlocked tuple. recordID: %+v",
 				r,
 			)
-
+			q := qAny.(*txnQueue[LockModeType, ObjectID])
 			return q
 		}()
 
@@ -375,14 +360,13 @@ func (m *lockManager[LockModeType, ObjectID]) GetActiveTransactions() map[common
 }
 
 func (m *lockManager[LockModeType, ObjectID]) AreAllQueuesEmpty() bool {
-	m.qsGuard.Lock()
-	defer m.qsGuard.Unlock()
-
-	for _, q := range m.qs {
+	m.qs.Range(func(key, value any) bool {
+		q := value.(*txnQueue[LockModeType, ObjectID])
 		if !q.IsEmpty() {
 			return false
 		}
-	}
+		return true
+	})
 
 	return true
 }

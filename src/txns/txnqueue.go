@@ -78,8 +78,7 @@ type txnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparable] 
 	head *txnQueueEntry[LockModeType, ObjectIDType]
 	tail *txnQueueEntry[LockModeType, ObjectIDType]
 
-	mu       sync.Mutex
-	txnNodes map[common.TxnID]*txnQueueEntry[LockModeType, ObjectIDType]
+	txnNodes sync.Map // map[common.TxnID]*txnQueueEntry[LockModeType, ObjectIDType]
 }
 
 // processBatch processes a batch of transactions in the txnQueue starting from
@@ -154,8 +153,7 @@ func newTxnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparabl
 		head: head,
 		tail: tail,
 
-		mu:       sync.Mutex{},
-		txnNodes: map[common.TxnID]*txnQueueEntry[LockModeType, ObjectIDType]{},
+		txnNodes: sync.Map{},
 	}
 
 	return q
@@ -184,10 +182,8 @@ func checkDeadlockCondition(
 func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	r TxnLockRequest[LockModeType, ObjectIDType],
 ) <-chan struct{} {
-	q.mu.Lock()
-	upgradingEntry, ok := q.txnNodes[r.txnID]
-	q.mu.Unlock()
-	if ok {
+	if upgradingEntry, ok := q.txnNodes.Load(r.txnID); ok {
+		upgradingEntry := upgradingEntry.(*txnQueueEntry[LockModeType, ObjectIDType])
 		upgradingEntry.mu.Lock()
 		assert.Assert(
 			upgradingEntry.status == entryStatusRunning,
@@ -203,7 +199,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 
 	if cur.next == q.tail {
 		notifier := make(chan struct{})
-		close(notifier) // Grant the lock immediately
+		close(notifier)
 		newNode := &txnQueueEntry[LockModeType, ObjectIDType]{
 			r:        r,
 			notifier: notifier,
@@ -211,9 +207,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 		}
 		cur.SafeInsert(newNode)
 
-		q.mu.Lock()
-		q.txnNodes[r.txnID] = newNode
-		q.mu.Unlock()
+		q.txnNodes.Store(r.txnID, newNode)
 		return notifier
 	}
 
@@ -245,10 +239,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 			}
 			cur.SafeInsert(newNode)
 
-			q.mu.Lock()
-			q.txnNodes[r.txnID] = newNode
-			q.mu.Unlock()
-
+			q.txnNodes.Store(r.txnID, newNode)
 			return notifier
 		}
 		cur = cur.SafeNext()
@@ -278,21 +269,16 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 		status:   entryStatusWaitAcquire,
 	}
 	cur.SafeInsert(newNode)
-
-	q.mu.Lock()
-	q.txnNodes[r.txnID] = newNode
-	q.mu.Unlock()
-
+	q.txnNodes.Store(r.txnID, newNode)
 	return notifier
 }
 
 func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	r TxnLockRequest[LockModeType, ObjectIDType],
 ) <-chan struct{} {
-	q.mu.Lock()
-	upgradingEntry, ok := q.txnNodes[r.txnID]
-	q.mu.Unlock()
+	upgradingEntryAny, ok := q.txnNodes.Load(r.txnID)
 	assert.Assert(ok, "can't find upgrading entry")
+	upgradingEntry := upgradingEntryAny.(*txnQueueEntry[LockModeType, ObjectIDType])
 
 	upgradingEntry.mu.Lock()
 	assert.Assert(
@@ -322,6 +308,10 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	cur := q.head
 	cur.mu.Lock()
 	for {
+		assert.Assert(
+			cur.next != q.tail,
+			"should have found the upgrading entry",
+		)
 		entryBeforeUpgradingOne = cur
 		cur = cur.next
 		cur.mu.Lock()
@@ -384,9 +374,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 
 		entryBeforeUpgradingOne.SafeDeleteNext()
 
-		q.mu.Lock()
-		q.txnNodes[r.txnID] = newEntry
-		q.mu.Unlock()
+		q.txnNodes.Store(r.txnID, newEntry)
 		return newEntry.notifier
 	}
 
@@ -417,9 +405,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 
 			entryBeforeUpgradingOne.SafeDeleteNext()
 
-			q.mu.Lock()
-			q.txnNodes[r.txnID] = newEntry
-			q.mu.Unlock()
+			q.txnNodes.Store(r.txnID, newEntry)
 			return newEntry.notifier
 		}
 		cur.mu.Unlock()
@@ -430,11 +416,9 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 func (q *txnQueue[LockModeType, ObjectIDType]) unlock(
 	r TxnUnlockRequest[ObjectIDType],
 ) {
-	q.mu.Lock()
-	deletingNode, present := q.txnNodes[r.txnID]
-	q.mu.Unlock()
-
+	deletingNodeAny, present := q.txnNodes.Load(r.txnID)
 	assert.Assert(present, "node not found. %+v", r)
+	deletingNode := deletingNodeAny.(*txnQueueEntry[LockModeType, ObjectIDType])
 
 	cur := q.head
 	cur.mu.Lock()
@@ -451,9 +435,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) unlock(
 	deletingNode.mu.Unlock()
 	cur.mu.Unlock()
 
-	q.mu.Lock()
-	delete(q.txnNodes, r.txnID)
-	q.mu.Unlock()
+	q.txnNodes.Delete(r.txnID)
 
 	if deletingNodeStatus == entryStatusRunning && cur == q.head &&
 		next.status != entryStatusRunning {
@@ -464,7 +446,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) unlock(
 }
 
 func (q *txnQueue[LockModeType, ObjectIDType]) IsEmpty() bool {
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	q.head.mu.Lock()
+	defer q.head.mu.Unlock()
 	return q.head.next == q.tail
 }
