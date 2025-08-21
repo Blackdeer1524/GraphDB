@@ -35,7 +35,6 @@ type txnQueueEntry[LockModeType GranularLock[LockModeType], ObjectIDType compara
 
 	mu   sync.Mutex
 	next *txnQueueEntry[LockModeType, ObjectIDType]
-	prev *txnQueueEntry[LockModeType, ObjectIDType]
 }
 
 // SafeNext safely advances to the next txnQueueEntry in the queue.
@@ -54,16 +53,13 @@ func (lockedEntry *txnQueueEntry[LockModeType, ObjectIDType]) SafeNext() *txnQue
 }
 
 func (lockedEntry *txnQueueEntry[LockModeType, ObjectIDType]) SafeDeleteNext() {
-	cur := lockedEntry.next
-	cur.mu.Lock()
+	deletingEntry := lockedEntry.next
+	deletingEntry.mu.Lock()
 
-	next := cur.next
-	next.mu.Lock()
-	defer next.mu.Unlock()
-	cur.mu.Unlock()
+	after := deletingEntry.next
+	deletingEntry.mu.Unlock()
 
-	lockedEntry.next = next
-	next.prev = lockedEntry
+	lockedEntry.next = after
 }
 
 // SafeInsert inserts the given txnQueueEntry 'n' immediately after the current
@@ -75,15 +71,8 @@ func (lockedEntry *txnQueueEntry[LockModeType, ObjectIDType]) SafeInsert(
 	n *txnQueueEntry[LockModeType, ObjectIDType],
 ) {
 	next := lockedEntry.next
-
-	n.prev = lockedEntry
 	n.next = next
-
 	lockedEntry.next = n
-
-	next.mu.Lock()
-	next.prev = n
-	next.mu.Unlock()
 }
 
 type txnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {
@@ -159,7 +148,6 @@ func newTxnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparabl
 		},
 	}
 	head.next = tail
-	tail.prev = head
 
 	q := &txnQueue[LockModeType, ObjectIDType]{
 		head: head,
@@ -378,10 +366,8 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 			notifier: make(chan struct{}),
 			status:   entryStatusWaitUpgrade,
 			next:     next,
-			prev:     cur,
 		}
 		cur.next = newEntry
-		next.prev = newEntry
 		cur.mu.Unlock()
 		next.mu.Unlock()
 
@@ -410,10 +396,8 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 				notifier: make(chan struct{}),
 				status:   entryStatusWaitUpgrade,
 				next:     next,
-				prev:     cur,
 			}
 			cur.next = newEntry
-			next.prev = newEntry
 			next.mu.Unlock()
 
 			entryBeforeUpgradingOne.SafeDeleteNext()
@@ -440,22 +424,21 @@ func (q *txnQueue[LockModeType, ObjectIDType]) unlock(
 	}
 
 	deletingNode.mu.Lock()
-	next := deletingNode.next
-	next.mu.Lock()
-	next.prev = cur
-	cur.next = next
 	deletingNodeStatus := deletingNode.status
+	after := deletingNode.next
+	cur.next = after
 	deletingNode.mu.Unlock()
 	cur.mu.Unlock()
 
 	q.txnNodes.Delete(r.txnID)
 
-	if deletingNodeStatus == entryStatusRunning && cur == q.head &&
-		next.status != entryStatusRunning {
-		q.processBatch(next)
+	after.mu.Lock()
+	if cur == q.head && deletingNodeStatus == entryStatusRunning &&
+		after.status != entryStatusRunning {
+		q.processBatch(after)
 		return
 	}
-	next.mu.Unlock()
+	after.mu.Unlock()
 }
 
 func (q *txnQueue[LockModeType, ObjectIDType]) IsEmpty() bool {
