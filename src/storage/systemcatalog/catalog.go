@@ -526,7 +526,7 @@ func (m *Manager) IndexExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) GetIndex(name string) (storage.Index, error) {
+func (m *Manager) GetIndexMeta(name string) (storage.Index, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return storage.Index{}, fmt.Errorf("failed to update system catalog data: %w", err)

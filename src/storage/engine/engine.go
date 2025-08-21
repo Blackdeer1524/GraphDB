@@ -37,6 +37,7 @@ type SystemCatalog interface {
 	AddEdgeTable(req storage.EdgeTable) error
 	DropEdgeTable(name string) error
 
+	GetIndexMeta(name string) (storage.Index, error)
 	IndexExists(name string) (bool, error)
 	AddIndex(req storage.Index) error
 	DropIndex(name string) error
@@ -53,7 +54,7 @@ type StorageEngine struct {
 	fs afero.Fs
 }
 
-func New(basePath string, poolSize uint64, fs afero.Fs, l Locker, d afero.Fs) (*StorageEngine, error) {
+func New(basePath string, poolSize uint64, fs afero.Fs, l Locker) (*StorageEngine, error) {
 	err := systemcatalog.InitSystemCatalog(basePath, fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to : %w", err)
@@ -65,7 +66,7 @@ func New(basePath string, poolSize uint64, fs afero.Fs, l Locker, d afero.Fs) (*
 
 	diskMgr := disk.New[*page.SlottedPage](fileIDToFilePath, page.NewSlottedPage)
 
-	bpManager, err := bufferpool.New(poolSize, &bufferpool.MockReplacer{}, diskMgr)
+	bpManager, err := bufferpool.New(poolSize, &bufferpool.LRUReplacer{}, diskMgr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bufferpool: %w", err)
 	}
@@ -80,7 +81,7 @@ func New(basePath string, poolSize uint64, fs afero.Fs, l Locker, d afero.Fs) (*
 	return &StorageEngine{
 		catalog: sysCat,
 		lock:    l,
-		fs:      d,
+		fs:      fs,
 		diskMgr: diskMgr,
 	}, nil
 }
@@ -144,7 +145,9 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 	}
 
 	dir := filepath.Dir(tableFilePath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+
+	err = os.MkdirAll(dir, 0o755)
+	if err != nil {
 		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
@@ -261,7 +264,17 @@ func (s *StorageEngine) CreateEdgesTable(txnID common.TxnID, name string, schema
 	}
 
 	if fileExists {
-		return fmt.Errorf("file %s already exists", tableFilePath)
+		err = s.fs.Remove(tableFilePath)
+		if err != nil {
+			return fmt.Errorf("unable to remove file: %w", err)
+		}
+	}
+
+	dir := filepath.Dir(tableFilePath)
+
+	err = os.MkdirAll(dir, 0o755)
+	if err != nil {
+		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
 	file, err := s.fs.Create(tableFilePath)
@@ -378,7 +391,17 @@ func (s *StorageEngine) CreateIndex(
 	}
 
 	if fileExists {
-		return fmt.Errorf("file %s already exists", tableFilePath)
+		err = s.fs.Remove(tableFilePath)
+		if err != nil {
+			return fmt.Errorf("unable to remove file: %w", err)
+		}
+	}
+
+	dir := filepath.Dir(tableFilePath)
+
+	err = os.MkdirAll(dir, 0o755)
+	if err != nil {
+		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
 	file, err := s.fs.Create(tableFilePath)
