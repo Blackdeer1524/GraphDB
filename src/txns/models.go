@@ -1,6 +1,8 @@
 package txns
 
 import (
+	"fmt"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
@@ -11,6 +13,7 @@ type PageLockMode TaggedType[uint8]
 type GranularLockMode TaggedType[uint16]
 
 type GranularLock[Lock any] interface {
+	fmt.Stringer
 	Compatible(Lock) bool
 	Upgradable(Lock) bool
 	Equal(Lock) bool
@@ -43,6 +46,34 @@ var (
 	_ GranularLock[PageLockMode]     = PageLockMode{0}
 	_ GranularLock[GranularLockMode] = GranularLockMode{0}
 )
+
+func (m PageLockMode) String() string {
+	switch m {
+	case PAGE_LOCK_SHARED:
+		return "SHARED"
+	case PAGE_LOCK_EXCLUSIVE:
+		return "EXCLUSIVE"
+	default:
+		return fmt.Sprintf("PageLockMode(%d)", m.v)
+	}
+}
+
+func (m GranularLockMode) String() string {
+	switch m {
+	case GRANULAR_LOCK_INTENTION_SHARED:
+		return "INTENTION_SHARED"
+	case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+		return "INTENTION_EXCLUSIVE"
+	case GRANULAR_LOCK_SHARED:
+		return "SHARED"
+	case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		return "SHARED_INTENTION_EXCLUSIVE"
+	case GRANULAR_LOCK_EXCLUSIVE:
+		return "EXCLUSIVE"
+	default:
+		return fmt.Sprintf("GranularLockMode(%d)", m.v)
+	}
+}
 
 func (m PageLockMode) Compatible(other PageLockMode) bool {
 	if m == PAGE_LOCK_SHARED && other == PAGE_LOCK_SHARED {

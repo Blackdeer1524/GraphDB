@@ -16,14 +16,33 @@ type lockManager[LockModeType GranularLock[LockModeType], ID comparable] struct 
 	lockedRecords      map[common.TxnID]map[ID]struct{}
 }
 
-type txnDependencyGraph[LockModeType GranularLock[LockModeType]] map[common.TxnID][]edgeInfo[LockModeType]
+type txnDependencyGraph[LockModeType GranularLock[LockModeType], ID comparable] map[common.TxnID][]edgeInfo[LockModeType, ID]
 
-type edgeInfo[LockModeType GranularLock[LockModeType]] struct {
-	dst      common.TxnID
+type edgeInfo[LockModeType GranularLock[LockModeType], ID comparable] struct {
+	txnDst   common.TxnID
+	status   entryStatus
+	isPage   bool
 	lockMode LockModeType
+	pageDst  ID
 }
 
-func (g txnDependencyGraph[LockModeType]) IsCyclic() bool {
+func newEdgeInfo[LockModeType GranularLock[LockModeType], ID comparable](
+	txnDst common.TxnID,
+	status entryStatus,
+	isPage bool,
+	lockMode LockModeType,
+	pageDst ID,
+) edgeInfo[LockModeType, ID] {
+	return edgeInfo[LockModeType, ID]{
+		txnDst:   txnDst,
+		status:   status,
+		isPage:   isPage,
+		lockMode: lockMode,
+		pageDst:  pageDst,
+	}
+}
+
+func (g txnDependencyGraph[LockModeType, ID]) IsCyclic() bool {
 	visited := make(map[common.TxnID]bool)
 	recStack := make(map[common.TxnID]bool)
 
@@ -41,7 +60,7 @@ func (g txnDependencyGraph[LockModeType]) IsCyclic() bool {
 		recStack[txnID] = true
 
 		for _, edge := range g[txnID] {
-			if dfs(edge.dst) {
+			if !edge.isPage && dfs(edge.txnDst) {
 				return true
 			}
 		}
@@ -61,7 +80,7 @@ func (g txnDependencyGraph[LockModeType]) IsCyclic() bool {
 	return false
 }
 
-func (g txnDependencyGraph[LockModeType]) Dump() string {
+func (g txnDependencyGraph[LockModeType, ID]) Dump() string {
 	var result strings.Builder
 
 	result.WriteString("digraph TransactionDependencyGraph {\n")
@@ -93,9 +112,10 @@ func (g txnDependencyGraph[LockModeType]) Dump() string {
 	lock2color := map[string]string{}
 	for txnID, deps := range g {
 		for _, edge := range deps {
-			lockModeStr := fmt.Sprintf("%#v", edge.lockMode)
+			lockModeStr := edge.lockMode.String()
 			var edgeColor string
-			if edgeColor, ok := lock2color[lockModeStr]; !ok {
+			var ok bool
+			if edgeColor, ok = lock2color[lockModeStr]; !ok {
 				assert.Assert(
 					len(colorset) > 0,
 					"expected a color set to exist",
@@ -103,18 +123,34 @@ func (g txnDependencyGraph[LockModeType]) Dump() string {
 				for edgeColor = range colorset {
 					break
 				}
+				delete(colorset, edgeColor)
 				lock2color[lockModeStr] = edgeColor
 			}
 
-			result.WriteString(
-				fmt.Sprintf(
-					"\t\"txn_%d\" -> \"txn_%d\" [label=\"%s\", color=\"%s\"];\n",
-					txnID,
-					edge.dst,
-					lockModeStr,
-					edgeColor,
-				),
-			)
+			if !edge.isPage {
+				result.WriteString(
+					fmt.Sprintf(
+						"\t\"txn_%d\" -> \"txn_%d\" [label=\"%+v [%s:%s]\", color=\"%s\"];\n",
+						txnID,
+						edge.txnDst,
+						edge.pageDst,
+						lockModeStr,
+						edge.status,
+						edgeColor,
+					),
+				)
+			} else {
+				result.WriteString(
+					fmt.Sprintf(
+						"\t\"txn_%d\" -> \"object_%+v\" [label=\"[%s:%s]\", color=\"%s\"];\n",
+						txnID,
+						edge.pageDst,
+						lockModeStr,
+						edge.status,
+						edgeColor,
+					),
+				)
+			}
 		}
 	}
 
@@ -122,7 +158,7 @@ func (g txnDependencyGraph[LockModeType]) Dump() string {
 	return result.String()
 }
 
-func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[LockModeType] {
+func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[LockModeType, ID] {
 	qs := map[ID]*txnQueue[LockModeType, ID]{}
 	m.qs.Range(func(key, value any) bool {
 		qs[key.(ID)] = value.(*txnQueue[LockModeType, ID])
@@ -136,18 +172,25 @@ func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[Loc
 		}
 	}()
 
-	graph := map[common.TxnID][]edgeInfo[LockModeType]{}
+	graph := map[common.TxnID][]edgeInfo[LockModeType, ID]{}
 	for _, q := range qs {
 		cur := q.head.next
 		cur.mu.Lock()
 		runningSet := map[common.TxnID]struct{}{}
 		for ; cur != q.tail && cur.status == entryStatusRunning; cur = cur.SafeNext() {
 			runningSet[cur.r.txnID] = struct{}{}
+			graph[cur.r.txnID] = append(
+				graph[cur.r.txnID],
+				newEdgeInfo(
+					0,
+					cur.status,
+					true,
+					cur.r.lockMode,
+					cur.r.objectId,
+				),
+			)
 		}
 
-		for runner := range runningSet {
-			graph[runner] = []edgeInfo[LockModeType]{}
-		}
 		if cur == q.tail {
 			cur.mu.Unlock()
 			continue
@@ -158,14 +201,23 @@ func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[Loc
 			"expected a running set to exist for the transaction %+v",
 			cur.r.txnID,
 		)
+		assert.Assert(
+			cur.status != entryStatusRunning,
+			"only queue prefix can be running. txnID: %d, status: %s",
+			cur.r.txnID,
+			cur.status,
+		)
 
 		for runnerID := range runningSet {
 			graph[cur.r.txnID] = append(
 				graph[cur.r.txnID],
-				edgeInfo[LockModeType]{
-					dst:      runnerID,
-					lockMode: cur.r.lockMode,
-				},
+				newEdgeInfo(
+					runnerID,
+					cur.status,
+					false,
+					cur.r.lockMode,
+					cur.r.objectId,
+				),
 			)
 		}
 
@@ -179,10 +231,13 @@ func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[Loc
 			)
 			graph[cur.r.txnID] = append(
 				graph[cur.r.txnID],
-				edgeInfo[LockModeType]{
-					dst:      prev.r.txnID,
-					lockMode: cur.r.lockMode,
-				},
+				newEdgeInfo(
+					prev.r.txnID,
+					cur.status,
+					false,
+					cur.r.lockMode,
+					cur.r.objectId,
+				),
 			)
 
 			cur = cur.SafeNext()

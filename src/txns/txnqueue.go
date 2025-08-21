@@ -16,6 +16,18 @@ const (
 	entryStatusWaitAcquire
 )
 
+func (s entryStatus) String() string {
+	switch s {
+	case entryStatusRunning:
+		return "running"
+	case entryStatusWaitUpgrade:
+		return "wait-upgrade"
+	case entryStatusWaitAcquire:
+		return "wait-acquire"
+	}
+	panic("invalid entry status")
+}
+
 type txnQueueEntry[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {
 	r        TxnLockRequest[LockModeType, ObjectIDType]
 	notifier chan struct{}
@@ -285,18 +297,19 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 		upgradingEntry.status == entryStatusRunning,
 		"can only upgrade running transactions",
 	)
-	oldLockMode := upgradingEntry.r.lockMode
+	acquiredLockMode := upgradingEntry.r.lockMode
 
-	if r.lockMode.Equal(oldLockMode) || r.lockMode.Upgradable(oldLockMode) {
+	if r.lockMode.Equal(acquiredLockMode) ||
+		r.lockMode.Upgradable(acquiredLockMode) {
 		// check whether we have requested a weaker lock
 		upgradingEntry.mu.Unlock()
 		return upgradingEntry.notifier
 	}
 
 	assert.Assert(
-		oldLockMode.Upgradable(r.lockMode),
+		acquiredLockMode.Upgradable(r.lockMode),
 		"can only upgrade to a compatible lock mode. given: %#v -> %#v",
-		oldLockMode,
+		acquiredLockMode,
 		r.lockMode)
 
 	upgradingEntry.mu.Unlock()
