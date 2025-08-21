@@ -48,6 +48,7 @@ type SystemCatalog interface {
 type StorageEngine struct {
 	lock    Locker
 	catalog SystemCatalog
+	diskMgr *disk.Manager[*page.SlottedPage]
 
 	fs afero.Fs
 }
@@ -80,6 +81,7 @@ func New(basePath string, poolSize uint64, fs afero.Fs, l Locker, d afero.Fs) (*
 		catalog: sysCat,
 		lock:    l,
 		fs:      d,
+		diskMgr: diskMgr,
 	}, nil
 }
 
@@ -186,6 +188,8 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
+
+	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
 
 	needToRollback = false
 
@@ -294,6 +298,8 @@ func (s *StorageEngine) CreateEdgesTable(txnID common.TxnID, name string, schema
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
+
+	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
 
 	needToRollback = false
 
@@ -412,6 +418,8 @@ func (s *StorageEngine) CreateIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
+
+	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
 
 	needToRollback = false
 

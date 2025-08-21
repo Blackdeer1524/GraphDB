@@ -2,17 +2,16 @@ package engine
 
 import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog/mocks"
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
-
-	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/stretchr/testify/assert"
 )
 
 func Test_getVertexTableFilePath(t *testing.T) {
@@ -51,6 +50,8 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 		fs:      afero.NewOsFs(),
 		lock:    lockMgr,
 	}
+
+	se, err = New(dir, uint64(200), afero.NewOsFs(), lockMgr, afero.NewOsFs())
 
 	tableName := "User"
 	schema := storage.Schema{
