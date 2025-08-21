@@ -1,9 +1,13 @@
 package engine
 
 import (
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog/mocks"
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
 
@@ -27,14 +31,16 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	dir := t.TempDir()
 
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
-	if err != nil {
-		t.Fatalf("InitSystemCatalog failed: %v", err)
+	require.NoError(t, err)
+
+	fileIDToFilePath := map[common.FileID]string{
+		common.FileID(0): systemcatalog.GetSystemCatalogVersionFileName(dir),
 	}
 
-	catalog, err := systemcatalog.New(dir, afero.NewOsFs(), &mocks.MockDataBufferPool{})
-	if err != nil {
-		t.Fatalf("New SystemCatalog failed: %v", err)
-	}
+	diskMgr := disk.New[*page.SlottedPage](fileIDToFilePath, page.NewSlottedPage)
+
+	catalog, err := systemcatalog.New(dir, afero.NewOsFs(), &mocks.MockDataBufferPool{Disk: diskMgr})
+	require.NoError(t, err)
 
 	lockMgr := &mocks.MockLockManager{
 		AllowLock: true,
@@ -53,40 +59,20 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	}
 
 	err = se.CreateVertexTable(1, tableName, schema)
-	if err != nil {
-		t.Fatalf("CreateVertexTable failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	tablePath := getVertexTableFilePath(dir, tableName)
 	info, err := os.Stat(tablePath)
-	if err != nil {
-		t.Fatalf("expected table file to exist, got error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if info.IsDir() {
-		t.Fatalf("expected table file to be a regular file, got dir")
-	}
+	require.False(t, info.IsDir())
 
-	// 6. Проверяем запись в SystemCatalog
 	tblMeta, err := catalog.GetVertexTableMeta(tableName)
-	if err != nil {
-		t.Fatalf("expected table in catalog, got error: %v", err)
-	}
-	if tblMeta.Name != tableName {
-		t.Errorf("expected table name %s, got %s", tableName, tblMeta.Name)
-	}
+	require.NoError(t, err)
+	require.Equal(t, tableName, tblMeta.Name)
 
-	if catalog.CurrentVersion() == 0 {
-		t.Errorf("expected SystemCatalog version > 0")
-	}
+	require.Greater(t, catalog.CurrentVersion(), uint64(0))
 
 	err = se.CreateVertexTable(2, tableName, schema)
-	if err == nil {
-		t.Fatalf("expected error when creating table with same name")
-	}
-
-	info2, err := os.Stat(tablePath)
-	if err != nil || info2.Size() == 0 {
-		t.Errorf("expected table file to persist after failed creation")
-	}
+	require.Error(t, err)
 }

@@ -141,10 +141,21 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 		}
 	}
 
+	dir := filepath.Dir(tableFilePath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("unable to create directory %s: %w", dir, err)
+	}
+
 	file, err := s.fs.Create(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to create directory: %w", err)
 	}
+
+	err = file.Sync()
+	if err != nil {
+		return fmt.Errorf("unable to sync file: %w", err)
+	}
+
 	_ = file.Close()
 	defer func() {
 		if needToRollback {

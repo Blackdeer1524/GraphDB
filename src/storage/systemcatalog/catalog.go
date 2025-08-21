@@ -100,6 +100,11 @@ func initializeVersionFile(fs afero.Fs, versionFile string) (err error) {
 		return fmt.Errorf("failed to write at file: %w", err)
 	}
 
+	err = file.Sync()
+	if err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
+	}
+
 	return nil
 }
 
