@@ -51,17 +51,10 @@ func TestBankTransactions(t *testing.T) {
 	)
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
 
-	START_BALANCE := uint32(60)
-	ROLLBACK_CUTOFF := uint32(0) // START_BALANCE / 3
-	CLIENTS_COUNT := 100_000
-	TXNS_COUNT := 1_000
-	RETRY_COUNT := 5
-	MAX_ENTRIES_PER_PAGE := 30
-	WORKER_COUNT := 2000
 	const startBalance = uint32(60)
 	const rollbackCutoff = uint32(0) // START_BALANCE / 3
-	const clientsCount = 100
-	const txnsCount = 50
+	const clientsCount = 100_000
+	const txnsCount = 1_000
 	const retryCount = 5
 	const maxEntriesPerPage = 30
 	const workersCount = 2000

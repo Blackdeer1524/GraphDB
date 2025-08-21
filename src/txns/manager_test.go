@@ -1,6 +1,7 @@
 package txns
 
 import (
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -230,7 +231,29 @@ func TestManagerUnlockAll(t *testing.T) {
 	)
 }
 
+func waitWithDeadline(
+	notifier <-chan struct{},
+	condFlag *bool,
+	graphBuilderNotifier *sync.Cond,
+	timeout time.Duration,
+) {
+	timer := time.NewTimer(timeout)
+	select {
+	case <-notifier:
+		timer.Stop()
+	case <-timer.C:
+		graphBuilderNotifier.L.Lock()
+		*condFlag = true
+		graphBuilderNotifier.Signal()
+		graphBuilderNotifier.L.Unlock()
+	}
+}
+
 func TestManagerConcurrency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping slow test in short mode")
+	}
+
 	m := NewManager[PageLockMode, common.PageID]()
 	defer func() {
 		for _, q := range m.qs {
@@ -238,9 +261,10 @@ func TestManagerConcurrency(t *testing.T) {
 		}
 	}()
 
-	numTxns := 1000
-	numObjects := 300
-	opsPerTxn := 8
+	numTxns := 100
+	numObjects := 10
+	opsPerTxn := 10
+	deadline := time.Second * 0
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -251,48 +275,73 @@ func TestManagerConcurrency(t *testing.T) {
 		PAGE_LOCK_EXCLUSIVE,
 	}
 
-	for txnID := 0; txnID < numTxns; txnID++ {
+	condMu := sync.Mutex{}
+	graphBuildingFlag := false
+	cond := sync.NewCond(&mu)
+
+	go func() {
+		condMu.Lock()
+		for !graphBuildingFlag {
+			cond.Wait()
+		}
+		condMu.Unlock()
+
+		graph := m.GetGraphSnaphot()
+		if graph.IsCyclic() {
+			t.Logf(
+				"Dependency graph should be acyclic, but is not. Graph: %s",
+				graph.Dump(),
+			)
+			t.Fail()
+		} else {
+			t.Logf("Have been waiting for too long. Graph: %s", graph.Dump())
+			t.Fail()
+		}
+	}()
+
+	for txnID := range numTxns {
 		wg.Add(1)
 
-		func(txnID int) {
+		go func(txnID int) {
 			defer wg.Done()
 
 			txn := common.TxnID(txnID)
-			lockedObjects := make(map[common.PageID]PageLockMode)
+			lockedObjects := make(map[common.PageID]struct{})
 
-			defer func() {
-				if len(lockedObjects) > 0 {
-					m.UnlockAll(txn)
-				}
-			}()
+			defer m.UnlockAll(txn)
 
-			for op := 0; op < opsPerTxn; op++ {
+			for op := range opsPerTxn {
 				if len(lockedObjects) > 0 && op%3 == 0 {
-					for objectID, currentMode := range lockedObjects {
-						if currentMode == PAGE_LOCK_SHARED {
-							upgradeReq := TxnLockRequest[PageLockMode, common.PageID]{
-								txnID:    txn,
-								objectId: objectID,
-								lockMode: PAGE_LOCK_EXCLUSIVE,
-							}
-
-							notifier := m.Upgrade(upgradeReq)
-							if notifier != nil {
-								<-notifier
-								lockedObjects[objectID] = PAGE_LOCK_EXCLUSIVE
-							} else {
-								mu.Lock()
-								failedTxns[txn] = true
-								mu.Unlock()
-								m.UnlockAll(txn)
-								return
-							}
-							break
+					for objectID := range lockedObjects {
+						if rand.Intn(2) == 0 {
+							continue
 						}
+
+						upgradeReq := TxnLockRequest[PageLockMode, common.PageID]{
+							txnID:    txn,
+							objectId: objectID,
+							lockMode: PAGE_LOCK_EXCLUSIVE,
+						}
+
+						notifier := m.Upgrade(upgradeReq)
+						if notifier == nil {
+							mu.Lock()
+							failedTxns[txn] = true
+							mu.Unlock()
+							m.UnlockAll(txn)
+							return
+						}
+
+						waitWithDeadline(
+							notifier,
+							&graphBuildingFlag,
+							cond,
+							deadline,
+						)
+						break
 					}
 				} else {
-					objectID := common.PageID(txnID % numObjects)
-
+					objectID := common.PageID(rand.Intn(numObjects))
 					lockMode := lockModes[txnID%len(lockModes)]
 
 					req := TxnLockRequest[PageLockMode, common.PageID]{
@@ -306,19 +355,22 @@ func TestManagerConcurrency(t *testing.T) {
 						mu.Lock()
 						failedTxns[txn] = true
 						mu.Unlock()
-						m.UnlockAll(txn)
 						return
 					}
 
-					<-notifier
-					lockedObjects[objectID] = lockMode
+					waitWithDeadline(
+						notifier,
+						&graphBuildingFlag,
+						cond,
+						deadline,
+					)
+					lockedObjects[objectID] = struct{}{}
 				}
 
 				time.Sleep(time.Millisecond * time.Duration(txnID%3))
 			}
 		}(txnID)
 	}
-
 	wg.Wait()
 
 	// Verify final state
@@ -332,17 +384,15 @@ func TestManagerConcurrency(t *testing.T) {
 		numTxns,
 	)
 
-	// Verify that all queues are empty after all transactions complete
-	if !m.AreAllQueuesEmpty() {
-		t.Error("Some queues are not empty after all transactions completed")
-	}
+	assert.True(
+		t,
+		m.AreAllQueuesEmpty(),
+		"Some queues are not empty after all transactions completed",
+	)
 
-	// Verify that no active transactions remain
 	activeTxns := m.GetActiveTransactions()
-	if len(activeTxns) != 0 {
-		t.Errorf(
-			"Expected no active transactions, but found %d",
-			len(activeTxns),
-		)
-	}
+	assert.Equal(t, len(activeTxns), 0,
+		"Expected no active transactions, but found %d",
+		len(activeTxns),
+	)
 }
