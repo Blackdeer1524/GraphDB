@@ -1,6 +1,8 @@
 package txns
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
@@ -13,6 +15,184 @@ type lockManager[LockModeType GranularLock[LockModeType], ID comparable] struct 
 
 	lockedRecordsGuard sync.Mutex
 	lockedRecords      map[common.TxnID]map[ID]struct{}
+}
+
+type txnDependencyGraph[LockModeType GranularLock[LockModeType]] map[common.TxnID][]edgeInfo[LockModeType]
+
+type edgeInfo[LockModeType GranularLock[LockModeType]] struct {
+	dst      common.TxnID
+	lockMode LockModeType
+}
+
+func (g txnDependencyGraph[LockModeType]) IsCyclic() bool {
+	visited := make(map[common.TxnID]bool)
+	recStack := make(map[common.TxnID]bool)
+
+	var dfs func(txnID common.TxnID) bool
+	dfs = func(txnID common.TxnID) bool {
+		if recStack[txnID] {
+			return true
+		}
+
+		if visited[txnID] {
+			return false
+		}
+
+		visited[txnID] = true
+		recStack[txnID] = true
+
+		for _, edge := range g[txnID] {
+			if dfs(edge.dst) {
+				return true
+			}
+		}
+
+		recStack[txnID] = false
+		return false
+	}
+
+	for txnID := range g {
+		if !visited[txnID] {
+			if dfs(txnID) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (g txnDependencyGraph[LockModeType]) Dump() string {
+	var result strings.Builder
+
+	result.WriteString("digraph TransactionDependencyGraph {\n")
+	result.WriteString("\trankdir=LR;\n")
+	result.WriteString("\tnode [shape=box];\n")
+
+	for txnID := range g {
+		result.WriteString(
+			fmt.Sprintf("\t\"txn_%d\" [label=\"Txn %d\"];\n", txnID, txnID),
+		)
+	}
+	result.WriteString("\n")
+
+	colorset := map[string]struct{}{
+		"red":     {},
+		"blue":    {},
+		"green":   {},
+		"yellow":  {},
+		"purple":  {},
+		"orange":  {},
+		"brown":   {},
+		"pink":    {},
+		"cyan":    {},
+		"magenta": {},
+		"lime":    {},
+		"teal":    {},
+	}
+
+	lock2color := map[string]string{}
+	for txnID, deps := range g {
+		for _, edge := range deps {
+			lockModeStr := fmt.Sprintf("%v", edge.lockMode)
+			var edgeColor string
+			if edgeColor, ok := lock2color[lockModeStr]; !ok {
+				assert.Assert(
+					len(colorset) > 0,
+					"expected a color set to exist",
+				)
+				for edgeColor = range colorset {
+					break
+				}
+				lock2color[lockModeStr] = edgeColor
+			}
+
+			result.WriteString(
+				fmt.Sprintf(
+					"\t\"txn_%d\" -> \"txn_%d\" [label=\"%s\", color=\"%s\"];\n",
+					txnID,
+					edge.dst,
+					lockModeStr,
+					edgeColor,
+				),
+			)
+		}
+	}
+
+	result.WriteString("}\n")
+	return result.String()
+}
+
+func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[LockModeType] {
+	m.qsGuard.Lock()
+	defer m.qsGuard.Unlock()
+
+	for range m.lockedRecords {
+		for _, q := range m.qs {
+			q.mu.Lock()
+			defer q.mu.Unlock() // да, нужно анлокнуть по выходу из функции
+		}
+	}
+
+	graph := map[common.TxnID][]edgeInfo[LockModeType]{}
+	for txnID := range m.lockedRecords {
+		for _, q := range m.qs {
+			cur := q.head
+			cur.mu.Lock()
+			runningSet := map[common.TxnID]struct{}{}
+			for cur = cur.SafeNext(); cur != q.tail && cur.status == entryStatusRunning; cur = cur.SafeNext() {
+				runningSet[cur.r.txnID] = struct{}{}
+			}
+
+			for runner := range runningSet {
+				graph[runner] = []edgeInfo[LockModeType]{}
+			}
+			if cur == q.tail {
+				cur.mu.Unlock()
+				continue
+			}
+
+			assert.Assert(
+				len(runningSet) != 0,
+				"expected a running set to exist for the transaction %+v",
+				txnID,
+			)
+
+			for runnerID := range runningSet {
+				graph[cur.r.txnID] = append(
+					graph[cur.r.txnID],
+					edgeInfo[LockModeType]{
+						dst:      runnerID,
+						lockMode: cur.r.lockMode,
+					},
+				)
+			}
+
+			prev := cur
+			cur = cur.next
+			cur.mu.Lock()
+			for cur != q.tail {
+				assert.Assert(
+					cur.status != entryStatusRunning,
+					"only queue prefix can be running",
+				)
+				graph[cur.r.txnID] = append(
+					graph[cur.r.txnID],
+					edgeInfo[LockModeType]{
+						dst:      prev.r.txnID,
+						lockMode: cur.r.lockMode,
+					},
+				)
+
+				cur = cur.SafeNext()
+				prev = prev.SafeNext()
+			}
+			prev.mu.Unlock()
+			cur.mu.Unlock()
+		}
+	}
+
+	return graph
 }
 
 func NewManager[LockModeType GranularLock[LockModeType], ObjectID comparable]() *lockManager[LockModeType, ObjectID] {

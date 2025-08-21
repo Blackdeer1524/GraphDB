@@ -197,7 +197,6 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 		return q.Upgrade(r)
 	}
 
-	// Fast path - locks are compatible
 	cur := q.head
 	cur.mu.Lock()
 	defer func() { cur.mu.Unlock() }()
@@ -287,8 +286,6 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	return notifier
 }
 
-// WARN: if it is unsuccessfull, don't forget to UNLOCK all the transaction's
-// locks
 func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	r TxnLockRequest[LockModeType, ObjectIDType],
 ) <-chan struct{} {
@@ -305,7 +302,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	oldLockMode := upgradingEntry.r.lockMode
 
 	if r.lockMode.Equal(oldLockMode) || r.lockMode.Upgradable(oldLockMode) {
-		// check whether we request for a weaker lock
+		// check whether we have requested a weaker lock
 		upgradingEntry.mu.Unlock()
 		return upgradingEntry.notifier
 	}

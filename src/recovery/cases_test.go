@@ -50,25 +50,25 @@ func TestBankTransactions(t *testing.T) {
 	)
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
 
-	START_BALANCE := uint32(60)
-	ROLLBACK_CUTOFF := uint32(0) // START_BALANCE / 3
-	CLIENTS_COUNT := 100_000
-	TXNS_COUNT := 1_000
-	RETRY_COUNT := 5
-	MAX_ENTRIES_PER_PAGE := 30
-	WORKER_COUNT := 2000
+	const startBalance = uint32(60)
+	const rollbackCutoff = uint32(0) // START_BALANCE / 3
+	const clientsCount = 100_000
+	const txnsCount = 1_000
+	const retryCount = 5
+	const maxEntriesPerPage = 30
+	const workersCount = 2000
 
-	workerPool, err := ants.NewPool(WORKER_COUNT)
+	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)
 
 	recordValues := fillPages(
 		t,
 		logger,
 		math.MaxUint64,
-		CLIENTS_COUNT,
+		clientsCount,
 		files,
-		START_BALANCE,
-		MAX_ENTRIES_PER_PAGE,
+		startBalance,
+		maxEntriesPerPage,
 	)
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
@@ -79,8 +79,8 @@ func TestBankTransactions(t *testing.T) {
 		page, err := pool.GetPageNoCreate(id.PageIdentity())
 		require.NoError(t, err)
 		page.Lock()
-		page.Update(id.SlotNum, utils.ToBytes[uint32](START_BALANCE))
-		totalMoney += START_BALANCE
+		page.Update(id.SlotNum, utils.ToBytes[uint32](startBalance))
+		totalMoney += startBalance
 		page.Unlock()
 		pool.Unpin(id.PageIdentity())
 	}
@@ -266,7 +266,7 @@ func TestBankTransactions(t *testing.T) {
 		)
 		firstPage.RUnlock()
 
-		if myNewBalanceFromPage < ROLLBACK_CUTOFF {
+		if myNewBalanceFromPage < rollbackCutoff {
 			rollbackCutoffFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
@@ -283,7 +283,7 @@ func TestBankTransactions(t *testing.T) {
 	retryingTask := func() {
 		defer wg.Done()
 		txnID := common.TxnID(txnsTicker.Add(1))
-		for range RETRY_COUNT {
+		for range retryCount {
 			if task(txnID) {
 				return
 			}
@@ -291,17 +291,17 @@ func TestBankTransactions(t *testing.T) {
 		}
 	}
 
-	for range TXNS_COUNT {
+	for range txnsCount {
 		wg.Add(1)
 		require.NoError(t, workerPool.Submit(retryingTask))
 	}
 	wg.Wait()
 
-	assert.Equal(t, TXNS_COUNT, int(txnsTicker.Load()))
+	assert.Equal(t, txnsCount, int(txnsTicker.Load()))
 
 	successCount := succ.Load()
 	assert.Greater(t, successCount, uint64(0))
-	if !assert.Greater(t, int(successCount), TXNS_COUNT/2) {
+	if !assert.Greater(t, int(successCount), txnsCount/2) {
 		t.Logf(
 			"fileLockFail: %d\n"+
 				"myPageLockFail: %d\n"+

@@ -15,7 +15,7 @@ type BufferPool_mock struct {
 	pagesMu sync.RWMutex
 	pages   map[common.PageIdentity]*page.SlottedPage
 
-	isDirty map[common.PageIdentity]bool
+	isDirty map[common.PageIdentity]struct{}
 	DPT     map[common.PageIdentity]common.LogRecordLocInfo
 
 	pinCountMu sync.RWMutex
@@ -37,7 +37,7 @@ func NewBufferPoolMock(leakedPages []common.PageIdentity) *BufferPool_mock {
 	return &BufferPool_mock{
 		pages:       make(map[common.PageIdentity]*page.SlottedPage),
 		pinCounts:   make(map[common.PageIdentity]int),
-		isDirty:     make(map[common.PageIdentity]bool),
+		isDirty:     make(map[common.PageIdentity]struct{}),
 		DPT:         map[common.PageIdentity]common.LogRecordLocInfo{},
 		leakedPages: m,
 	}
@@ -83,7 +83,7 @@ func (b *BufferPool_mock) GetPage(
 	p = page.NewSlottedPage()
 	b.pages[pageID] = p
 	b.pinCounts[pageID] = 1
-	b.isDirty[pageID] = false
+	delete(b.isDirty, pageID)
 
 	b.pagesMu.Unlock()
 	b.pinCountMu.Unlock()
@@ -120,7 +120,7 @@ func (b *BufferPool_mock) FlushPage(pageID common.PageIdentity) error {
 	_, ok = b.isDirty[pageID]
 	assert.Assert(ok, "expected to see record %+v in the isDirty", pageID)
 
-	b.isDirty[pageID] = false
+	delete(b.isDirty, pageID)
 	delete(b.DPT, pageID)
 
 	return nil
@@ -136,7 +136,7 @@ func (b *BufferPool_mock) MarkDirty(
 	_, ok := b.isDirty[pageID]
 	assert.Assert(ok)
 
-	b.isDirty[pageID] = true
+	b.isDirty[pageID] = struct{}{}
 	if _, ok := b.DPT[pageID]; !ok {
 		b.DPT[pageID] = loc
 	}
@@ -153,8 +153,7 @@ func (b *BufferPool_mock) FlushAllPages() error {
 	defer b.pagesMu.Unlock()
 
 	for pageID, page := range b.pages {
-		isDirty, ok := b.isDirty[pageID]
-		assert.Assert(ok)
+		_, isDirty := b.isDirty[pageID]
 		if !isDirty {
 			continue
 		}
@@ -162,6 +161,7 @@ func (b *BufferPool_mock) FlushAllPages() error {
 		if !page.TryLock() {
 			continue
 		}
+
 		delete(b.DPT, pageID)
 		page.Unlock()
 	}
