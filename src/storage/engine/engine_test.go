@@ -23,6 +23,12 @@ func Test_getEdgeTableFilePath(t *testing.T) {
 	assert.Equal(t, "/var/lib/graphdb/tables/edge/friends.tbl", ans)
 }
 
+func Test_getIndexFilePath(t *testing.T) {
+	ans := getIndexFilePath("/var/lib/graphdb", "idx_user_name")
+
+	assert.Equal(t, "/var/lib/graphdb/indexes/idx_user_name.idx", ans)
+}
+
 func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	dir := t.TempDir()
 
