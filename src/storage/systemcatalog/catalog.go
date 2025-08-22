@@ -190,6 +190,7 @@ func New(basePath string, fs afero.Fs, bp BufferPool) (*Manager, error) {
 		return nil, fmt.Errorf("failed to get page with version: %w", err)
 	}
 
+	// current version page stores only one slot with current version of system catalog
 	versionNum := utils.FromBytes[uint64](cvp.Read(0))
 
 	sysCatFilename := getSystemCatalogFilename(basePath, versionNum)
