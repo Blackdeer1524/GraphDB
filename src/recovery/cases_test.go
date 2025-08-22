@@ -53,11 +53,11 @@ func TestBankTransactions(t *testing.T) {
 
 	const startBalance = uint32(60)
 	const rollbackCutoff = uint32(0) // START_BALANCE / 3
-	const clientsCount = 100
-	const txnsCount = 50
+	const clientsCount = 10_000
+	const txnsCount = 5_000
 	const retryCount = 5
 	const maxEntriesPerPage = 30
-	const workersCount = 2000
+	const workersCount = 2_000
 
 	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestBankTransactions(t *testing.T) {
 		IDs = append(IDs, i)
 	}
 
-	locker := txns.NewLocker()
+	locker := txns.NewHierarchyLocker()
 	defer func() {
 		stillLockedTxns := locker.GetActiveTransactions()
 		assert.Equal(
@@ -202,33 +202,9 @@ func TestBankTransactions(t *testing.T) {
 		firstBalance := utils.FromBytes[uint32](firstPage.Read(first.SlotNum))
 		firstPage.RUnlock()
 
-		time.Sleep(time.Second * 10)
-
 		// transfering
-		if !locker.UpgradeCatalogLock(
-			ctoken,
-			txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
-		) {
-			catalogUpgradeFail.Add(1)
-			err = logger.AppendAbort()
-			require.NoError(t, err)
-			logger.Rollback()
-			return false
-		}
-
-		if !locker.UpgradeFileLock(
-			ttoken,
-			txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
-		) {
-			fileLockUpgradeFail.Add(1)
-			err = logger.AppendAbort()
-			require.NoError(t, err)
-			logger.Rollback()
-			return false
-		}
-
 		transferAmount := uint32(rand.Intn(int(myBalance)))
-		if !locker.UpgradePageLock(myPageToken, txns.PAGE_LOCK_EXCLUSIVE) {
+		if !locker.UpgradePageLock(myPageToken) {
 			myPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
@@ -236,7 +212,7 @@ func TestBankTransactions(t *testing.T) {
 			return false
 		}
 
-		if !locker.UpgradePageLock(firstPageToken, txns.PAGE_LOCK_EXCLUSIVE) {
+		if !locker.UpgradePageLock(firstPageToken) {
 			firstPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
@@ -244,26 +220,25 @@ func TestBankTransactions(t *testing.T) {
 			return false
 		}
 
-		myPage.Lock()
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
+		myPage.Lock()
 		logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
 		pool.MarkDirty(me.PageIdentity(), logLoc)
-		require.NoError(t, err)
 		myPage.Unlock()
+		require.NoError(t, err)
 
-		firstPage.Lock()
 		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
+		firstPage.Lock()
 		logLoc, err = firstPage.UpdateWithLogs(firstNewBalance, first,
 			logger)
 		pool.MarkDirty(first.PageIdentity(), logLoc)
-		require.NoError(t, err)
 		firstPage.Unlock()
+		require.NoError(t, err)
 
 		myPage.RLock()
-		myNewBalanceFromPage :=
-			utils.FromBytes[uint32](myPage.Read(me.SlotNum))
-		require.Equal(t, myNewBalanceFromPage, myBalance-transferAmount)
+		myNewBalanceFromPage := utils.FromBytes[uint32](myPage.Read(me.SlotNum))
 		myPage.RUnlock()
+		require.Equal(t, myNewBalanceFromPage, myBalance-transferAmount)
 
 		firstPage.RLock()
 		firstNewBalanceFromPage := utils.FromBytes[uint32](

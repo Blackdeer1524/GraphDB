@@ -740,7 +740,7 @@ func TestLoggerRollback(t *testing.T) {
 	updatedValues := make(map[common.RecordID]uint32, len(recordValues))
 	maps.Copy(updatedValues, recordValues)
 
-	locker := txns.NewLocker()
+	locker := txns.NewHierarchyLocker()
 	defer func() {
 		stillLockedTxns := locker.GetActiveTransactions()
 		assert.Equal(
