@@ -106,7 +106,7 @@ func pickRandomKey[K comparable, V any](r *rand.Rand, m map[K]V) (K, bool) {
 	return zero, false
 }
 
-func genRandomOp(r *rand.Rand, m *Model, nextTxn *common.TxnID) Operation {
+func genRandomOp(r *rand.Rand, m *engineSimulator, nextTxn *common.TxnID) Operation {
 	try := r.Intn(6)
 
 	var op Operation

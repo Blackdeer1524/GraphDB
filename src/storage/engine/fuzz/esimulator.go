@@ -5,27 +5,35 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 	"github.com/stretchr/testify/require"
 	"os"
+	"sync"
 	"testing"
 )
 
-type Model struct {
+type engineSimulator struct {
 	VertexTables map[string]storage.Schema
 	EdgeTables   map[string]storage.Schema
 	Indexes      map[string]storage.Index
+
+	mu *sync.RWMutex
 }
 
-func newModel() *Model {
-	return &Model{
+func newEngineSimulator() *engineSimulator {
+	return &engineSimulator{
 		VertexTables: make(map[string]storage.Schema),
 		EdgeTables:   make(map[string]storage.Schema),
 		Indexes:      make(map[string]storage.Index),
+
+		mu: new(sync.RWMutex),
 	}
 }
 
-func (m *Model) apply(op Operation, res OpResult) {
+func (m *engineSimulator) apply(op Operation, res OpResult) {
 	if !res.Success {
 		return
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	switch op.Type {
 	case OpCreateVertexTable:
@@ -64,7 +72,7 @@ func (m *Model) apply(op Operation, res OpResult) {
 	}
 }
 
-func (m *Model) compareWithEngineFS(t *testing.T, baseDir string, se *engine.StorageEngine) {
+func (m *engineSimulator) compareWithEngineFS(t *testing.T, baseDir string, se *engine.StorageEngine) {
 	for tbl := range m.VertexTables {
 		_, err := os.Stat(engine.GetVertexTableFilePath(baseDir, tbl))
 		require.NoError(t, err, "vertex table file is missing: %s", tbl)

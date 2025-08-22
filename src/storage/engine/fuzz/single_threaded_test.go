@@ -27,7 +27,7 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	se, err := engine.New(baseDir, uint64(200), afero.NewOsFs(), lockMgr)
 	require.NoError(t, err)
 
-	model := newModel()
+	model := newEngineSimulator()
 	var nextTxn common.TxnID = 1
 
 	const opsCount = 600
