@@ -1,7 +1,6 @@
 package fuzz
 
 import (
-	"fmt"
 	"math/rand"
 	"os"
 	"testing"
@@ -14,96 +13,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 )
-
-type OpType int
-
-const (
-	OpCreateVertexTable OpType = iota
-	OpDropVertexTable
-	OpCreateEdgeTable
-	OpDropEdgeTable
-	OpCreateIndex
-	OpDropIndex
-)
-
-type Operation struct {
-	Type      OpType
-	Name      string
-	Table     string
-	TableKind string
-	Columns   []string
-	TxnID     common.TxnID
-}
-
-type OpResult struct {
-	Op      Operation
-	Success bool
-	ErrText string
-}
-
-// ======== Модель ожидаемого состояния ========
-
-type IndexMeta struct {
-	Table   string
-	Kind    string // "vertex" | "edge"
-	Columns []string
-}
-
-type Model struct {
-	VertexTables map[string]storage.Schema
-	EdgeTables   map[string]storage.Schema
-	Indexes      map[string]IndexMeta // key: index name
-}
-
-func newModel() *Model {
-	return &Model{
-		VertexTables: make(map[string]storage.Schema),
-		EdgeTables:   make(map[string]storage.Schema),
-		Indexes:      make(map[string]IndexMeta),
-	}
-}
-
-func (m *Model) apply(op Operation, res OpResult) {
-	if !res.Success {
-		return
-	}
-
-	switch op.Type {
-	case OpCreateVertexTable:
-		if m.VertexTables == nil {
-			m.VertexTables = make(map[string]storage.Schema)
-		}
-	case OpDropVertexTable:
-		delete(m.VertexTables, op.Name)
-
-		for idx, meta := range m.Indexes {
-			if meta.Table == op.Name && meta.Kind == "vertex" {
-				delete(m.Indexes, idx)
-			}
-		}
-	case OpCreateEdgeTable:
-		if m.EdgeTables == nil {
-			m.EdgeTables = make(map[string]storage.Schema)
-		}
-	case OpDropEdgeTable:
-		delete(m.EdgeTables, op.Name)
-		for idx, meta := range m.Indexes {
-			if meta.Table == op.Name && meta.Kind == "edge" {
-				delete(m.Indexes, idx)
-			}
-		}
-	case OpCreateIndex:
-		m.Indexes[op.Name] = IndexMeta{
-			Table:   op.Table,
-			Kind:    op.TableKind,
-			Columns: append([]string(nil), op.Columns...),
-		}
-	case OpDropIndex:
-		delete(m.Indexes, op.Name)
-	default:
-		panic("unhandled op type")
-	}
-}
 
 func randomTableName(r *rand.Rand) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz"
@@ -209,6 +118,7 @@ func pickRandomKey[K comparable, V any](r *rand.Rand, m map[K]V) (K, bool) {
 
 func genRandomOp(r *rand.Rand, m *Model, nextTxn *common.TxnID) Operation {
 	try := r.Intn(6)
+
 	var op Operation
 	op.TxnID = *nextTxn
 
@@ -226,10 +136,9 @@ func genRandomOp(r *rand.Rand, m *Model, nextTxn *common.TxnID) Operation {
 				Name:  name,
 				TxnID: *nextTxn,
 			}
-			break
+		} else {
+			return genRandomOp(r, m, nextTxn) // fallback
 		}
-
-		op = Operation{Type: OpCreateVertexTable, Name: randomTableName(r), TxnID: *nextTxn}
 	case 2:
 		op = Operation{
 			Type:  OpCreateEdgeTable,
@@ -243,18 +152,14 @@ func genRandomOp(r *rand.Rand, m *Model, nextTxn *common.TxnID) Operation {
 				Name:  name,
 				TxnID: *nextTxn,
 			}
-			break
+		} else {
+			return genRandomOp(r, m, nextTxn) // fallback
 		}
-		op = Operation{Type: OpCreateEdgeTable, Name: randomTableName(r), TxnID: *nextTxn}
 	case 4:
-		kind := ""
-
+		var kind string
 		if len(m.VertexTables) == 0 && len(m.EdgeTables) == 0 {
-			op = Operation{Type: OpCreateVertexTable, Name: randomTableName(r), TxnID: *nextTxn}
-
-			break
+			return genRandomOp(r, m, nextTxn) // нечего индексировать
 		}
-
 		if len(m.VertexTables) > 0 && len(m.EdgeTables) > 0 {
 			if r.Intn(2) == 0 {
 				kind = "vertex"
@@ -283,8 +188,7 @@ func genRandomOp(r *rand.Rand, m *Model, nextTxn *common.TxnID) Operation {
 		}
 
 		if !ok || len(schema) == 0 {
-			op = Operation{Type: OpCreateVertexTable, Name: randomTableName(r), TxnID: *nextTxn}
-			break
+			return genRandomOp(r, m, nextTxn) // fallback
 		}
 
 		op = Operation{
@@ -295,55 +199,19 @@ func genRandomOp(r *rand.Rand, m *Model, nextTxn *common.TxnID) Operation {
 			Columns:   randomIndexColumns(r, schema),
 			TxnID:     *nextTxn,
 		}
-	default: // Drop index
+	case 5:
 		if name, ok := pickRandomKey(r, m.Indexes); ok {
 			op = Operation{
 				Type:  OpDropIndex,
 				Name:  name,
 				TxnID: *nextTxn,
 			}
-			break
-		}
-		// нечего дропать — создадим индекс (если есть таблицы), либо таблицу
-		if len(m.VertexTables)+len(m.EdgeTables) == 0 {
-			op = Operation{Type: OpCreateVertexTable, Name: randomTableName(r), TxnID: *nextTxn}
 		} else {
-			// выбери произвольную таблицу для индекса
-			kind := "vertex"
-			if len(m.EdgeTables) > 0 && (len(m.VertexTables) == 0 || r.Intn(2) == 0) {
-				kind = "edge"
-			}
-			var tblName string
-			var schema storage.Schema
-			var ok bool
-			if kind == "vertex" {
-				tblName, ok = pickRandomKey(r, m.VertexTables)
-				if ok {
-					schema = m.VertexTables[tblName]
-				}
-			} else {
-				tblName, ok = pickRandomKey(r, m.EdgeTables)
-				if ok {
-					schema = m.EdgeTables[tblName]
-				}
-			}
-			if !ok || len(schema) == 0 {
-				op = Operation{Type: OpCreateVertexTable, Name: randomTableName(r), TxnID: *nextTxn}
-			} else {
-				op = Operation{
-					Type:      OpCreateIndex,
-					Name:      randomIndexName(r),
-					Table:     tblName,
-					TableKind: kind,
-					Columns:   randomIndexColumns(r, schema),
-					TxnID:     *nextTxn,
-				}
-			}
+			return genRandomOp(r, m, nextTxn) // fallback
 		}
 	}
 
 	*nextTxn++
-
 	return op
 }
 
@@ -367,13 +235,14 @@ func compareModelWithEngineFS(t *testing.T, baseDir string, se *engine.StorageEn
 		err := se.CreateVertexTable(0, tbl, sch)
 		require.Error(t, err, "expected error on duplicate CreateVertexTable(%s)", tbl)
 	}
+
 	for tbl, sch := range m.EdgeTables {
 		err := se.CreateEdgesTable(0, tbl, sch)
 		require.Error(t, err, "expected error on duplicate CreateEdgesTable(%s)", tbl)
 	}
 
 	for idx, meta := range m.Indexes {
-		err := se.CreateIndex(0, idx, meta.Table, meta.Kind, meta.Columns, 8)
+		err := se.CreateIndex(0, idx, meta.TableName, meta.TableKind, meta.Columns, 8)
 		require.Error(t, err, "expected error on duplicate CreateIndex(%s)", idx)
 	}
 }
@@ -474,32 +343,13 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 
 		model.apply(op, res)
 
-		//if i%25 == 0 {
-		//	t.Logf("validate invariants at step=%d", i)
-		//	compareModelWithEngineFS(t, baseDir, se, model)
-		//}
+		if i%25 == 0 {
+			t.Logf("validate invariants at step=%d", i)
+			compareModelWithEngineFS(t, baseDir, se, model)
+		}
 	}
 
 	compareModelWithEngineFS(t, baseDir, se, model)
 
 	t.Logf("fuzz ok: seed=%d, ops=%d, lastTxn=%d", seed, opsCount, nextTxn-1)
-}
-
-func (op Operation) String() string {
-	switch op.Type {
-	case OpCreateVertexTable:
-		return fmt.Sprintf("CreateVertexTable(name=%s, txn=%d)", op.Name, op.TxnID)
-	case OpDropVertexTable:
-		return fmt.Sprintf("DropVertexTable(name=%s, txn=%d)", op.Name, op.TxnID)
-	case OpCreateEdgeTable:
-		return fmt.Sprintf("CreateEdgeTable(name=%s, txn=%d)", op.Name, op.TxnID)
-	case OpDropEdgeTable:
-		return fmt.Sprintf("DropEdgeTable(name=%s, txn=%d)", op.Name, op.TxnID)
-	case OpCreateIndex:
-		return fmt.Sprintf("CreateIndex(name=%s, table=%s/%s, cols=%v, txn=%d)", op.Name, op.TableKind, op.Table, op.Columns, op.TxnID)
-	case OpDropIndex:
-		return fmt.Sprintf("DropIndex(name=%s, txn=%d)", op.Name, op.TxnID)
-	default:
-		return "unknown-op"
-	}
 }

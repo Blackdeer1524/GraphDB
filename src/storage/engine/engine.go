@@ -146,7 +146,7 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 
 	dir := filepath.Dir(tableFilePath)
 
-	err = os.MkdirAll(dir, 0o755)
+	err = s.fs.MkdirAll(dir, 0o755)
 	if err != nil {
 		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
@@ -272,7 +272,7 @@ func (s *StorageEngine) CreateEdgesTable(txnID common.TxnID, name string, schema
 
 	dir := filepath.Dir(tableFilePath)
 
-	err = os.MkdirAll(dir, 0o755)
+	err = s.fs.MkdirAll(dir, 0o755)
 	if err != nil {
 		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
@@ -370,9 +370,9 @@ func (s *StorageEngine) CreateIndex(
 
 	// Existence of the file is not the proof of existence of the index (we don't remove file on drop),
 	// and it is why we do not check if the table exists in file system.
-	ok, err := s.catalog.EdgeTableExists(name)
+	ok, err := s.catalog.IndexExists(name)
 	if err != nil {
-		return fmt.Errorf("unable to check if vertex table exists: %w", err)
+		return fmt.Errorf("unable to check if in table exists: %w", err)
 	}
 
 	if ok {
@@ -399,7 +399,7 @@ func (s *StorageEngine) CreateIndex(
 
 	dir := filepath.Dir(tableFilePath)
 
-	err = os.MkdirAll(dir, 0o755)
+	err = s.fs.MkdirAll(dir, 0o755)
 	if err != nil {
 		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
