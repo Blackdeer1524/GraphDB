@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/spf13/afero"
@@ -30,22 +29,15 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 
 	const opsCount = 600
 
-	operations := make([]Operation, 0, opsCount)
+	operations := NewOpsGenerator(r, opsCount).Gen()
 
-	for i := 0; i < opsCount; i++ {
-		operations = append(operations, genRandomOp(r, model))
-	}
+	i := 0
 
-	for i, op := range operations {
+	for op := range operations {
 		res := OpResult{Op: op}
 
 		switch op.Type {
 		case OpCreateVertexTable:
-			// сгенерируем схему и сразу положим её в модель (до вызова create),
-			// чтобы индексы могли ссылаться на корректные колонки.
-			if _, exists := model.VertexTables[op.Name]; !exists {
-				model.VertexTables[op.Name] = randomSchema(r)
-			}
 			err := se.CreateVertexTable(op.TxnID, op.Name, model.VertexTables[op.Name])
 			if err == nil {
 				res.Success = true
@@ -62,9 +54,6 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 			}
 
 		case OpCreateEdgeTable:
-			if _, exists := model.EdgeTables[op.Name]; !exists {
-				model.EdgeTables[op.Name] = randomSchema(r)
-			}
 			err := se.CreateEdgesTable(op.TxnID, op.Name, model.EdgeTables[op.Name])
 			if err == nil {
 				res.Success = true
@@ -81,17 +70,6 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 			}
 
 		case OpCreateIndex:
-			// гарантируем, что таблица и колонки существуют в модели
-			var schema storage.Schema
-			if op.TableKind == "vertex" {
-				schema = model.VertexTables[op.Table]
-			} else {
-				schema = model.EdgeTables[op.Table]
-			}
-			if len(op.Columns) == 0 {
-				// fallback — защитимся, если генератор дал пустой список
-				op.Columns = randomIndexColumns(r, schema)
-			}
 			err := se.CreateIndex(op.TxnID, op.Name, op.Table, op.TableKind, op.Columns, 8)
 			if err == nil {
 				res.Success = true
@@ -106,7 +84,6 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 			} else {
 				res.ErrText = err.Error()
 			}
-
 		default:
 			require.FailNow(t, "unknown op type")
 		}
@@ -117,6 +94,8 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 			t.Logf("validate invariants at step=%d", i)
 			model.compareWithEngineFS(t, baseDir, se)
 		}
+
+		i += 1
 	}
 
 	model.compareWithEngineFS(t, baseDir, se)
