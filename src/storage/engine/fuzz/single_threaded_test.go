@@ -1,7 +1,6 @@
 package fuzz
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -95,8 +94,6 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 			t.Logf("validate invariants at step=%d", i)
 			model.compareWithEngineFS(t, baseDir, se)
 		}
-
-		fmt.Println(model)
 
 		i += 1
 	}

@@ -33,7 +33,7 @@ func (g *OpsGenerator) genRandomOp() Operation {
 	case OpCreateVertexTable:
 		tblName := randomTableName(g.r, g.vertexTables, 2)
 
-		g.vertexTables[tblName] = randomSchema()
+		g.vertexTables[tblName] = randomSchema(g.r)
 
 		return Operation{
 			Type: OpCreateVertexTable,
@@ -51,9 +51,9 @@ func (g *OpsGenerator) genRandomOp() Operation {
 		}
 
 	case OpCreateEdgeTable:
-		tblName := randomTableName(g.r, g.vertexTables, 2)
+		tblName := randomTableName(g.r, g.edgeTables, 2)
 
-		g.edgeTables[tblName] = randomSchema()
+		g.edgeTables[tblName] = randomSchema(g.r)
 
 		return Operation{
 			Type: OpCreateEdgeTable,
@@ -61,7 +61,7 @@ func (g *OpsGenerator) genRandomOp() Operation {
 		}
 
 	case OpDropEdgeTable:
-		tblName := randomTableName(g.r, g.vertexTables, 8)
+		tblName := randomTableName(g.r, g.edgeTables, 8)
 
 		delete(g.edgeTables, tblName)
 
@@ -80,17 +80,16 @@ func (g *OpsGenerator) genRandomOp() Operation {
 			return g.genRandomOp()
 		}
 
-		if len(g.vertexTables) > 0 {
+		useVertex := len(g.vertexTables) > 0 && (len(g.edgeTables) == 0 || g.r.Intn(2) == 0)
+		if useVertex {
 			kind = "vertex"
-			tblName, _ = getRandomMapKey(g.vertexTables)
-		}
-
-		if len(g.edgeTables) > 0 {
+			tblName, _ = getRandomMapKey(g.r, g.vertexTables)
+		} else {
 			kind = "edge"
-			tblName, _ = getRandomMapKey(g.edgeTables)
+			tblName, _ = getRandomMapKey(g.r, g.edgeTables)
 		}
 
-		indexName := randomIndexNameForCreate(g.r, g.vertexTables, 2)
+		indexName := randomIndexNameForCreate(g.r, g.indexes, 2)
 
 		g.indexes[indexName] = storage.Index{}
 
@@ -103,13 +102,15 @@ func (g *OpsGenerator) genRandomOp() Operation {
 	case OpDropIndex:
 		indexName := randomIndexNameForDrop(g.r, g.indexes, 8)
 
+		delete(g.indexes, indexName)
+
 		return Operation{
 			Type: OpCreateIndex,
 			Name: indexName,
 		}
 	}
 
-	return Operation{}
+	panic("unreachable")
 }
 
 func (g *OpsGenerator) Gen() chan Operation {
