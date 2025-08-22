@@ -86,15 +86,15 @@ func New(basePath string, poolSize uint64, fs afero.Fs, l Locker) (*StorageEngin
 	}, nil
 }
 
-func getVertexTableFilePath(basePath, name string) string {
+func GetVertexTableFilePath(basePath, name string) string {
 	return filepath.Join(basePath, "tables", "vertex", name+".tbl")
 }
 
-func getEdgeTableFilePath(basePath, name string) string {
+func GetEdgeTableFilePath(basePath, name string) string {
 	return filepath.Join(basePath, "tables", "edge", name+".tbl")
 }
 
-func getIndexFilePath(basePath, name string) string {
+func GetIndexFilePath(basePath, name string) string {
 	return filepath.Join(basePath, "indexes", name+".idx")
 }
 
@@ -113,7 +113,7 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
 
-	tableFilePath := getVertexTableFilePath(basePath, name)
+	tableFilePath := GetVertexTableFilePath(basePath, name)
 
 	// Existence of the file is not the proof of existence of the table (we don't remove file on drop),
 	// and it is why we do not check if the table exists in system catalog.
@@ -239,7 +239,7 @@ func (s *StorageEngine) CreateEdgesTable(txnID common.TxnID, name string, schema
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
 
-	tableFilePath := getEdgeTableFilePath(basePath, name)
+	tableFilePath := GetEdgeTableFilePath(basePath, name)
 
 	// Existence of the file is not the proof of existence of the table (we don't remove file on drop),
 	// and it is why we do not check if the table exists in system catalog.
@@ -366,7 +366,7 @@ func (s *StorageEngine) CreateIndex(
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
 
-	tableFilePath := getIndexFilePath(basePath, name)
+	tableFilePath := GetIndexFilePath(basePath, name)
 
 	// Existence of the file is not the proof of existence of the index (we don't remove file on drop),
 	// and it is why we do not check if the table exists in system catalog.

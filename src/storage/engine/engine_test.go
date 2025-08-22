@@ -12,19 +12,19 @@ import (
 )
 
 func Test_getVertexTableFilePath(t *testing.T) {
-	ans := getVertexTableFilePath("/var/lib/graphdb", "friends")
+	ans := GetVertexTableFilePath("/var/lib/graphdb", "friends")
 
 	assert.Equal(t, "/var/lib/graphdb/tables/vertex/friends.tbl", ans)
 }
 
 func Test_getEdgeTableFilePath(t *testing.T) {
-	ans := getEdgeTableFilePath("/var/lib/graphdb", "friends")
+	ans := GetEdgeTableFilePath("/var/lib/graphdb", "friends")
 
 	assert.Equal(t, "/var/lib/graphdb/tables/edge/friends.tbl", ans)
 }
 
 func Test_getIndexFilePath(t *testing.T) {
-	ans := getIndexFilePath("/var/lib/graphdb", "idx_user_name")
+	ans := GetIndexFilePath("/var/lib/graphdb", "idx_user_name")
 
 	assert.Equal(t, "/var/lib/graphdb/indexes/idx_user_name.idx", ans)
 }
@@ -52,7 +52,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	err = se.CreateVertexTable(1, tableName, schema)
 	require.NoError(t, err)
 
-	tablePath := getVertexTableFilePath(dir, tableName)
+	tablePath := GetVertexTableFilePath(dir, tableName)
 	info, err := os.Stat(tablePath)
 	require.NoError(t, err)
 
@@ -91,7 +91,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 	err = se.CreateVertexTable(1, tableName, schema)
 	require.NoError(t, err)
 
-	tablePath := getVertexTableFilePath(dir, tableName)
+	tablePath := GetVertexTableFilePath(dir, tableName)
 	info, err := os.Stat(tablePath)
 	require.NoError(t, err)
 
@@ -111,7 +111,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 	err = se.CreateVertexTable(2, tableName, schema)
 	require.NoError(t, err)
 
-	tablePath = getVertexTableFilePath(dir, tableName)
+	tablePath = GetVertexTableFilePath(dir, tableName)
 	info, err = os.Stat(tablePath)
 	require.NoError(t, err)
 }
@@ -139,7 +139,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 	err = se.CreateEdgesTable(1, tableName, schema)
 	require.NoError(t, err)
 
-	tablePath := getEdgeTableFilePath(dir, tableName)
+	tablePath := GetEdgeTableFilePath(dir, tableName)
 	info, err := os.Stat(tablePath)
 	require.NoError(t, err)
 
@@ -178,7 +178,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 	err = se.CreateEdgesTable(1, tableName, schema)
 	require.NoError(t, err)
 
-	tablePath := getEdgeTableFilePath(dir, tableName)
+	tablePath := GetEdgeTableFilePath(dir, tableName)
 	info, err := os.Stat(tablePath)
 	require.NoError(t, err)
 
@@ -198,7 +198,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 	err = se.CreateEdgesTable(2, tableName, schema)
 	require.NoError(t, err)
 
-	tablePath = getEdgeTableFilePath(dir, tableName)
+	tablePath = GetEdgeTableFilePath(dir, tableName)
 	info, err = os.Stat(tablePath)
 	require.NoError(t, err)
 }
@@ -231,7 +231,7 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 	err = se.CreateIndex(1, indexName, tableName, "vertex", []string{"name"}, 8)
 	require.NoError(t, err)
 
-	tablePath := getIndexFilePath(dir, indexName)
+	tablePath := GetIndexFilePath(dir, indexName)
 	_, err = os.Stat(tablePath)
 	require.NoError(t, err)
 
@@ -267,7 +267,7 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	err = se.CreateIndex(1, indexName, tableName, "vertex", []string{"name"}, 8)
 	require.NoError(t, err)
 
-	indexPath := getIndexFilePath(dir, indexName)
+	indexPath := GetIndexFilePath(dir, indexName)
 	_, err = os.Stat(indexPath)
 	require.NoError(t, err)
 
