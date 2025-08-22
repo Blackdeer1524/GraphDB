@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
@@ -28,11 +27,16 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	require.NoError(t, err)
 
 	model := newEngineSimulator()
-	var nextTxn common.TxnID = 1
 
 	const opsCount = 600
+
+	operations := make([]Operation, 0, opsCount)
+
 	for i := 0; i < opsCount; i++ {
-		op := genRandomOp(r, model, &nextTxn)
+		operations = append(operations, genRandomOp(r, model))
+	}
+
+	for i, op := range operations {
 		res := OpResult{Op: op}
 
 		switch op.Type {
@@ -117,5 +121,5 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 
 	model.compareWithEngineFS(t, baseDir, se)
 
-	t.Logf("fuzz ok: seed=%d, ops=%d, lastTxn=%d", seed, opsCount, nextTxn-1)
+	t.Logf("fuzz ok: seed=%d, ops=%d", seed, opsCount)
 }

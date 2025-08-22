@@ -1,7 +1,6 @@
 package fuzz
 
 import (
-	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"math/rand"
 )
@@ -106,50 +105,47 @@ func pickRandomKey[K comparable, V any](r *rand.Rand, m map[K]V) (K, bool) {
 	return zero, false
 }
 
-func genRandomOp(r *rand.Rand, m *engineSimulator, nextTxn *common.TxnID) Operation {
+func genRandomOp(r *rand.Rand, m *engineSimulator) Operation {
 	try := r.Intn(6)
 
 	var op Operation
-	op.TxnID = *nextTxn
 
 	switch try {
 	case 0:
 		op = Operation{
-			Type:  OpCreateVertexTable,
-			Name:  randomTableName(r),
-			TxnID: *nextTxn,
+			Type: OpCreateVertexTable,
+			Name: randomTableName(r),
 		}
 	case 1:
 		if name, ok := pickRandomKey(r, m.VertexTables); ok {
 			op = Operation{
-				Type:  OpDropVertexTable,
-				Name:  name,
-				TxnID: *nextTxn,
+				Type: OpDropVertexTable,
+				Name: name,
 			}
 		} else {
-			return genRandomOp(r, m, nextTxn) // fallback
+			return genRandomOp(r, m)
 		}
 	case 2:
 		op = Operation{
-			Type:  OpCreateEdgeTable,
-			Name:  randomTableName(r),
-			TxnID: *nextTxn,
+			Type: OpCreateEdgeTable,
+			Name: randomTableName(r),
 		}
 	case 3:
 		if name, ok := pickRandomKey(r, m.EdgeTables); ok {
 			op = Operation{
-				Type:  OpDropEdgeTable,
-				Name:  name,
-				TxnID: *nextTxn,
+				Type: OpDropEdgeTable,
+				Name: name,
 			}
 		} else {
-			return genRandomOp(r, m, nextTxn) // fallback
+			return genRandomOp(r, m)
 		}
 	case 4:
 		var kind string
+
 		if len(m.VertexTables) == 0 && len(m.EdgeTables) == 0 {
-			return genRandomOp(r, m, nextTxn) // нечего индексировать
+			return genRandomOp(r, m)
 		}
+
 		if len(m.VertexTables) > 0 && len(m.EdgeTables) > 0 {
 			if r.Intn(2) == 0 {
 				kind = "vertex"
@@ -178,7 +174,7 @@ func genRandomOp(r *rand.Rand, m *engineSimulator, nextTxn *common.TxnID) Operat
 		}
 
 		if !ok || len(schema) == 0 {
-			return genRandomOp(r, m, nextTxn) // fallback
+			return genRandomOp(r, m) // fallback
 		}
 
 		op = Operation{
@@ -187,21 +183,17 @@ func genRandomOp(r *rand.Rand, m *engineSimulator, nextTxn *common.TxnID) Operat
 			Table:     tblName,
 			TableKind: kind,
 			Columns:   randomIndexColumns(r, schema),
-			TxnID:     *nextTxn,
 		}
 	case 5:
 		if name, ok := pickRandomKey(r, m.Indexes); ok {
 			op = Operation{
-				Type:  OpDropIndex,
-				Name:  name,
-				TxnID: *nextTxn,
+				Type: OpDropIndex,
+				Name: name,
 			}
 		} else {
-			return genRandomOp(r, m, nextTxn) // fallback
+			return genRandomOp(r, m)
 		}
 	}
-
-	*nextTxn++
 
 	return op
 }
