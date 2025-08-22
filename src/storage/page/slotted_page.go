@@ -253,7 +253,6 @@ func (p *SlottedPage) DeleteWithLogs(
 	recordID common.RecordID,
 	ctxLogger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
-	// TODO: может всё-таки заносить значения, которые удаляем, в CLR?
 	ptr := p.assertSlotInserted(recordID.SlotNum)
 
 	logRecordLoc, err := ctxLogger.AppendDelete(recordID)
