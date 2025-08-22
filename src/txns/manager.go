@@ -415,13 +415,14 @@ func (m *lockManager[LockModeType, ObjectID]) GetActiveTransactions() map[common
 }
 
 func (m *lockManager[LockModeType, ObjectID]) AreAllQueuesEmpty() bool {
+	isEmpty := true
 	m.qs.Range(func(key, value any) bool {
 		q := value.(*txnQueue[LockModeType, ObjectID])
 		if !q.IsEmpty() {
+			isEmpty = false
 			return false
 		}
 		return true
 	})
-
-	return true
+	return isEmpty
 }
