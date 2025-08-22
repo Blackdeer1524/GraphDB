@@ -19,6 +19,10 @@ func NewOpsGenerator(r *rand.Rand, count int) *OpsGenerator {
 	return &OpsGenerator{
 		r:     r,
 		count: count,
+
+		vertexTables: make(map[string]storage.Schema),
+		edgeTables:   make(map[string]storage.Schema),
+		indexes:      make(map[string]storage.Index),
 	}
 }
 
@@ -86,7 +90,7 @@ func (g *OpsGenerator) genRandomOp() Operation {
 			tblName, _ = getRandomMapKey(g.edgeTables)
 		}
 
-		indexName := randomIndexNameForCreate(g.r, g.vertexTables)
+		indexName := randomIndexNameForCreate(g.r, g.vertexTables, 2)
 
 		g.indexes[indexName] = storage.Index{}
 
@@ -97,7 +101,7 @@ func (g *OpsGenerator) genRandomOp() Operation {
 			TableKind: kind,
 		}
 	case OpDropIndex:
-		indexName := randomIndexNameForDrop(g.r, g.indexes)
+		indexName := randomIndexNameForDrop(g.r, g.indexes, 8)
 
 		return Operation{
 			Type: OpCreateIndex,

@@ -47,10 +47,26 @@ func randomSchema() storage.Schema {
 	}
 }
 
-func randomIndexNameForCreate(r *rand.Rand, existingTables map[string]storage.Schema) string {
+func randomIndexNameForCreate(r *rand.Rand, existingTables map[string]storage.Schema, exist int) string {
+	d := r.Intn(10)
+
+	if d < exist {
+		if name, ok := getRandomMapKey(existingTables); ok {
+			return name
+		}
+	}
+
 	return "idx_" + randomString(r, 10)
 }
 
-func randomIndexNameForDrop(r *rand.Rand, existingIndexes map[string]storage.Index) string {
+func randomIndexNameForDrop(r *rand.Rand, existingIndexes map[string]storage.Index, exist int) string {
+	d := r.Intn(10)
+
+	if d < exist {
+		if name, ok := getRandomMapKey(existingIndexes); ok {
+			return name
+		}
+	}
+
 	return "idx_" + randomString(r, 10)
 }
