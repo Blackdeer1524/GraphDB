@@ -26,6 +26,12 @@ var (
 	ErrEntityExists   = errors.New("entity already exists")
 )
 
+// versionPageIdent return page identity of page with current version of system catalog.
+// We reserve zero fileID and zero pageID for this page.
+func versionPageIdent() common.PageIdentity {
+	return common.PageIdentity{FileID: 0, PageID: 0}
+}
+
 type BufferPool interface {
 	GetPage(common.PageIdentity) (*page.SlottedPage, error)
 	MarkDirty(common.PageIdentity)
@@ -179,7 +185,7 @@ func New(basePath string, fs afero.Fs, bp BufferPool) (*Manager, error) {
 		return nil, fmt.Errorf("current version file %q not found; run InitSystemCatalog first", versionFile)
 	}
 
-	cvp, err := bp.GetPage(common.PageIdentity{FileID: 0, PageID: 0})
+	cvp, err := bp.GetPage(versionPageIdent())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get page with version: %w", err)
 	}
@@ -309,7 +315,7 @@ func (m *Manager) Save() (err error) {
 	}
 
 	m.currentVersionPage.Update(0, utils.ToBytes(nVersion))
-	m.bp.MarkDirty(common.PageIdentity{FileID: 0, PageID: 0})
+	m.bp.MarkDirty(versionPageIdent())
 	m.currentVersion = nVersion
 
 	return nil
