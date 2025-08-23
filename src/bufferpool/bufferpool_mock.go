@@ -123,17 +123,23 @@ func (b *BufferPool_mock) FlushPage(pageID common.PageIdentity) error {
 	return nil
 }
 
-func (b *BufferPool_mock) MarkDirty(
+func (b *BufferPool_mock) WithMarkDirty(
 	pageID common.PageIdentity,
-	loc common.LogRecordLocInfo,
-) {
+	fn func() (common.LogRecordLocInfo, error),
+) error {
 	b.pagesMu.Lock()
 	defer b.pagesMu.Unlock()
+
+	loc, err := fn()
+	if err != nil {
+		return err
+	}
 
 	b.isDirty[pageID] = struct{}{}
 	if _, ok := b.DPT[pageID]; !ok {
 		b.DPT[pageID] = loc
 	}
+	return nil
 }
 
 func (b *BufferPool_mock) GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {

@@ -964,3 +964,9 @@ func fillPages(
 	require.NoError(t, chain.Err())
 	return res
 }
+
+// func TestCheckpoint(t *testing.T) {
+// 	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{})
+// 	logger := NewTxnLogger(pool, 0)
+//
+// }

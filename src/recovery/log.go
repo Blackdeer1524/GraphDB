@@ -173,7 +173,9 @@ var (
 	_ common.ITxnLoggerWithContext = &DummyLoggerWithContext{}
 )
 
-func (l *txnLogger) WithContext(txnID common.TxnID) *txnLoggerWithContext {
+func (l *txnLogger) WithContext(
+	txnID common.TxnID,
+) common.ITxnLoggerWithContext {
 	return newTxnLoggerWithContext(l, txnID)
 }
 
