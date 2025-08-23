@@ -1,6 +1,8 @@
 package txns
 
 import (
+	"fmt"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
@@ -11,8 +13,10 @@ type PageLockMode TaggedType[uint8]
 type GranularLockMode TaggedType[uint16]
 
 type GranularLock[Lock any] interface {
+	fmt.Stringer
 	Compatible(Lock) bool
 	Upgradable(Lock) bool
+	Equal(Lock) bool
 }
 
 var (
@@ -43,6 +47,34 @@ var (
 	_ GranularLock[GranularLockMode] = GranularLockMode{0}
 )
 
+func (m PageLockMode) String() string {
+	switch m {
+	case PAGE_LOCK_SHARED:
+		return "SHARED"
+	case PAGE_LOCK_EXCLUSIVE:
+		return "EXCLUSIVE"
+	default:
+		return fmt.Sprintf("PageLockMode(%d)", m.v)
+	}
+}
+
+func (m GranularLockMode) String() string {
+	switch m {
+	case GRANULAR_LOCK_INTENTION_SHARED:
+		return "INTENTION_SHARED"
+	case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+		return "INTENTION_EXCLUSIVE"
+	case GRANULAR_LOCK_SHARED:
+		return "SHARED"
+	case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		return "SHARED_INTENTION_EXCLUSIVE"
+	case GRANULAR_LOCK_EXCLUSIVE:
+		return "EXCLUSIVE"
+	default:
+		return fmt.Sprintf("GranularLockMode(%d)", m.v)
+	}
+}
+
 func (m PageLockMode) Compatible(other PageLockMode) bool {
 	if m == PAGE_LOCK_SHARED && other == PAGE_LOCK_SHARED {
 		return true
@@ -55,14 +87,18 @@ func (m PageLockMode) Upgradable(to PageLockMode) bool {
 	case PAGE_LOCK_SHARED:
 		switch to {
 		case PAGE_LOCK_SHARED:
-			return true
+			return false
 		case PAGE_LOCK_EXCLUSIVE:
 			return true
 		}
 	case PAGE_LOCK_EXCLUSIVE:
-		return to == PAGE_LOCK_EXCLUSIVE
+		return false
 	}
 	return false
+}
+
+func (m PageLockMode) Equal(other PageLockMode) bool {
+	return m == other
 }
 
 // https://www.geeksforgeeks.org/dbms/multiple-granularity-locking-in-dbms/
@@ -143,8 +179,6 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 	switch m {
 	case GRANULAR_LOCK_INTENTION_SHARED:
 		switch to {
-		case GRANULAR_LOCK_INTENTION_SHARED:
-			return true
 		case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
 			return true
 		case GRANULAR_LOCK_SHARED:
@@ -160,8 +194,6 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 		return false // Cannot upgrade from intention exclusive in 2PL
 	case GRANULAR_LOCK_SHARED:
 		switch to {
-		case GRANULAR_LOCK_SHARED:
-			return true
 		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
 			return true
 		case GRANULAR_LOCK_EXCLUSIVE:
@@ -171,8 +203,6 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 		}
 	case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
 		switch to {
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
-			return true
 		case GRANULAR_LOCK_EXCLUSIVE:
 			return true
 		default:
@@ -183,6 +213,10 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 	default:
 		return false
 	}
+}
+
+func (m GranularLockMode) Equal(other GranularLockMode) bool {
+	return m == other
 }
 
 type TxnLockRequest[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {

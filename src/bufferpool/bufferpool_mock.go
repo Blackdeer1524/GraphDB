@@ -3,6 +3,7 @@ package bufferpool
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
@@ -13,7 +14,9 @@ import (
 type BufferPool_mock struct {
 	pagesMu sync.RWMutex
 	pages   map[common.PageIdentity]*page.SlottedPage
-	isDirty map[common.PageIdentity]bool
+
+	isDirty map[common.PageIdentity]struct{}
+	DPT     map[common.PageIdentity]common.LogRecordLocInfo
 
 	pinCountMu sync.RWMutex
 	pinCounts  map[common.PageIdentity]int
@@ -34,7 +37,8 @@ func NewBufferPoolMock(leakedPages []common.PageIdentity) *BufferPool_mock {
 	return &BufferPool_mock{
 		pages:       make(map[common.PageIdentity]*page.SlottedPage),
 		pinCounts:   make(map[common.PageIdentity]int),
-		isDirty:     make(map[common.PageIdentity]bool),
+		isDirty:     make(map[common.PageIdentity]struct{}),
+		DPT:         map[common.PageIdentity]common.LogRecordLocInfo{},
 		leakedPages: m,
 	}
 }
@@ -79,7 +83,7 @@ func (b *BufferPool_mock) GetPage(
 	p = page.NewSlottedPage()
 	b.pages[pageID] = p
 	b.pinCounts[pageID] = 1
-	b.isDirty[pageID] = false
+	delete(b.isDirty, pageID)
 
 	b.pagesMu.Unlock()
 	b.pinCountMu.Unlock()
@@ -113,19 +117,50 @@ func (b *BufferPool_mock) FlushPage(pageID common.PageIdentity) error {
 		return ErrNoSuchPage
 	}
 
-	b.isDirty[pageID] = false
+	delete(b.isDirty, pageID)
+	delete(b.DPT, pageID)
 
 	return nil
 }
 
-func (b *BufferPool_mock) MarkDirty(pageID common.PageIdentity) {
+func (b *BufferPool_mock) MarkDirty(
+	pageID common.PageIdentity,
+	loc common.LogRecordLocInfo,
+) {
 	b.pagesMu.Lock()
 	defer b.pagesMu.Unlock()
 
-	_, ok := b.isDirty[pageID]
-	assert.Assert(ok)
+	b.isDirty[pageID] = struct{}{}
+	if _, ok := b.DPT[pageID]; !ok {
+		b.DPT[pageID] = loc
+	}
+}
 
-	b.isDirty[pageID] = true
+func (b *BufferPool_mock) GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {
+	b.pagesMu.Lock()
+	defer b.pagesMu.Unlock()
+	return maps.Clone(b.DPT)
+}
+
+func (b *BufferPool_mock) FlushAllPages() error {
+	b.pagesMu.Lock()
+	defer b.pagesMu.Unlock()
+
+	for pageID, page := range b.pages {
+		_, isDirty := b.isDirty[pageID]
+		if !isDirty {
+			continue
+		}
+
+		if !page.TryLock() {
+			continue
+		}
+
+		delete(b.DPT, pageID)
+		page.Unlock()
+	}
+
+	return nil
 }
 
 func (b *BufferPool_mock) EnsureAllPagesUnpinnedAndUnlocked() error {

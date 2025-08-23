@@ -176,7 +176,7 @@ func (c *TxnLogChain) CheckpointBegin() *TxnLogChain {
 		return c
 	}
 
-	_, c.err = c.logger.AppendCheckpointBegin()
+	c.err = c.logger.AppendCheckpointBegin()
 
 	return c
 }
@@ -189,7 +189,7 @@ func (c *TxnLogChain) CheckpointEnd(
 		return c
 	}
 
-	_, c.err = c.logger.AppendCheckpointEnd(ATT, DPT)
+	c.err = c.logger.AppendCheckpointEnd(ATT, DPT)
 
 	return c
 }
