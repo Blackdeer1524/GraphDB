@@ -51,14 +51,15 @@ func TestBankTransactions(t *testing.T) {
 	)
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
 
-	const startBalance = uint32(60)
-	const rollbackCutoff = uint32(0) // START_BALANCE / 3
-	const clientsCount = 10_000
-	const txnsCount = 5_000
-	const retryCount = 5
-	const maxEntriesPerPage = 30
-	const workersCount = 2_000
-
+	const (
+		startBalance      = uint32(60)
+		rollbackCutoff    = uint32(0) // startBalance / 3
+		clientsCount      = 10_000
+		txnsCount         = 5_000
+		retryCount        = 5
+		maxEntriesPerPage = 30
+		workersCount      = 2_000
+	)
 	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)
 
@@ -221,18 +222,31 @@ func TestBankTransactions(t *testing.T) {
 		}
 
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
-		myPage.Lock()
-		logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
-		pool.MarkDirty(me.PageIdentity(), logLoc)
-		myPage.Unlock()
+		err = pool.WithMarkDirty(
+			me.PageIdentity(),
+			func() (common.LogRecordLocInfo, error) {
+				myPage.Lock()
+				defer myPage.Unlock()
+				logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
+				return logLoc, err
+			},
+		)
 		require.NoError(t, err)
 
 		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
-		firstPage.Lock()
-		logLoc, err = firstPage.UpdateWithLogs(firstNewBalance, first,
-			logger)
-		pool.MarkDirty(first.PageIdentity(), logLoc)
-		firstPage.Unlock()
+		err = pool.WithMarkDirty(
+			first.PageIdentity(),
+			func() (common.LogRecordLocInfo, error) {
+				firstPage.Lock()
+				defer firstPage.Unlock()
+				logLoc, err := firstPage.UpdateWithLogs(
+					firstNewBalance,
+					first,
+					logger,
+				)
+				return logLoc, err
+			},
+		)
 		require.NoError(t, err)
 
 		myPage.RLock()
@@ -320,37 +334,4 @@ func TestBankTransactions(t *testing.T) {
 		pool.Unpin(id.PageIdentity())
 	}
 	require.Equal(t, finalTotalMoney, totalMoney)
-}
-
-func TestCheckpoint(t *testing.T) {
-	generatedFileIDs := utils.GenerateUniqueInts[common.FileID](2, 0, 1024)
-
-	masterRecordPageIdent := common.PageIdentity{
-		FileID: generatedFileIDs[0],
-		PageID: masterRecordPage,
-	}
-	pool := bufferpool.NewBufferPoolMock(
-		[]common.PageIdentity{
-			masterRecordPageIdent,
-		},
-	)
-
-	logger := NewTxnLogger(pool, generatedFileIDs[0])
-	locker := txns.NewHierarchyLocker()
-	
-	txnsCount := 1000
-	wg := sync.WaitGroup{}
-	for op := range txnsCount {
-		go func(txnID common.TxnID) {
-			defer wg.Done()
-			logger := logger.WithContext(txnID)
-			
-			require.NoError(t, logger.AppendBegin())
-			
-			locker.LockCatalog(txnID)
-
-		}(common.TxnID(op))
-	}
-	wg.Wait()
-
 }

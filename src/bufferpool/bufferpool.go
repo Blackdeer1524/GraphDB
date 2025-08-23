@@ -46,7 +46,10 @@ type BufferPool interface {
 	Unpin(common.PageIdentity)
 	GetPage(common.PageIdentity) (*page.SlottedPage, error)
 	GetPageNoCreate(common.PageIdentity) (*page.SlottedPage, error)
-	MarkDirty(common.PageIdentity, common.LogRecordLocInfo)
+	WithMarkDirty(
+		common.PageIdentity,
+		func() (common.LogRecordLocInfo, error),
+	) error
 	GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo
 	FlushPage(common.PageIdentity) error
 	FlushAllPages() error
@@ -215,12 +218,17 @@ func (m *Manager) GetPage(
 	return page, nil
 }
 
-func (m *Manager) MarkDirty(
+func (m *Manager) WithMarkDirty(
 	pageIdent common.PageIdentity,
-	loc common.LogRecordLocInfo,
-) {
+	fn func() (common.LogRecordLocInfo, error),
+) error {
 	m.fastPath.Lock()
 	defer m.fastPath.Unlock()
+
+	loc, err := fn()
+	if err != nil {
+		return err
+	}
 
 	frameInfo, ok := m.pageTable[pageIdent]
 	assert.Assert(
@@ -233,6 +241,8 @@ func (m *Manager) MarkDirty(
 	if _, ok := m.dirtyPageTable[pageIdent]; !ok {
 		m.dirtyPageTable[pageIdent] = loc
 	}
+
+	return nil
 }
 
 func (m *Manager) reserveFrame() uint64 {
@@ -277,8 +287,7 @@ func (m *Manager) FlushAllPages() error {
 	defer m.fastPath.Unlock()
 
 	var err error
-	tmp := maps.Clone(m.pageTable)
-	for pgIdent, pgInfo := range tmp {
+	for pgIdent, pgInfo := range m.pageTable {
 		if !pgInfo.isDirty {
 			continue
 		}
