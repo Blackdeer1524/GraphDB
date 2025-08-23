@@ -3,20 +3,17 @@ package recovery
 import (
 	"errors"
 	"fmt"
-	"log"
-	"math"
-	"path/filepath"
-	"runtime"
-	"strings"
-	"sync"
-
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/dbg"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/petermattis/goid"
+	"log"
+	"math"
+	"strings"
 )
 
 type loggerInfoPage page.SlottedPage
@@ -77,60 +74,6 @@ func (p *loggerInfoPage) Setup() {
 	assert.Assert(slotOpt.Unwrap() == loggerLastLocationSlot)
 }
 
-type loggedMutex struct {
-	mu *sync.Mutex
-}
-
-func getCaller() string {
-	skip := 3
-
-	// Максимум 32 фрейма — можно увеличить
-	pc := make([]uintptr, 32)
-	n := runtime.Callers(skip, pc)
-	if n == 0 {
-		return "unknown"
-	}
-
-	var callers []string
-	frames := runtime.CallersFrames(pc[:n])
-
-	for {
-		frame, more := frames.Next()
-		fn := frame.Func
-		if fn != nil {
-			// Берём только имя функции (без полного пути пакета)
-			name := filepath.Base(fn.Name())
-			callers = append(callers, name)
-		} else {
-			callers = append(callers, "unknown")
-		}
-		if !more {
-			break
-		}
-	}
-
-	return strings.Join(callers, " → ")
-}
-
-func newLoggedMutex() *loggedMutex {
-	return &loggedMutex{
-		mu: new(sync.Mutex),
-	}
-}
-
-func (lm *loggedMutex) Lock() {
-	log.Printf("trying to lock from gorutineID=%d, caller=%s", goid.Get(), getCaller())
-
-	lm.mu.Lock()
-
-	log.Printf("locked from gorutineID=%d, caller=%s", goid.Get(), getCaller())
-}
-
-func (lm *loggedMutex) Unlock() {
-	lm.mu.Unlock()
-	log.Printf("unlocked from gorutineID=%d, caller=%s", goid.Get(), getCaller())
-}
-
 type txnLogger struct {
 	pool       bufferpool.BufferPool
 	logfileID  common.FileID
@@ -139,7 +82,7 @@ type txnLogger struct {
 	// ================
 	// лок на запись логов. Нужно для четкой упорядоченности
 	// номеров записей и записей на диск
-	mu                 *loggedMutex
+	mu                 *dbg.LoggedMutex
 	logRecordsCount    uint64
 	lastRecordLocation common.FileLocation
 	lastFlushedPage    common.PageID
@@ -170,7 +113,7 @@ func NewTxnLogger(
 		getActiveTransactions: func() []common.TxnID {
 			panic("TODO")
 		},
-		mu: newLoggedMutex(),
+		mu: dbg.NewLoggedMutex("recovery"),
 	}
 
 	// this will load master log record's page into memory

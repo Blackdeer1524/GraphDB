@@ -3,14 +3,13 @@ package bufferpool
 import (
 	"errors"
 	"fmt"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/dbg"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/petermattis/goid"
 	"log"
 	"maps"
-	"sync"
-
-	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
-	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
-	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
 const noFrame = ^uint64(0)
@@ -52,7 +51,7 @@ type Manager struct {
 
 	diskManager common.DiskManager[*page.SlottedPage]
 
-	mu sync.Mutex
+	mu *dbg.LoggedMutex
 }
 
 func New(
@@ -75,6 +74,7 @@ func New(
 		replacer:    replacer,
 		diskManager: diskManager,
 		DPT:         map[common.PageIdentity]common.LogRecordLocInfo{},
+		mu:          dbg.NewLoggedMutex("bufferpool.Manager"),
 	}
 
 	return m
