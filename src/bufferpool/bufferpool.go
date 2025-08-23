@@ -3,6 +3,8 @@ package bufferpool
 import (
 	"errors"
 	"fmt"
+	"github.com/petermattis/goid"
+	"log"
 	"maps"
 	"sync"
 
@@ -25,8 +27,8 @@ type BufferPool interface {
 	UnpinAssumeLocked(common.PageIdentity)
 	GetPage(common.PageIdentity) (*page.SlottedPage, error)
 	GetPageAssumeLocked(common.PageIdentity) (*page.SlottedPage, error)
-	GetPageNoCreate(common.PageIdentity) (*page.SlottedPage, error)
-	GetPageNoCreateAssumeLocked(common.PageIdentity) (*page.SlottedPage, error)
+	GetPageNoCreate(common.TxnID, common.PageIdentity) (*page.SlottedPage, error)
+	GetPageNoCreateAssumeLocked(common.TxnID, common.PageIdentity) (*page.SlottedPage, error)
 	WithMarkDirty(common.PageIdentity, func() (common.LogRecordLocInfo, error)) error
 	GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo
 	FlushPage(common.PageIdentity) error
@@ -83,24 +85,37 @@ var (
 )
 
 func (m *Manager) Unpin(pIdent common.PageIdentity) {
+	log.Printf("goid=%d pool unpin before lock", goid.Get())
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	log.Printf("goid=%d pool unpin after lock", goid.Get())
+
 	m.UnpinAssumeLocked(pIdent)
 }
 
 func (m *Manager) UnpinAssumeLocked(pIdent common.PageIdentity) {
+	log.Printf("goid=%d UnpinAssumeLocked before assert", goid.Get())
+
 	frameInfo, ok := m.pageTable[pIdent]
 	assert.Assert(ok, "coulnd't unpin page %+v: page not found")
 	assert.Assert(frameInfo.pinCount > 0, "invalid pin count")
 
+	log.Printf("goid=%d UnpinAssumeLocked after assert", goid.Get())
+
 	frameInfo.pinCount--
 	m.pageTable[pIdent] = frameInfo
 	if frameInfo.pinCount == 0 {
+		log.Printf("goid=%d UnpinAssumeLocked before Unpin", goid.Get())
+
 		m.replacer.Unpin(pIdent)
 	}
+
+	log.Printf("goid=%d UnpinAssumeLocked end", goid.Get())
 }
 
-func (m *Manager) pin(pIdent common.PageIdentity) {
+func (m *Manager) pin(txID common.TxnID, pIdent common.PageIdentity) {
 	frameInfo, ok := m.pageTable[pIdent]
 
 	assert.Assert(ok, "no frame for page: %v", pIdent)
@@ -111,25 +126,30 @@ func (m *Manager) pin(pIdent common.PageIdentity) {
 }
 
 func (m *Manager) GetPageNoCreate(
+	txID common.TxnID,
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.GetPageNoCreateAssumeLocked(requestedPage)
+
+	return m.GetPageNoCreateAssumeLocked(txID, requestedPage)
 }
 
 func (m *Manager) GetPageNoCreateAssumeLocked(
+	txID common.TxnID,
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
 	if frameInfo, ok := m.pageTable[requestedPage]; ok {
-		m.pin(requestedPage)
+		m.pin(txID, requestedPage)
+
 		return &m.frames[frameInfo.frameID], nil
 	}
 
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
-		page := &m.frames[frameID]
-		err := m.diskManager.GetPageNoNew(page, requestedPage)
+		p := &m.frames[frameID]
+
+		err := m.diskManager.GetPageNoNew(p, requestedPage)
 		if err != nil {
 			m.emptyFrames = append(m.emptyFrames, frameID)
 			return nil, err
@@ -141,7 +161,7 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 		}
 		m.replacer.Pin(requestedPage)
 
-		return page, nil
+		return p, nil
 	}
 
 	victimPageIdent, err := m.replacer.ChooseVictim()
@@ -176,29 +196,47 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 		pinCount: 1,
 	}
 	m.replacer.Pin(requestedPage)
+
 	return victimPage, nil
 }
 
 func (m *Manager) GetPage(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
+	log.Printf("goid=%d pool getpage start", goid.Get())
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	log.Printf("goid=%d pool getpage", goid.Get())
+
 	return m.GetPageAssumeLocked(requestedPage)
 }
 
 func (m *Manager) GetPageAssumeLocked(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
+	log.Printf("goid=%d GetPageAssumeLocked pagetable getting", goid.Get())
+
 	if frameInfo, ok := m.pageTable[requestedPage]; ok {
-		m.pin(requestedPage)
+		m.pin(0, requestedPage)
 		return &m.frames[frameInfo.frameID], nil
 	}
 
+	log.Printf("goid=%d GetPageAssumeLocked before reserve frame", goid.Get())
+
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
+		log.Printf("goid=%d GetPageAssumeLocked no noFrame", goid.Get())
+
 		page := &m.frames[frameID]
+
+		log.Printf("goid=%d GetPageAssumeLocked before ReadPage", goid.Get())
+
 		err := m.diskManager.ReadPage(page, requestedPage)
+
+		log.Printf("goid=%d GetPageAssumeLocked after ReadPage", goid.Get())
+
 		if err != nil {
 			m.emptyFrames = append(m.emptyFrames, frameID)
 			return nil, err
@@ -213,14 +251,20 @@ func (m *Manager) GetPageAssumeLocked(
 		return page, nil
 	}
 
+	log.Printf("goid=%d GetPageAssumeLocked before ChooseVictim", goid.Get())
+
 	victimPageIdent, err := m.replacer.ChooseVictim()
 	if err != nil {
 		return nil, err
 	}
 
+	log.Printf("goid=%d GetPageAssumeLocked after ReadPage", goid.Get())
+
 	victimInfo, ok := m.pageTable[victimPageIdent]
 	assert.Assert(ok, "victim page %+v not found", victimPageIdent)
 	assert.Assert(victimInfo.pinCount == 0, "victim page %+v is pinned", victimPageIdent)
+
+	log.Printf("goid=%d GetPageAssumeLocked after assert", goid.Get())
 
 	victimPage := &m.frames[victimInfo.frameID]
 	if _, ok := m.DPT[victimPageIdent]; ok {
@@ -234,17 +278,27 @@ func (m *Manager) GetPageAssumeLocked(
 	}
 	delete(m.pageTable, victimPageIdent)
 
+	log.Printf("goid=%d GetPageAssumeLocked before ReadPage", goid.Get())
+
 	err = m.diskManager.ReadPage(victimPage, requestedPage)
 	if err != nil {
 		m.emptyFrames = append(m.emptyFrames, victimInfo.frameID)
 		return nil, err
 	}
 
+	log.Printf("goid=%d GetPageAssumeLocked after ReadPage", goid.Get())
+
 	m.pageTable[requestedPage] = frameInfo{
 		frameID:  victimInfo.frameID,
 		pinCount: 1,
 	}
+
+	log.Printf("goid=%d GetPageAssumeLocked before Pin", goid.Get())
+
 	m.replacer.Pin(requestedPage)
+
+	log.Printf("goid=%d GetPageAssumeLocked after Pin", goid.Get())
+
 	return victimPage, nil
 }
 
@@ -343,9 +397,10 @@ func (d *DebugBufferPool) GetPageAssumeLocked(
 }
 
 func (d *DebugBufferPool) GetPageNoCreateAssumeLocked(
+	id common.TxnID,
 	pIdent common.PageIdentity,
 ) (*page.SlottedPage, error) {
-	return d.m.GetPageNoCreateAssumeLocked(pIdent)
+	return d.m.GetPageNoCreateAssumeLocked(id, pIdent)
 }
 
 func NewDebugBufferPool(
@@ -371,8 +426,8 @@ func (d *DebugBufferPool) GetPage(pIdent common.PageIdentity) (*page.SlottedPage
 	return d.m.GetPage(pIdent)
 }
 
-func (d *DebugBufferPool) GetPageNoCreate(pIdent common.PageIdentity) (*page.SlottedPage, error) {
-	return d.m.GetPageNoCreate(pIdent)
+func (d *DebugBufferPool) GetPageNoCreate(txID common.TxnID, pIdent common.PageIdentity) (*page.SlottedPage, error) {
+	return d.m.GetPageNoCreate(txID, pIdent)
 }
 
 func (d *DebugBufferPool) Unpin(pIdent common.PageIdentity) {

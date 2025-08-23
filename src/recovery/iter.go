@@ -54,6 +54,7 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 	iter.currentPage = nil
 
 	newPage, err := iter.pool.GetPageNoCreate(
+		0,
 		common.PageIdentity{
 			FileID: iter.logfileID,
 			PageID: iter.curLoc.PageID + 1,

@@ -8,6 +8,7 @@ require github.com/stretchr/testify v1.10.0
 
 require (
 	github.com/panjf2000/ants v1.3.0
+	github.com/petermattis/goid v0.0.0-20250813065127-a731cc31b4fe
 	github.com/spf13/viper v1.20.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.14.0

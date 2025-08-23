@@ -3,7 +3,10 @@ package recovery
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
+	"github.com/petermattis/goid"
 )
 
 type loggerInfoPage page.SlottedPage
@@ -73,6 +77,60 @@ func (p *loggerInfoPage) Setup() {
 	assert.Assert(slotOpt.Unwrap() == loggerLastLocationSlot)
 }
 
+type loggedMutex struct {
+	mu *sync.Mutex
+}
+
+func getCaller() string {
+	skip := 3
+
+	// Максимум 32 фрейма — можно увеличить
+	pc := make([]uintptr, 32)
+	n := runtime.Callers(skip, pc)
+	if n == 0 {
+		return "unknown"
+	}
+
+	var callers []string
+	frames := runtime.CallersFrames(pc[:n])
+
+	for {
+		frame, more := frames.Next()
+		fn := frame.Func
+		if fn != nil {
+			// Берём только имя функции (без полного пути пакета)
+			name := filepath.Base(fn.Name())
+			callers = append(callers, name)
+		} else {
+			callers = append(callers, "unknown")
+		}
+		if !more {
+			break
+		}
+	}
+
+	return strings.Join(callers, " → ")
+}
+
+func newLoggedMutex() *loggedMutex {
+	return &loggedMutex{
+		mu: new(sync.Mutex),
+	}
+}
+
+func (lm *loggedMutex) Lock() {
+	log.Printf("trying to lock from gorutineID=%d, caller=%s", goid.Get(), getCaller())
+
+	lm.mu.Lock()
+
+	log.Printf("locked from gorutineID=%d, caller=%s", goid.Get(), getCaller())
+}
+
+func (lm *loggedMutex) Unlock() {
+	lm.mu.Unlock()
+	log.Printf("unlocked from gorutineID=%d, caller=%s", goid.Get(), getCaller())
+}
+
 type txnLogger struct {
 	pool       bufferpool.BufferPool
 	logfileID  common.FileID
@@ -81,7 +139,7 @@ type txnLogger struct {
 	// ================
 	// лок на запись логов. Нужно для четкой упорядоченности
 	// номеров записей и записей на диск
-	mu                 sync.Mutex
+	mu                 *loggedMutex
 	logRecordsCount    uint64
 	lastRecordLocation common.FileLocation
 	lastFlushedPage    common.PageID
@@ -112,13 +170,14 @@ func NewTxnLogger(
 		getActiveTransactions: func() []common.TxnID {
 			panic("TODO")
 		},
+		mu: newLoggedMutex(),
 	}
 
 	// this will load master log record's page into memory
 	// note that we don't call `Unpin()`. We are going to need this
 	// page during replacement.
 	var err error
-	pg, err := pool.GetPageNoCreate(common.PageIdentity{
+	pg, err := pool.GetPageNoCreate(0, common.PageIdentity{
 		FileID: logFileID,
 		PageID: masterRecordPage,
 	})
@@ -218,7 +277,7 @@ func (l *txnLogger) Flush() error {
 func (l *txnLogger) iter(
 	start common.FileLocation,
 ) (*LogRecordsIter, error) {
-	p, err := l.pool.GetPageNoCreate(common.PageIdentity{
+	p, err := l.pool.GetPageNoCreate(0, common.PageIdentity{
 		FileID: l.logfileID,
 		PageID: start.PageID,
 	})
@@ -599,7 +658,7 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 			record := assert.Cast[InsertLogRecord](record)
 			func() {
 				modifiedPage, err := l.pool.GetPageNoCreate(
-					record.modifiedRecordID.PageIdentity(),
+					0, record.modifiedRecordID.PageIdentity(),
 				)
 				assert.NoError(err)
 				defer func() { l.pool.Unpin(record.modifiedRecordID.PageIdentity()) }()
@@ -627,7 +686,7 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 			record := assert.Cast[UpdateLogRecord](record)
 			func() {
 				modifiedPage, err := l.pool.GetPageNoCreate(
-					record.modifiedRecordID.PageIdentity(),
+					0, record.modifiedRecordID.PageIdentity(),
 				)
 				defer func() { l.pool.Unpin(record.modifiedRecordID.PageIdentity()) }()
 
@@ -650,7 +709,7 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 			record := assert.Cast[DeleteLogRecord](record)
 			func() {
 				modifiedPage, err := l.pool.GetPageNoCreate(
-					record.modifiedRecordID.PageIdentity(),
+					0, record.modifiedRecordID.PageIdentity(),
 				)
 				assert.NoError(err)
 				defer func() { l.pool.Unpin(record.modifiedRecordID.PageIdentity()) }()
@@ -683,7 +742,7 @@ func (l *txnLogger) readLogRecord(
 		FileID: l.logfileID,
 		PageID: recordLocation.PageID,
 	}
-	page, err := l.pool.GetPageNoCreate(pageIdent)
+	page, err := l.pool.GetPageNoCreate(0, pageIdent)
 	if err != nil {
 		return TypeUnknown, nil, err
 	}
@@ -750,32 +809,50 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 func (lockedLogger *txnLogger) writeLogRecord(
 	serializedRecord []byte,
 ) (common.FileLocation, error) {
+	log.Printf("goid=%d writeLogRecord start", goid.Get())
+
 	pageInfo := common.PageIdentity{
 		FileID: lockedLogger.logfileID,
 		PageID: lockedLogger.lastRecordLocation.PageID,
 	}
 
+	log.Printf("goid=%d writeLogRecord before pool.GetPage", goid.Get())
+
 	p, err := lockedLogger.pool.GetPage(pageInfo)
 	if err != nil {
 		return common.FileLocation{}, err
 	}
+
+	log.Printf("goid=%d writeLogRecord before lock page", goid.Get())
+
 	p.Lock()
 	slotNumberOpt := p.Insert(serializedRecord)
 	p.Unlock()
+
+	log.Printf("goid=%d writeLogRecord before unpin", goid.Get())
+
 	lockedLogger.pool.Unpin(pageInfo)
 	if slotNumberOpt.IsSome() {
+		log.Printf("goid=%d lotNumberOpt.IsSome = nil", goid.Get())
+
 		slotNumber := slotNumberOpt.Unwrap()
 		lockedLogger.lastRecordLocation.SlotNum = slotNumber
 		return lockedLogger.lastRecordLocation, err
 	}
 
+	log.Printf("goid=%d writeLogRecord after unpin", goid.Get())
+
 	lockedLogger.lastRecordLocation.PageID++
 	pageInfo.PageID++
+
+	log.Printf("goid=%d writeLogRecord before first get page", goid.Get())
 
 	p, err = lockedLogger.pool.GetPage(pageInfo)
 	if err != nil {
 		return common.FileLocation{}, err
 	}
+
+	log.Printf("goid=%d writeLogRecord after first get page", goid.Get())
 
 	p.Lock()
 	slotNumberOpt = p.Insert(serializedRecord)
@@ -786,7 +863,12 @@ func (lockedLogger *txnLogger) writeLogRecord(
 	)
 	p.Unlock()
 
+	log.Printf("goid=%d writeLogRecord after p insert", goid.Get())
+
 	lockedLogger.pool.Unpin(pageInfo)
+
+	log.Printf("goid=%d writeLogRecord after pool unpin 866", goid.Get())
+
 	lockedLogger.lastRecordLocation.SlotNum = slotNumberOpt.Unwrap()
 
 	return lockedLogger.lastRecordLocation, err
@@ -804,7 +886,7 @@ func (lockedLogger *txnLogger) GetMasterRecord() common.LSN {
 		PageID: masterRecordPage,
 	}
 	masterRecordPage, err := lockedLogger.pool.GetPageNoCreate(
-		masterRecordPageIdent,
+		0, masterRecordPageIdent,
 	)
 	assert.Assert(
 		err != nil,
@@ -846,20 +928,28 @@ func marshalRecordAndWrite[T LogRecord](
 	lockedLogger *txnLogger,
 	record T,
 ) (common.LogRecordLocInfo, error) {
+	log.Printf("goid=%d marshalRecordAndWrite start", goid.Get())
+
 	bytes, err := record.MarshalBinary()
 	if err != nil {
 		return common.LogRecordLocInfo{}, err
 	}
+
+	log.Printf("goid=%d marshalRecordAndWrite after marshal binary", goid.Get())
 
 	loc, err := lockedLogger.writeLogRecord(bytes)
 	if err != nil {
 		return common.LogRecordLocInfo{}, err
 	}
 
+	log.Printf("goid=%d marshalRecordAndWrite  writeLogLogger", goid.Get())
+
 	logInfo := common.LogRecordLocInfo{
 		Lsn:      record.LSN(),
 		Location: loc,
 	}
+
+	log.Printf("goid=%d marshalRecordAndWrite logInfo", goid.Get())
 
 	return logInfo, nil
 }
@@ -884,6 +974,8 @@ func (l *txnLogger) AppendUpdate(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	log.Printf("888")
+
 	r := NewUpdateLogRecord(
 		l.newLSN(),
 		TransactionID,
@@ -903,10 +995,15 @@ func loggerUndoRecord[T RevertableLogRecord](
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	log.Printf("fdsafasdassdaf 973")
+
 	clr := record.Undo(
 		l.newLSN(),
 		parentLocation,
 	)
+
+	log.Printf("fdsafasdassdaf 972")
+
 	location, err := marshalRecordAndWrite(l, &clr)
 	if err != nil {
 		return nil, common.LogRecordLocInfo{}, err
@@ -976,8 +1073,17 @@ func (l *txnLogger) AppendAbort(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	log.Printf("goid=%d AppendAbort NewAbortLogRecord", goid.Get())
+
 	r := NewAbortLogRecord(l.newLSN(), TransactionID, prevLog)
-	return marshalRecordAndWrite(l, &r)
+
+	log.Printf("goid=%d AppendAbort after NewAbortLogRecord", goid.Get())
+
+	d, err := marshalRecordAndWrite(l, &r)
+
+	log.Printf("goid=%d AppendAbort after marshallRAW", goid.Get())
+
+	return d, err
 }
 
 func (l *txnLogger) AppendTxnEnd(
@@ -1018,7 +1124,7 @@ func (l *txnLogger) AppendCheckpointEnd(
 
 func (l *txnLogger) activateCLR(record *CompensationLogRecord) {
 	pageID := record.modifiedRecordID.PageIdentity()
-	page, err := l.pool.GetPageNoCreate(pageID)
+	page, err := l.pool.GetPageNoCreate(0, pageID)
 	assert.NoError(err)
 	defer func() { l.pool.Unpin(pageID) }()
 
