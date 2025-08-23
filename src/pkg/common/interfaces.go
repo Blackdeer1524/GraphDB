@@ -2,7 +2,6 @@ package common
 
 type ITxnLogger interface {
 	WithContext(txnID TxnID) ITxnLoggerWithContext
-	NewLSN() LSN
 	GetMasterRecord() LSN
 	Flush() error
 	AppendAbort(txnID TxnID, prevLog LogRecordLocInfo) (LogRecordLocInfo, error)

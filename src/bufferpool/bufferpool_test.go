@@ -36,7 +36,6 @@ func TestGetPage_Cached(t *testing.T) {
 	manager.pageTable[pageIdent] = frameInfo{
 		frameID:  frameID,
 		pinCount: 0,
-		isDirty:  false,
 	}
 
 	mockReplacer.On("Pin", pageIdent).Return()
@@ -87,8 +86,10 @@ func TestGetPage_LoadFromDisk(t *testing.T) {
 	assert.Equal(t, frameInfo{
 		frameID:  manager.poolSize - 1,
 		pinCount: 1,
-		isDirty:  false,
 	}, manager.pageTable[pageIdent])
+
+	_, ok := manager.DPT[pageIdent]
+	assert.False(t, ok)
 
 	assert.Equal(t, *expectedPage, manager.frames[manager.poolSize-1])
 
@@ -118,7 +119,6 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 	manager.pageTable[existingPageData] = frameInfo{
 		frameID:  frameID,
 		pinCount: 1,
-		isDirty:  false,
 	}
 	manager.frames[frameID] = *existingPage
 	manager.emptyFrames = []uint64{1}
@@ -150,8 +150,11 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 	assert.Equal(t, frameInfo{
 		frameID:  1,
 		pinCount: 1,
-		isDirty:  false,
 	}, manager.pageTable[pIdent])
+
+	_, ok := manager.DPT[pIdent]
+	assert.False(t, ok)
+
 	assert.Equal(t, *newPage, manager.frames[1])
 	assert.Equal(t, *existingPage, manager.frames[0])
 
@@ -179,8 +182,14 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	frameID := uint64(0)
 	manager.pageTable[existingPageIdent] = frameInfo{
 		frameID:  frameID,
-		pinCount: 1,
-		isDirty:  true,
+		pinCount: 0,
+	}
+	manager.DPT[existingPageIdent] = common.LogRecordLocInfo{
+		Lsn: 1,
+		Location: common.FileLocation{
+			PageID:  1,
+			SlotNum: 0,
+		},
 	}
 	manager.frames[frameID] = *existingPage
 	manager.emptyFrames = []uint64{}
@@ -193,10 +202,9 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	mockDisk.On("WritePage", mock.AnythingOfType("*page.SlottedPage"), existingPageIdent).
 		Return(nil)
 
-	newFileID, newPageID := uint64(2), uint64(1)
 	newPageIdent := common.PageIdentity{
-		FileID: common.FileID(newFileID),
-		PageID: common.PageID(newPageID),
+		FileID: common.FileID(uint64(2)),
+		PageID: common.PageID(uint64(1)),
 	}
 	mockDisk.On("ReadPage", mock.AnythingOfType("*page.SlottedPage"), newPageIdent).
 		Run(func(args mock.Arguments) {
@@ -219,8 +227,10 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	assert.Equal(t, frameInfo{
 		frameID:  frameID,
 		pinCount: 1,
-		isDirty:  false,
 	}, manager.pageTable[newPageIdent])
+
+	_, ok := manager.DPT[existingPageIdent]
+	assert.False(t, ok)
 
 	mockReplacer.AssertExpectations(t)
 	mockDisk.AssertExpectations(t)
