@@ -1,7 +1,9 @@
 package fuzz
 
 import (
+	"fmt"
 	"math/rand"
+	"os"
 	"sort"
 	"sync"
 	"testing"
@@ -13,23 +15,46 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func applyOp(se *engine.StorageEngine, op Operation, model *engineSimulator) OpResult {
+// applyOp is a convenient wrapper to apply an operation to the engine.
+// It uses the model as a schema provider for create operations.
+func applyOp(se *engine.StorageEngine, op Operation, baseDir string) OpResult {
 	res := OpResult{Op: op}
 	var err error
 
 	switch op.Type {
 	case OpCreateVertexTable:
-		err = se.CreateVertexTable(op.TxnID, op.Name, model.VertexTables[op.Name])
+		err = se.CreateVertexTable(op.TxnID, op.Name, nil)
 	case OpDropVertexTable:
 		err = se.DropVertexTable(op.TxnID, op.Name)
+		if err == nil {
+			filePath := engine.GetVertexTableFilePath(baseDir, op.Name)
+			errRemove := os.Remove(filePath)
+			if errRemove != nil {
+				err = fmt.Errorf("failed to remove vertex table file: %w", errRemove)
+			}
+		}
 	case OpCreateEdgeTable:
-		err = se.CreateEdgesTable(op.TxnID, op.Name, model.EdgeTables[op.Name])
+		err = se.CreateEdgesTable(op.TxnID, op.Name, nil)
 	case OpDropEdgeTable:
 		err = se.DropEdgesTable(op.TxnID, op.Name)
+		if err == nil {
+			filePath := engine.GetEdgeTableFilePath(baseDir, op.Name)
+			errRemove := os.Remove(filePath)
+			if errRemove != nil {
+				err = fmt.Errorf("failed to remove edge table file: %w", errRemove)
+			}
+		}
 	case OpCreateIndex:
 		err = se.CreateIndex(op.TxnID, op.Name, op.Table, op.TableKind, op.Columns, 8)
 	case OpDropIndex:
 		err = se.DropIndex(op.TxnID, op.Name)
+		if err == nil {
+			filePath := engine.GetIndexFilePath(baseDir, op.Name)
+			errRemove := os.Remove(filePath)
+			if errRemove != nil {
+				err = fmt.Errorf("failed to remove index file: %w", errRemove)
+			}
+		}
 	default:
 		panic("unknown op type")
 	}
@@ -66,19 +91,20 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	i := 0
 
 	for op := range operations {
-		res := applyOp(se, op, model)
+		res := applyOp(se, op, baseDir)
 
 		model.apply(op, res)
+		lockMgr.UnlockAll()
 
 		if i%25 == 0 {
 			t.Logf("validate invariants at step=%d", i)
-			model.compareWithEngineFS(t, baseDir, se)
+			model.compareWithEngineFS(t, baseDir, se, lockMgr)
 		}
 
 		i += 1
 	}
 
-	model.compareWithEngineFS(t, baseDir, se)
+	model.compareWithEngineFS(t, baseDir, se, lockMgr)
 
 	t.Logf("fuzz ok: seed=%d, ops=%d", seed, opsCount)
 }
@@ -86,7 +112,7 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 func TestFuzz_MultiThreaded(t *testing.T) {
 	seed := time.Now().UnixNano()
 	t.Logf("seed=%d", seed)
-	//r := rand.New(rand.NewSource(seed))
+	r := rand.New(rand.NewSource(seed))
 
 	baseDir := t.TempDir()
 
@@ -99,46 +125,64 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 
 	model := newEngineSimulator()
 
-	const numThreads = 10
+	const numThreads = 30
 	const opsPerThread = 50
+	const totalOps = numThreads * opsPerThread
+
+	operations := NewOpsGenerator(r, totalOps).Gen()
 
 	type AppliedOp struct {
-		op        Operation
-		res       OpResult
-		completed time.Time
+		op       Operation
+		res      OpResult
+		sequence int64
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var applied []AppliedOp
 
-	for thread := 0; thread < numThreads; thread++ {
-		wg.Add(1)
-		go func(thread int) {
-			defer wg.Done()
-			rThread := rand.New(rand.NewSource(seed + int64(thread)))
-			operations := NewOpsGenerator(rThread, opsPerThread).Gen()
+	var sequence int64
 
-			for op := range operations {
-				res := applyOp(se, op, model)
+	wg.Add(numThreads)
+
+	for thread := 0; thread < numThreads; thread++ {
+		go func() {
+			defer wg.Done()
+
+			for {
+				op, ok := <-operations
+				if !ok {
+					return
+				}
+
+				res := applyOp(se, op, baseDir)
+
+				lockMgr.UnlockAll()
+
 				mu.Lock()
-				applied = append(applied, AppliedOp{op: op, res: res, completed: time.Now()})
+				sequence++
+				applied = append(applied, AppliedOp{
+					op:       op,
+					res:      res,
+					sequence: sequence,
+				})
+
 				mu.Unlock()
 			}
-		}(thread)
+		}()
 	}
 
 	wg.Wait()
 
 	sort.Slice(applied, func(i, j int) bool {
-		return applied[i].completed.Before(applied[j].completed)
+		return applied[i].sequence < applied[j].sequence
 	})
 
 	for _, a := range applied {
 		model.apply(a.op, a.res)
 	}
 
-	model.compareWithEngineFS(t, baseDir, se)
+	model.compareWithEngineFS(t, baseDir, se, lockMgr)
 
-	t.Logf("fuzz ok: seed=%d, threads=%d, ops=%d", seed, numThreads, numThreads*opsPerThread)
+	t.Logf("fuzz ok: seed=%d, threads=%d, ops=%d", seed, numThreads, totalOps)
 }

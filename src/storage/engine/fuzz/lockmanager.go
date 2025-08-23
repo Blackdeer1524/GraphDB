@@ -17,21 +17,22 @@ func newMockRWMutexLockManager() *MockRWMutexLockManager {
 
 func (m *MockRWMutexLockManager) GetSystemCatalogLock(req txns.SystemCatalogLockRequest) bool {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	return true
 }
 
 func (m *MockRWMutexLockManager) GetPageLock(req txns.PageLockRequest) bool {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	return true
 }
 
 func (m *MockRWMutexLockManager) UpgradePageLock(req txns.PageLockRequest) bool {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	return true
+}
+
+func (m *MockRWMutexLockManager) UnlockAll() {
+	m.mu.Unlock()
 }
