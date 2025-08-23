@@ -917,10 +917,10 @@ func TestLoggerRollback(t *testing.T) {
 //   - length: Number of records to insert
 //   - fileIDs: Slice of file IDs to distribute records across
 //   - limit: Upper bound for generated random values (exclusive)
+//   - maxEntriesPerPage: Maximum number of entries allowed per page
 //
 // Returns:
-// - map[common.RecordID]uint32: Mapping of inserted record locations to their
-// values
+//   - map[common.RecordID]uint32: Mapping of inserted record locations to their values
 //
 // The function ensures each insert operation is successful by retrying on full
 // pages. All operations are performed within a single transaction that is

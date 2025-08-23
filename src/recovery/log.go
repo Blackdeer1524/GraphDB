@@ -11,6 +11,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
@@ -122,7 +123,7 @@ func NewTxnLogger(
 		PageID: masterRecordPage,
 	})
 
-	if errors.Is(err, bufferpool.ErrNoSuchPage) {
+	if errors.Is(err, disk.ErrNoSuchPage) {
 		pg, err = pool.GetPage(common.PageIdentity{
 			FileID: logFileID,
 			PageID: masterRecordPage,
@@ -265,7 +266,7 @@ func (l *txnLogger) Flush() error {
 			PageID: i,
 		})
 
-		if err != nil && !errors.Is(err, bufferpool.ErrNoSuchPage) {
+		if err != nil && !errors.Is(err, disk.ErrNoSuchPage) {
 			return err
 		}
 	}

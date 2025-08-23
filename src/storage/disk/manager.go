@@ -12,6 +12,8 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
+var ErrNoSuchPage = errors.New("no such page")
+
 type logger interface {
 	GetMasterRecord() common.LSN
 	Flush() error
@@ -46,7 +48,12 @@ func New(
 	return &Manager{
 		fileIDToPath: fileIDToPath,
 		newPageFunc:  newPageFunc,
+		logger:       noOpLogger{},
 	}
+}
+
+func (m *Manager) SetLogger(logger logger) {
+	m.logger = logger
 }
 
 func (m *Manager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
@@ -95,7 +102,7 @@ func (m *Manager) GetPageNoNew(page *page.SlottedPage, pageIdent common.PageIden
 
 	_, err = file.ReadAt(data, offset)
 	if err != nil {
-		return fmt.Errorf("failed to reat at: %w", err)
+		return errors.Join(err, ErrNoSuchPage)
 	}
 
 	page.SetData(data)
@@ -171,7 +178,7 @@ func (m *InMemoryManager) GetPageNoNew(
 
 	storedPage, ok := m.pages[pageIdent]
 	if !ok {
-		return fmt.Errorf("page %+v not found", pageIdent)
+		return ErrNoSuchPage
 	}
 
 	pg.SetData(storedPage.GetData())
@@ -189,7 +196,9 @@ func (m *InMemoryManager) ReadPage(pg *page.SlottedPage, pageIdent common.PageId
 		pg.SetData(m.pages[pageIdent].GetData())
 		return nil
 	}
+
 	storedPage.UnsafeInitLatch()
+	pg.SetData(storedPage.GetData())
 	return nil
 }
 

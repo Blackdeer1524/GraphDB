@@ -299,7 +299,12 @@ func (p *SlottedPage) UpdateWithLogs(
 	ctxLogger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
 	data := p.Read(recordID.SlotNum)
-	assert.Assert(len(data) == len(newData))
+	assert.Assert(
+		len(data) == len(newData),
+		"data and newData have different lengths. data: %d, newData: %d",
+		len(data),
+		len(newData),
+	)
 
 	before := make([]byte, len(data))
 	copy(before, data)
