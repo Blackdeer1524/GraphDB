@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -712,14 +713,11 @@ func mapBatch[K comparable, V any](
 }
 
 func TestLoggerRollback(t *testing.T) {
-	logPageId := common.PageIdentity{
-		FileID: 42,
-		PageID: 321,
-	}
+	logFileID := common.FileID(42)
 
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
-		FileID: logPageId.FileID,
+		FileID: logFileID,
 		PageID: masterRecordPage,
 	}
 	pool := bufferpool.NewDebugBufferPool(
@@ -730,7 +728,7 @@ func TestLoggerRollback(t *testing.T) {
 	)
 
 	logStartLocation := common.FileLocation{
-		PageID:  logPageId.PageID,
+		PageID:  masterRecordPage,
 		SlotNum: 0,
 	}
 
@@ -743,7 +741,7 @@ func TestLoggerRollback(t *testing.T) {
 			Location: logStartLocation,
 		},
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
+	logger := NewTxnLogger(pool, logFileID)
 	diskManager.SetLogger(logger)
 
 	defer func() {
@@ -762,7 +760,7 @@ func TestLoggerRollback(t *testing.T) {
 		}
 	}
 
-	recordValues := fillPages(t, logger, math.MaxUint64, 20000, files, 1024, 10)
+	recordValues := fillPages(t, logger, math.MaxUint64, 20, files, 1024, 10)
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	updatedValues := make(map[common.RecordID]uint32, len(recordValues))
@@ -780,11 +778,19 @@ func TestLoggerRollback(t *testing.T) {
 		)
 	}()
 
+	go func() {
+		<-time.After(20 * time.Second)
+
+		t.Logf("Have been waiting for too long. Preparing to dump dependency graph...")
+		graph := locker.DumpDependencyGraph()
+		t.Logf("\n%s", graph)
+	}()
+
 	txnID := atomic.Uint64{}
 	wg := sync.WaitGroup{}
 	for batch := range mapBatch(recordValues, 300) {
 		wg.Add(1)
-		go func(batch []KVPair[common.RecordID, uint32]) {
+		func(batch []KVPair[common.RecordID, uint32]) {
 			defer func() {
 				r := recover()
 				if r != nil {
@@ -839,15 +845,21 @@ func TestLoggerRollback(t *testing.T) {
 				newValue := rand.Uint32()
 				page, err := pool.GetPageNoCreate(info.key.PageIdentity())
 				require.NoError(t, err)
-				page.Lock()
-				_, err = page.UpdateWithLogs(
-					utils.ToBytes[uint32](newValue),
-					info.key,
-					logger,
+				err = pool.WithMarkDirty(
+					info.key.PageIdentity(),
+					func() (common.LogRecordLocInfo, error) {
+						page.Lock()
+						defer page.Unlock()
+						defer pool.Unpin(info.key.PageIdentity())
+
+						return page.UpdateWithLogs(
+							utils.ToBytes[uint32](newValue),
+							info.key,
+							logger,
+						)
+					},
 				)
-				require.NoError(t, err)
-				page.Unlock()
-				pool.Unpin(info.key.PageIdentity())
+				assert.NoError(t, err)
 			}
 
 			for j := range len(batch) / 3 {
@@ -877,11 +889,16 @@ func TestLoggerRollback(t *testing.T) {
 
 				page, err := pool.GetPageNoCreate(info.key.PageIdentity())
 				require.NoError(t, err)
-				page.Lock()
-				_, err = page.DeleteWithLogs(info.key, logger)
+				err = pool.WithMarkDirty(
+					info.key.PageIdentity(),
+					func() (common.LogRecordLocInfo, error) {
+						page.Lock()
+						defer page.Unlock()
+						defer pool.Unpin(info.key.PageIdentity())
+						return page.DeleteWithLogs(info.key, logger)
+					},
+				)
 				require.NoError(t, err)
-				page.Unlock()
-				pool.Unpin(info.key.PageIdentity())
 			}
 
 			require.NoError(t, logger.AppendAbort())

@@ -33,7 +33,6 @@ type BufferPool interface {
 type frameInfo struct {
 	frameID  uint64
 	pinCount uint64
-	isDirty  bool
 }
 
 type Manager struct {
@@ -42,13 +41,14 @@ type Manager struct {
 	frames      []page.SlottedPage
 	emptyFrames []uint64
 
-	dirtyPageTable map[common.PageIdentity]common.LogRecordLocInfo
+	muDPT sync.RWMutex
+	DPT   map[common.PageIdentity]common.LogRecordLocInfo
 
 	replacer Replacer
 
 	diskManager common.DiskManager[*page.SlottedPage]
 
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
 func New(
@@ -70,7 +70,7 @@ func New(
 		emptyFrames: emptyFrames,
 		replacer:    replacer,
 		diskManager: diskManager,
-		mu:          sync.Mutex{},
+		DPT:         map[common.PageIdentity]common.LogRecordLocInfo{},
 	}
 
 	return m
@@ -106,31 +106,30 @@ func (m *Manager) pin(pIdent common.PageIdentity) {
 }
 
 func (m *Manager) GetPageNoCreate(
-	pIdent common.PageIdentity,
+	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if frameInfo, ok := m.pageTable[pIdent]; ok {
-		m.pin(pIdent)
+	if frameInfo, ok := m.pageTable[requestedPage]; ok {
+		m.pin(requestedPage)
 		return &m.frames[frameInfo.frameID], nil
 	}
 
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
 		page := &m.frames[frameID]
-		err := m.diskManager.GetPageNoNew(page, pIdent)
+		err := m.diskManager.GetPageNoNew(page, requestedPage)
 		if err != nil {
 			m.emptyFrames = append(m.emptyFrames, frameID)
 			return nil, err
 		}
 
-		m.pageTable[pIdent] = frameInfo{
+		m.pageTable[requestedPage] = frameInfo{
 			frameID:  frameID,
 			pinCount: 1,
-			isDirty:  false,
 		}
-		m.replacer.Pin(pIdent)
+		m.replacer.Pin(requestedPage)
 
 		return page, nil
 	}
@@ -141,58 +140,63 @@ func (m *Manager) GetPageNoCreate(
 	}
 
 	victimInfo, ok := m.pageTable[victimPageIdent]
-	assert.Assert(ok)
+	assert.Assert(ok, "victim page %+v not found", victimPageIdent)
+	assert.Assert(victimInfo.pinCount == 0, "victim page %+v is pinned", victimPageIdent)
 
 	victimPage := &m.frames[victimInfo.frameID]
-	if victimInfo.isDirty {
+	m.muDPT.Lock()
+	if _, ok := m.DPT[victimPageIdent]; ok {
 		err = m.diskManager.WritePage(victimPage, victimPageIdent)
 		if err != nil {
+			m.replacer.Pin(victimPageIdent)
+			m.replacer.Unpin(victimPageIdent)
+			m.muDPT.Unlock()
 			return nil, err
 		}
+		delete(m.DPT, victimPageIdent)
 	}
+	m.muDPT.Unlock()
 	delete(m.pageTable, victimPageIdent)
 
-	page := &m.frames[victimInfo.frameID]
-	err = m.diskManager.ReadPage(page, pIdent)
+	err = m.diskManager.GetPageNoNew(victimPage, requestedPage)
 	if err != nil {
+		m.emptyFrames = append(m.emptyFrames, victimInfo.frameID)
 		return nil, err
 	}
 
-	m.pageTable[pIdent] = frameInfo{
+	m.pageTable[requestedPage] = frameInfo{
 		frameID:  victimInfo.frameID,
 		pinCount: 1,
-		isDirty:  false,
 	}
-	m.replacer.Pin(pIdent)
-	return page, nil
+	m.replacer.Pin(requestedPage)
+	return victimPage, nil
 }
 
 func (m *Manager) GetPage(
-	pIdent common.PageIdentity,
+	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if frameInfo, ok := m.pageTable[pIdent]; ok {
-		m.pin(pIdent)
+	if frameInfo, ok := m.pageTable[requestedPage]; ok {
+		m.pin(requestedPage)
 		return &m.frames[frameInfo.frameID], nil
 	}
 
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
 		page := &m.frames[frameID]
-		err := m.diskManager.ReadPage(page, pIdent)
+		err := m.diskManager.ReadPage(page, requestedPage)
 		if err != nil {
 			m.emptyFrames = append(m.emptyFrames, frameID)
 			return nil, err
 		}
 
-		m.pageTable[pIdent] = frameInfo{
+		m.pageTable[requestedPage] = frameInfo{
 			frameID:  frameID,
 			pinCount: 1,
-			isDirty:  false,
 		}
-		m.replacer.Pin(pIdent)
+		m.replacer.Pin(requestedPage)
 
 		return page, nil
 	}
@@ -203,56 +207,53 @@ func (m *Manager) GetPage(
 	}
 
 	victimInfo, ok := m.pageTable[victimPageIdent]
-	assert.Assert(ok)
+	assert.Assert(ok, "victim page %+v not found", victimPageIdent)
+	assert.Assert(victimInfo.pinCount == 0, "victim page %+v is pinned", victimPageIdent)
 
 	victimPage := &m.frames[victimInfo.frameID]
-	if victimInfo.isDirty {
+	m.muDPT.Lock()
+	if _, ok := m.DPT[victimPageIdent]; ok {
 		err = m.diskManager.WritePage(victimPage, victimPageIdent)
 		if err != nil {
+			m.replacer.Pin(victimPageIdent)
+			m.replacer.Unpin(victimPageIdent)
+			m.muDPT.Unlock()
 			return nil, err
 		}
+		delete(m.DPT, victimPageIdent)
 	}
+	m.muDPT.Unlock()
 	delete(m.pageTable, victimPageIdent)
 
-	page := &m.frames[victimInfo.frameID]
-	err = m.diskManager.ReadPage(page, pIdent)
+	err = m.diskManager.ReadPage(victimPage, requestedPage)
 	if err != nil {
+		m.emptyFrames = append(m.emptyFrames, victimInfo.frameID)
 		return nil, err
 	}
 
-	m.pageTable[pIdent] = frameInfo{
+	m.pageTable[requestedPage] = frameInfo{
 		frameID:  victimInfo.frameID,
 		pinCount: 1,
-		isDirty:  false,
 	}
-	m.replacer.Pin(pIdent)
-	return page, nil
+	m.replacer.Pin(requestedPage)
+	return victimPage, nil
 }
 
 func (m *Manager) WithMarkDirty(
 	pageIdent common.PageIdentity,
 	fn func() (common.LogRecordLocInfo, error),
 ) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.muDPT.Lock()
+	defer m.muDPT.Unlock()
 
 	loc, err := fn()
 	if err != nil {
 		return err
 	}
 
-	frameInfo, ok := m.pageTable[pageIdent]
-	assert.Assert(
-		ok,
-		"couldn't mark page %+v as dirty: page not found",
-		pageIdent,
-	)
-	frameInfo.isDirty = true
-	m.pageTable[pageIdent] = frameInfo
-	if _, ok := m.dirtyPageTable[pageIdent]; !ok {
-		m.dirtyPageTable[pageIdent] = loc
+	if _, ok := m.DPT[pageIdent]; !ok {
+		m.DPT[pageIdent] = loc
 	}
-
 	return nil
 }
 
@@ -267,15 +268,18 @@ func (m *Manager) reserveFrame() uint64 {
 }
 
 func (m *Manager) FlushPage(pIdent common.PageIdentity) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	frameInfo, ok := m.pageTable[pIdent]
 	if !ok {
 		return fmt.Errorf("no such page: %+v", pIdent)
 	}
 
-	if !frameInfo.isDirty {
+	m.muDPT.Lock()
+	defer m.muDPT.Unlock()
+
+	if _, ok := m.DPT[pIdent]; !ok {
 		return nil
 	}
 
@@ -285,18 +289,20 @@ func (m *Manager) FlushPage(pIdent common.PageIdentity) error {
 		return fmt.Errorf("failed to write page to disk: %w", err)
 	}
 
-	frameInfo.isDirty = false
-	m.pageTable[pIdent] = frameInfo
+	delete(m.DPT, pIdent)
 	return nil
 }
 
 func (m *Manager) FlushAllPages() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	m.muDPT.Lock()
+	defer m.muDPT.Unlock()
 
 	var err error
 	for pgIdent, pgInfo := range m.pageTable {
-		if !pgInfo.isDirty {
+		if _, ok := m.DPT[pgIdent]; !ok {
 			continue
 		}
 
@@ -306,19 +312,16 @@ func (m *Manager) FlushAllPages() error {
 		}
 		err = errors.Join(err, m.diskManager.WritePage(frame, pgIdent))
 		frame.Unlock()
-		pgInfo.isDirty = false
-		m.pageTable[pgIdent] = pgInfo
-
-		delete(m.dirtyPageTable, pgIdent)
+		delete(m.DPT, pgIdent)
 	}
 
 	return err
 }
 
 func (m *Manager) GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return maps.Clone(m.dirtyPageTable)
+	m.muDPT.Lock()
+	defer m.muDPT.Unlock()
+	return maps.Clone(m.DPT)
 }
 
 type DebugBufferPool struct {

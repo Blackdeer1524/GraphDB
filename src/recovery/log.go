@@ -160,79 +160,6 @@ func newTxnLoggerWithContext(
 	}
 }
 
-type DummyLogger struct {
-}
-
-var (
-	_ common.ITxnLogger = &DummyLogger{}
-)
-
-func (l *DummyLogger) WithContext(txnID common.TxnID) common.ITxnLoggerWithContext {
-	return &DummyLoggerWithContext{}
-}
-
-func (l *DummyLogger) NewLSN() common.LSN { return 0 }
-
-func (l *DummyLogger) GetMasterRecord() common.LSN { return 0 }
-
-func (l *DummyLogger) Flush() error { return nil }
-
-func (l *DummyLogger) AppendAbort(
-	txnID common.TxnID,
-	prevLog common.LogRecordLocInfo,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLogger) AppendBegin(
-	TransactionID common.TxnID,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLogger) AppendCommit(
-	txnID common.TxnID,
-	prevLog common.LogRecordLocInfo,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLogger) AppendDelete(
-	txnID common.TxnID,
-	prevLog common.LogRecordLocInfo,
-	recordID common.RecordID,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLogger) AppendInsert(
-	txnID common.TxnID,
-	prevLog common.LogRecordLocInfo,
-	recordID common.RecordID,
-	value []byte,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLogger) AppendTxnEnd(
-	txnID common.TxnID,
-	prevLog common.LogRecordLocInfo,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLogger) AppendUpdate(
-	txnID common.TxnID,
-	prevLog common.LogRecordLocInfo,
-	recordID common.RecordID,
-	beforeValue []byte,
-	afterValue []byte,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLogger) Rollback(abortLogRecord common.LogRecordLocInfo) {}
-
 type DummyLoggerWithContext struct{}
 
 var dummyLogger DummyLoggerWithContext = DummyLoggerWithContext{}
@@ -837,7 +764,7 @@ func (lockedLogger *txnLogger) writeLogRecord(
 	return lockedLogger.lastRecordLocation, err
 }
 
-func (lockedLogger *txnLogger) NewLSN() common.LSN {
+func (lockedLogger *txnLogger) newLSN() common.LSN {
 	lockedLogger.logRecordsCount++
 	lsn := common.LSN(lockedLogger.logRecordsCount)
 	return lsn
@@ -893,7 +820,7 @@ func (l *txnLogger) AppendBegin(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	r := NewBeginLogRecord(l.NewLSN(), TransactionID)
+	r := NewBeginLogRecord(l.newLSN(), TransactionID)
 	return marshalRecordAndWrite(l, &r)
 }
 
@@ -908,7 +835,7 @@ func (l *txnLogger) AppendUpdate(
 	defer l.mu.Unlock()
 
 	r := NewUpdateLogRecord(
-		l.NewLSN(),
+		l.newLSN(),
 		TransactionID,
 		prevLog,
 		recordID,
@@ -927,7 +854,7 @@ func loggerUndoRecord[T RevertableLogRecord](
 	defer l.mu.Unlock()
 
 	clr := record.Undo(
-		l.NewLSN(),
+		l.newLSN(),
 		parentLocation,
 	)
 	location, err := marshalRecordAndWrite(l, &clr)
@@ -948,7 +875,7 @@ func (l *txnLogger) AppendInsert(
 	defer l.mu.Unlock()
 
 	r := NewInsertLogRecord(
-		l.NewLSN(),
+		l.newLSN(),
 		txnID,
 		prevLog,
 		recordID,
@@ -966,7 +893,7 @@ func (l *txnLogger) AppendDelete(
 	defer l.mu.Unlock()
 
 	r := NewDeleteLogRecord(
-		l.NewLSN(),
+		l.newLSN(),
 		txnID,
 		prevLog,
 		recordID,
@@ -983,7 +910,7 @@ func (l *txnLogger) AppendCommit(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	r := NewCommitLogRecord(l.NewLSN(), txnID, prevLog)
+	r := NewCommitLogRecord(l.newLSN(), txnID, prevLog)
 	logInfo, err := marshalRecordAndWrite(l, &r)
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
@@ -999,7 +926,7 @@ func (l *txnLogger) AppendAbort(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	r := NewAbortLogRecord(l.NewLSN(), TransactionID, prevLog)
+	r := NewAbortLogRecord(l.newLSN(), TransactionID, prevLog)
 	return marshalRecordAndWrite(l, &r)
 }
 
@@ -1010,7 +937,7 @@ func (l *txnLogger) AppendTxnEnd(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	r := NewTxnEndLogRecord(l.NewLSN(), TransactionID, prevLog)
+	r := NewTxnEndLogRecord(l.newLSN(), TransactionID, prevLog)
 	return marshalRecordAndWrite(l, &r)
 }
 
@@ -1018,7 +945,7 @@ func (l *txnLogger) AppendCheckpointBegin() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	r := NewCheckpointBegin(l.NewLSN())
+	r := NewCheckpointBegin(l.newLSN())
 	_, err := marshalRecordAndWrite(l, &r)
 	return err
 }
@@ -1031,7 +958,7 @@ func (l *txnLogger) AppendCheckpointEnd(
 	defer l.mu.Unlock()
 
 	r := NewCheckpointEnd(
-		l.NewLSN(),
+		l.newLSN(),
 		activeTransacitons,
 		dirtyPageTable,
 	)
