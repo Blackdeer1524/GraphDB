@@ -10,6 +10,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 )
 
 // generateSequence creates a random sequence of log record operations for
@@ -108,9 +109,14 @@ func TestIterSanity(t *testing.T) {
 		FileID: logPageId.FileID,
 		PageID: masterRecordPage,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
+
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -124,6 +130,7 @@ func TestIterSanity(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	diskManager.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 123,

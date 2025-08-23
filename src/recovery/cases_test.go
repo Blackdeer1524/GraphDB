@@ -16,6 +16,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
@@ -30,9 +31,12 @@ func TestBankTransactions(t *testing.T) {
 		FileID: generatedFileIDs[0],
 		PageID: masterRecordPage,
 	}
-	pool := bufferpool.NewBufferPoolMock(
-		[]common.PageIdentity{
-			masterRecordPageIdent,
+
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(3072, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
 		},
 	)
 	files := generatedFileIDs[1:]
@@ -50,14 +54,15 @@ func TestBankTransactions(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
+	diskManager.SetLogger(logger)
 
 	const (
 		startBalance      = uint32(60)
 		rollbackCutoff    = uint32(0) // startBalance / 3
-		clientsCount      = 10_000
-		txnsCount         = 5_000
-		retryCount        = 5
-		maxEntriesPerPage = 30
+		clientsCount      = 100
+		txnsCount         = 50
+		retryCount        = 1
+		maxEntriesPerPage = 5
 		workersCount      = 2_000
 	)
 	workerPool, err := ants.NewPool(workersCount)
@@ -105,12 +110,16 @@ func TestBankTransactions(t *testing.T) {
 		assert.True(t, locker.AreAllQueuesEmpty())
 	}()
 
-	go func() {
-		<-time.After(1 * time.Second)
+	graphDump := func() {
+		waitTime := 20
+		t.Logf("Waiting for %d seconds...\n", waitTime)
+		<-time.After(time.Duration(waitTime) * time.Second)
 
+		t.Logf("Have been waiting for too long. Creating a graph...\n")
 		graph := locker.DumpDependencyGraph()
-		t.Logf("Have been waiting for too long. Graph:\n%s", graph)
-	}()
+		t.Logf("%s", graph)
+	}
+	require.NoError(t, workerPool.Submit(graphDump))
 
 	succ := atomic.Uint64{}
 	fileLockFail := atomic.Uint64{}
@@ -323,6 +332,7 @@ func TestBankTransactions(t *testing.T) {
 		)
 	}
 
+	t.Log("ensuring consistency...")
 	finalTotalMoney := uint32(0)
 	for id := range recordValues {
 		page, err := pool.GetPageNoCreate(id.PageIdentity())

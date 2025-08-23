@@ -17,6 +17,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/optional"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
@@ -25,13 +26,18 @@ func TestValidRecovery(t *testing.T) {
 		FileID: 42,
 		PageID: 321,
 	}
+
+	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
 		PageID: masterRecordPage,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 	loggerStart := common.LogRecordLocInfo{
 		Lsn:      1,
 		Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
@@ -42,8 +48,8 @@ func TestValidRecovery(t *testing.T) {
 		masterRecordPageIdent,
 		loggerStart,
 	)
-
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	diskManager.SetLogger(logger)
 
 	defer func() {
 		if recover() != nil {
@@ -119,13 +125,18 @@ func TestFailedTxn(t *testing.T) {
 		FileID: 42,
 		PageID: 1,
 	}
+
+	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
 		PageID: masterRecordPage,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 
 	logStart := common.LogRecordLocInfo{
 		Lsn:      1,
@@ -138,6 +149,8 @@ func TestFailedTxn(t *testing.T) {
 		logStart,
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	diskManager.SetLogger(logger)
+
 	pageIdent := common.PageIdentity{FileID: 13, PageID: 7}
 
 	TransactionID := common.TxnID(100)
@@ -238,9 +251,14 @@ func TestMassiveRecovery(t *testing.T) {
 		FileID: logPageId.FileID,
 		PageID: masterRecordPage,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
+
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -257,6 +275,7 @@ func TestMassiveRecovery(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	diskManager.SetLogger(logger)
 
 	INIT := []byte("init")
 	NEW := []byte("new1")
@@ -484,16 +503,18 @@ func assertLogRecordWithRetrieval(
 func TestLoggerValidConcurrentWrites(t *testing.T) {
 	logFileID := common.FileID(42)
 
+	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
 		PageID: masterRecordPage,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
-
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
-
 	setupLoggerMasterPage(
 		t,
 		pool,
@@ -507,6 +528,7 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logFileID)
+	diskManager.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 33,
@@ -694,13 +716,18 @@ func TestLoggerRollback(t *testing.T) {
 		FileID: 42,
 		PageID: 321,
 	}
+
+	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
 		PageID: masterRecordPage,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 
 	logStartLocation := common.FileLocation{
 		PageID:  logPageId.PageID,
@@ -717,6 +744,7 @@ func TestLoggerRollback(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	diskManager.SetLogger(logger)
 
 	defer func() {
 		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
@@ -964,9 +992,3 @@ func fillPages(
 	require.NoError(t, chain.Err())
 	return res
 }
-
-// func TestCheckpoint(t *testing.T) {
-// 	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{})
-// 	logger := NewTxnLogger(pool, 0)
-//
-// }

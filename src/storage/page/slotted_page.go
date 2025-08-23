@@ -24,6 +24,10 @@ type SlottedPage struct {
 	data [PageSize]byte
 }
 
+var (
+	_ common.Page = &SlottedPage{}
+)
+
 func (p *SlottedPage) UnsafeInitLatch() {
 	p.getHeader().latch = sync.RWMutex{}
 }

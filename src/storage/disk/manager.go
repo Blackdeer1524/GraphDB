@@ -5,110 +5,117 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
+)
+
+type logger interface {
+	GetMasterRecord() common.LSN
+	Flush() error
+}
+
+type noOpLogger struct{}
+
+func (noOpLogger) GetMasterRecord() common.LSN { return 0 }
+func (noOpLogger) Flush() error                { return nil }
+
+var (
+	_ logger = (common.ITxnLogger)(nil)
+	_ logger = noOpLogger{}
 )
 
 const PageSize = 4096
 
-type Manager[T Page] struct {
-	fileIDToPath map[uint64]string
-	newPageFunc  func(fileID, pageID uint64) T
+type Manager struct {
+	fileIDToPath map[common.FileID]string
+	newPageFunc  func(fileID common.FileID, pageID common.PageID) *page.SlottedPage
+	logger       logger
 }
 
-type Page interface {
-	GetData() []byte
-	SetData(d []byte)
+var (
+	_ common.DiskManager[*page.SlottedPage] = &Manager{}
+)
 
-	SetDirtiness(val bool)
-	IsDirty() bool
-
-	GetFileID() uint64
-	GetPageID() uint64
-
-	// latch methods
-	Lock()
-	Unlock()
-	RLock()
-	RUnlock()
-}
-
-func New[T Page](
-	fileIDToPath map[uint64]string,
-	newPageFunc func(fileID, pageID uint64) T,
-) *Manager[T] {
-	return &Manager[T]{
+func New(
+	fileIDToPath map[common.FileID]string,
+	newPageFunc func(fileID common.FileID, pageID common.PageID) *page.SlottedPage,
+) *Manager {
+	return &Manager{
 		fileIDToPath: fileIDToPath,
 		newPageFunc:  newPageFunc,
 	}
 }
 
-func (m *Manager[T]) ReadPage(fileID, pageID uint64) (T, error) {
-	var zeroVal T
-
-	path, ok := m.fileIDToPath[fileID]
+func (m *Manager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
+	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
-		return zeroVal, fmt.Errorf("fileID %d not found in path map", fileID)
+		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
 	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return zeroVal, err
+		return err
 	}
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageID * PageSize)
+	offset := int64(pageIdent.PageID * PageSize)
 	data := make([]byte, PageSize)
 
 	_, err = file.ReadAt(data, offset)
 	if err != nil {
-		return zeroVal, err
+		return err
 	}
 
-	page := m.newPageFunc(fileID, pageID)
+	page := m.newPageFunc(pageIdent.FileID, pageIdent.PageID)
 
 	page.SetData(data)
-
-	return page, nil
+	page.UnsafeInitLatch()
+	return nil
 }
 
-func (m *Manager[T]) GetPageNoNew(page T, fileID, pageID uint64) (T, error) {
-	var zeroVal T
-
-	path, ok := m.fileIDToPath[fileID]
+func (m *Manager) GetPageNoNew(page *page.SlottedPage, pageIdent common.PageIdentity) error {
+	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
-		return zeroVal, fmt.Errorf("fileID %d not found in path map", fileID)
+		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
 	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return zeroVal, fmt.Errorf("failed to open file: %w", err)
+		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageID * PageSize)
+	offset := int64(pageIdent.PageID * PageSize)
 	data := make([]byte, PageSize)
 
 	_, err = file.ReadAt(data, offset)
 	if err != nil {
-		return zeroVal, fmt.Errorf("failed to reat at: %w", err)
+		return fmt.Errorf("failed to reat at: %w", err)
 	}
 
 	page.SetData(data)
-
-	return page, nil
+	return nil
 }
 
-func (m *Manager[T]) WritePage(page *T) error {
-	fileID := (*page).GetFileID()
-	pageID := (*page).GetPageID()
-
-	path, ok := m.fileIDToPath[fileID]
+func (m *Manager) WritePage(page *page.SlottedPage, pageIdent common.PageIdentity) error {
+	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
-		return fmt.Errorf("fileID %d not found in path map", fileID)
+		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	data := (*page).GetData()
+	masterLSN := m.logger.GetMasterRecord()
+	if page.PageLSN() > masterLSN {
+		if err := m.logger.Flush(); err != nil {
+			return err
+		}
+	}
+
+	data := page.GetData()
 	if len(data) == 0 {
 		return errors.New("page data is empty")
 	}
@@ -124,14 +131,85 @@ func (m *Manager[T]) WritePage(page *T) error {
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageID * PageSize)
+	offset := int64(pageIdent.PageID * PageSize)
 
 	_, err = file.WriteAt(data, offset)
 	if err != nil {
 		return fmt.Errorf("failed to write at file %s: %w", path, err)
 	}
 
-	(*page).SetDirtiness(false)
+	return nil
+}
 
+type InMemoryManager struct {
+	mu     sync.RWMutex
+	pages  map[common.PageIdentity]*page.SlottedPage
+	logger logger
+}
+
+var (
+	_ common.DiskManager[*page.SlottedPage] = &InMemoryManager{}
+)
+
+func NewInMemoryManager() *InMemoryManager {
+	return &InMemoryManager{
+		pages:  make(map[common.PageIdentity]*page.SlottedPage),
+		logger: &noOpLogger{},
+	}
+}
+
+func (m *InMemoryManager) SetLogger(logger logger) {
+	m.logger = logger
+}
+
+func (m *InMemoryManager) GetPageNoNew(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	storedPage, ok := m.pages[pageIdent]
+	if !ok {
+		return fmt.Errorf("page %+v not found", pageIdent)
+	}
+
+	pg.SetData(storedPage.GetData())
+	pg.UnsafeInitLatch()
+	return nil
+}
+
+func (m *InMemoryManager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	storedPage, ok := m.pages[pageIdent]
+	if !ok {
+		m.pages[pageIdent] = page.NewSlottedPage()
+		pg.SetData(m.pages[pageIdent].GetData())
+		return nil
+	}
+	storedPage.UnsafeInitLatch()
+	return nil
+}
+
+func (m *InMemoryManager) WritePage(page *page.SlottedPage, pageIdent common.PageIdentity) error {
+	assert.Assert(m.logger != nil, "logger is not set")
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.pages[pageIdent]; !ok {
+		return fmt.Errorf("page %+v not found", pageIdent)
+	}
+
+	masterLSN := m.logger.GetMasterRecord()
+	if page.PageLSN() > masterLSN {
+		if err := m.logger.Flush(); err != nil {
+			return err
+		}
+	}
+
+	m.pages[pageIdent].SetData(page.GetData())
 	return nil
 }
