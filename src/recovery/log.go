@@ -159,6 +159,79 @@ func newTxnLoggerWithContext(
 	}
 }
 
+type DummyLogger struct {
+}
+
+var (
+	_ common.ITxnLogger = &DummyLogger{}
+)
+
+func (l *DummyLogger) WithContext(txnID common.TxnID) common.ITxnLoggerWithContext {
+	return &DummyLoggerWithContext{}
+}
+
+func (l *DummyLogger) NewLSN() common.LSN { return 0 }
+
+func (l *DummyLogger) GetMasterRecord() common.LSN { return 0 }
+
+func (l *DummyLogger) Flush() error { return nil }
+
+func (l *DummyLogger) AppendAbort(
+	txnID common.TxnID,
+	prevLog common.LogRecordLocInfo,
+) (common.LogRecordLocInfo, error) {
+	return common.NewNilLogRecordLocation(), nil
+}
+
+func (l *DummyLogger) AppendBegin(
+	TransactionID common.TxnID,
+) (common.LogRecordLocInfo, error) {
+	return common.NewNilLogRecordLocation(), nil
+}
+
+func (l *DummyLogger) AppendCommit(
+	txnID common.TxnID,
+	prevLog common.LogRecordLocInfo,
+) (common.LogRecordLocInfo, error) {
+	return common.NewNilLogRecordLocation(), nil
+}
+
+func (l *DummyLogger) AppendDelete(
+	txnID common.TxnID,
+	prevLog common.LogRecordLocInfo,
+	recordID common.RecordID,
+) (common.LogRecordLocInfo, error) {
+	return common.NewNilLogRecordLocation(), nil
+}
+
+func (l *DummyLogger) AppendInsert(
+	txnID common.TxnID,
+	prevLog common.LogRecordLocInfo,
+	recordID common.RecordID,
+	value []byte,
+) (common.LogRecordLocInfo, error) {
+	return common.NewNilLogRecordLocation(), nil
+}
+
+func (l *DummyLogger) AppendTxnEnd(
+	txnID common.TxnID,
+	prevLog common.LogRecordLocInfo,
+) (common.LogRecordLocInfo, error) {
+	return common.NewNilLogRecordLocation(), nil
+}
+
+func (l *DummyLogger) AppendUpdate(
+	txnID common.TxnID,
+	prevLog common.LogRecordLocInfo,
+	recordID common.RecordID,
+	beforeValue []byte,
+	afterValue []byte,
+) (common.LogRecordLocInfo, error) {
+	return common.NewNilLogRecordLocation(), nil
+}
+
+func (l *DummyLogger) Rollback(abortLogRecord common.LogRecordLocInfo) {}
+
 type DummyLoggerWithContext struct{}
 
 var dummyLogger DummyLoggerWithContext = DummyLoggerWithContext{}

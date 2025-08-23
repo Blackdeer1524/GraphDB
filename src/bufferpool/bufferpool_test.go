@@ -15,8 +15,7 @@ func TestGetPage_Cached(t *testing.T) {
 	mockDisk := new(MockDiskManager)
 	mockReplacer := new(MockReplacer)
 
-	manager, err := New(1, mockReplacer, mockDisk)
-	require.NoError(t, err)
+	manager := New(1, mockReplacer, mockDisk)
 
 	fileID, pageID := uint64(1), uint64(0)
 	pageIdent := common.PageIdentity{
@@ -54,8 +53,7 @@ func TestGetPage_LoadFromDisk(t *testing.T) {
 	mockDisk := new(MockDiskManager)
 	mockReplacer := new(MockReplacer)
 
-	manager, err := New(1, mockReplacer, mockDisk)
-	require.NoError(t, err)
+	manager := New(1, mockReplacer, mockDisk)
 
 	fileID, pageID := uint64(1), uint64(0)
 	pageIdent := common.PageIdentity{
@@ -67,7 +65,14 @@ func TestGetPage_LoadFromDisk(t *testing.T) {
 	slotOpt := expectedPage.Insert([]byte("disk data"))
 	require.True(t, slotOpt.IsSome())
 
-	mockDisk.On("ReadPage", pageIdent).Return(expectedPage, nil)
+	mockDisk.On("ReadPage", mock.AnythingOfType("*page.SlottedPage"), pageIdent).
+		Run(func(args mock.Arguments) {
+			pg := args.Get(0).(*page.SlottedPage)
+			pg.SetData(expectedPage.GetData())
+			pg.UnsafeInitLatch()
+		}).
+		Return(nil)
+
 	mockReplacer.On("Pin", pageIdent).Return()
 
 	result, err := manager.GetPage(pageIdent)
@@ -92,8 +97,7 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 	mockReplacer := new(MockReplacer)
 
 	// Создаем пул из 2 фреймов
-	manager, err := New(2, mockReplacer, mockDisk)
-	require.NoError(t, err)
+	manager := New(2, mockReplacer, mockDisk)
 
 	existingFileID, existingPageID := uint64(1), uint64(0)
 
@@ -126,7 +130,13 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 		FileID: common.FileID(newFileID),
 		PageID: common.PageID(newPageID),
 	}
-	mockDisk.On("ReadPage", pIdent).Return(newPage, nil)
+	mockDisk.On("ReadPage", mock.AnythingOfType("*page.SlottedPage"), pIdent).
+		Run(func(args mock.Arguments) {
+			pg := args.Get(0).(*page.SlottedPage)
+			pg.SetData(newPage.GetData())
+			pg.UnsafeInitLatch()
+		}).
+		Return(nil)
 	mockReplacer.On("Pin", pIdent).Return()
 
 	result, err := manager.GetPage(pIdent)
@@ -149,8 +159,7 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	mockDisk := new(MockDiskManager)
 	mockReplacer := new(MockReplacer)
 
-	manager, err := New(1, mockReplacer, mockDisk)
-	require.NoError(t, err)
+	manager := New(1, mockReplacer, mockDisk)
 
 	existingFileID, existingPageID := uint64(1), uint64(0)
 
@@ -177,14 +186,21 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	require.True(t, newSlotOpt.IsSome())
 
 	mockReplacer.On("ChooseVictim").Return(existingPageIdent, nil)
-	mockDisk.On("WritePage", existingPage, existingPageIdent).Return(nil)
+	mockDisk.On("WritePage", mock.AnythingOfType("*page.SlottedPage"), existingPageIdent).
+		Return(nil)
 
 	newFileID, newPageID := uint64(2), uint64(1)
 	newPageIdent := common.PageIdentity{
 		FileID: common.FileID(newFileID),
 		PageID: common.PageID(newPageID),
 	}
-	mockDisk.On("ReadPage", newPageIdent).Return(newPage, nil)
+	mockDisk.On("ReadPage", mock.AnythingOfType("*page.SlottedPage"), newPageIdent).
+		Run(func(args mock.Arguments) {
+			pg := args.Get(0).(*page.SlottedPage)
+			pg.SetData(newPage.GetData())
+			pg.UnsafeInitLatch()
+		}).
+		Return(nil)
 	mockReplacer.On("Pin", newPageIdent).Return()
 
 	result, err := manager.GetPage(newPageIdent)

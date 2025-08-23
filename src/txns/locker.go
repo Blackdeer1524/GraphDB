@@ -1,6 +1,7 @@
 package txns
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
@@ -24,11 +25,20 @@ func NewHierarchyLocker() *HierarchyLocker {
 
 func (l *HierarchyLocker) DumpDependencyGraph() string {
 	sb := strings.Builder{}
-	sb.WriteString(l.pageLockManager.GetGraphSnaphot().Dump())
+
+	plGraph := l.pageLockManager.GetGraphSnaphot()
+	sb.WriteString(fmt.Sprintf("Page Locking [is cyclic:%v]:\n", plGraph.IsCyclic()))
+	sb.WriteString(plGraph.Dump())
 	sb.WriteString("\n")
-	sb.WriteString(l.fileLockManager.GetGraphSnaphot().Dump())
+
+	flGraph := l.fileLockManager.GetGraphSnaphot()
+	sb.WriteString(fmt.Sprintf("File Locking [is cyclic:%v]:\n", flGraph.IsCyclic()))
+	sb.WriteString(flGraph.Dump())
 	sb.WriteString("\n")
-	sb.WriteString(l.catalogLockManager.GetGraphSnaphot().Dump())
+
+	clGraph := l.catalogLockManager.GetGraphSnaphot()
+	sb.WriteString(fmt.Sprintf("Catalog Locking [is cyclic:%v]:\n", clGraph.IsCyclic()))
+	sb.WriteString(clGraph.Dump())
 	return sb.String()
 }
 

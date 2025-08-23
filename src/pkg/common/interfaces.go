@@ -47,3 +47,20 @@ type ITxnLoggerWithContext interface {
 	AppendTxnEnd() error
 	Rollback()
 }
+
+type Page interface {
+	GetData() []byte
+	SetData(d []byte)
+
+	// latch methods
+	Lock()
+	Unlock()
+	RLock()
+	RUnlock()
+}
+
+type DiskManager[T Page] interface {
+	ReadPage(page T, pageIdent PageIdentity) error
+	GetPageNoNew(page T, pageIdent PageIdentity) error
+	WritePage(page T, pageIdent PageIdentity) error
+}

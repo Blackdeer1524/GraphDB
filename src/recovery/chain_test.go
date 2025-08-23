@@ -8,6 +8,7 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 )
 
 func setupLoggerMasterPage(
@@ -38,9 +39,14 @@ func TestChainSanity(t *testing.T) {
 		FileID: logPageId.FileID,
 		PageID: masterRecordPage,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
+
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	setupLoggerMasterPage(
@@ -56,6 +62,7 @@ func TestChainSanity(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	diskManager.SetLogger(logger)
 
 	txnID := common.TxnID(89)
 	chain := NewTxnLogChain(logger, txnID)
@@ -262,10 +269,13 @@ func TestChain(t *testing.T) {
 		PageID: masterRecordPage,
 	}
 
-	pool := bufferpool.NewBufferPoolMock(
-		[]common.PageIdentity{masterRecordPageIdent},
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
 	)
-
 	logPageId := common.PageIdentity{
 		FileID: logFileID,
 		PageID: 23,
@@ -283,6 +293,7 @@ func TestChain(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	diskManager.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 1,

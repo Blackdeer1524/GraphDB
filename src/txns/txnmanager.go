@@ -75,7 +75,9 @@ func (m *txnManagerWithContext) WithRollback(
 	m.rollbackFunc = f
 }
 
-func (m *txnManagerWithContext) Begin(task func(*txnManagerWithContext) error) error {
+func (m *txnManagerWithContext) Begin(
+	task func(*txnManagerWithContext) error,
+) error {
 	if err := m.logger.AppendBegin(); err != nil {
 		return err
 	}
