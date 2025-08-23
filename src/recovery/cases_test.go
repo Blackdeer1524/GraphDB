@@ -321,3 +321,36 @@ func TestBankTransactions(t *testing.T) {
 	}
 	require.Equal(t, finalTotalMoney, totalMoney)
 }
+
+func TestCheckpoint(t *testing.T) {
+	generatedFileIDs := utils.GenerateUniqueInts[common.FileID](2, 0, 1024)
+
+	masterRecordPageIdent := common.PageIdentity{
+		FileID: generatedFileIDs[0],
+		PageID: masterRecordPage,
+	}
+	pool := bufferpool.NewBufferPoolMock(
+		[]common.PageIdentity{
+			masterRecordPageIdent,
+		},
+	)
+
+	logger := NewTxnLogger(pool, generatedFileIDs[0])
+	locker := txns.NewHierarchyLocker()
+	
+	txnsCount := 1000
+	wg := sync.WaitGroup{}
+	for op := range txnsCount {
+		go func(txnID common.TxnID) {
+			defer wg.Done()
+			logger := logger.WithContext(txnID)
+			
+			require.NoError(t, logger.AppendBegin())
+			
+			locker.LockCatalog(txnID)
+
+		}(common.TxnID(op))
+	}
+	wg.Wait()
+
+}
