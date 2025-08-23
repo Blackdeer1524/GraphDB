@@ -6,6 +6,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
@@ -58,7 +59,7 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 			PageID: iter.curLoc.PageID + 1,
 		})
 
-	if errors.Is(err, bufferpool.ErrNoSuchPage) {
+	if errors.Is(err, disk.ErrNoSuchPage) {
 		return false, nil
 	} else if err != nil {
 		return false, err

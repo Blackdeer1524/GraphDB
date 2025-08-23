@@ -13,8 +13,6 @@ import (
 
 const noFrame = ^uint64(0)
 
-var ErrNoSuchPage = errors.New("no such page")
-
 type Replacer interface {
 	Pin(pageID common.PageIdentity)
 	Unpin(pageID common.PageIdentity)
@@ -50,8 +48,7 @@ type Manager struct {
 
 	diskManager common.DiskManager[*page.SlottedPage]
 
-	fastPath sync.Mutex
-	slowPath sync.Mutex
+	mu sync.Mutex
 }
 
 func New(
@@ -73,8 +70,7 @@ func New(
 		emptyFrames: emptyFrames,
 		replacer:    replacer,
 		diskManager: diskManager,
-		fastPath:    sync.Mutex{},
-		slowPath:    sync.Mutex{},
+		mu:          sync.Mutex{},
 	}
 
 	return m
@@ -85,8 +81,8 @@ var (
 )
 
 func (m *Manager) Unpin(pIdent common.PageIdentity) {
-	m.fastPath.Lock()
-	defer m.fastPath.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	frameInfo, ok := m.pageTable[pIdent]
 	assert.Assert(ok, "coulnd't unpin page %+v: page not found")
@@ -112,37 +108,20 @@ func (m *Manager) pin(pIdent common.PageIdentity) {
 func (m *Manager) GetPageNoCreate(
 	pIdent common.PageIdentity,
 ) (*page.SlottedPage, error) {
-	m.fastPath.Lock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if frameInfo, ok := m.pageTable[pIdent]; ok {
 		m.pin(pIdent)
-		m.fastPath.Unlock()
-
 		return &m.frames[frameInfo.frameID], nil
 	}
-
-	m.fastPath.Unlock()
-
-	m.slowPath.Lock()
-	defer m.slowPath.Unlock()
-
-	m.fastPath.Lock()
-	if frameInfo, ok := m.pageTable[pIdent]; ok {
-		m.pin(pIdent)
-		m.fastPath.Unlock()
-
-		return &m.frames[frameInfo.frameID], nil
-	}
-	m.fastPath.Unlock()
 
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
 		page := &m.frames[frameID]
 		err := m.diskManager.GetPageNoNew(page, pIdent)
 		if err != nil {
-			m.fastPath.Lock()
 			m.emptyFrames = append(m.emptyFrames, frameID)
-			m.fastPath.Unlock()
 			return nil, err
 		}
 
@@ -191,37 +170,20 @@ func (m *Manager) GetPageNoCreate(
 func (m *Manager) GetPage(
 	pIdent common.PageIdentity,
 ) (*page.SlottedPage, error) {
-	m.fastPath.Lock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if frameInfo, ok := m.pageTable[pIdent]; ok {
 		m.pin(pIdent)
-		m.fastPath.Unlock()
-
 		return &m.frames[frameInfo.frameID], nil
 	}
-
-	m.fastPath.Unlock()
-
-	m.slowPath.Lock()
-	defer m.slowPath.Unlock()
-
-	m.fastPath.Lock()
-	if frameInfo, ok := m.pageTable[pIdent]; ok {
-		m.pin(pIdent)
-		m.fastPath.Unlock()
-
-		return &m.frames[frameInfo.frameID], nil
-	}
-	m.fastPath.Unlock()
 
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
 		page := &m.frames[frameID]
 		err := m.diskManager.ReadPage(page, pIdent)
 		if err != nil {
-			m.fastPath.Lock()
 			m.emptyFrames = append(m.emptyFrames, frameID)
-			m.fastPath.Unlock()
 			return nil, err
 		}
 
@@ -271,8 +233,8 @@ func (m *Manager) WithMarkDirty(
 	pageIdent common.PageIdentity,
 	fn func() (common.LogRecordLocInfo, error),
 ) error {
-	m.fastPath.Lock()
-	defer m.fastPath.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	loc, err := fn()
 	if err != nil {
@@ -295,9 +257,6 @@ func (m *Manager) WithMarkDirty(
 }
 
 func (m *Manager) reserveFrame() uint64 {
-	m.fastPath.Lock()
-	defer m.fastPath.Unlock()
-
 	if len(m.emptyFrames) > 0 {
 		id := m.emptyFrames[len(m.emptyFrames)-1]
 		m.emptyFrames = m.emptyFrames[:len(m.emptyFrames)-1]
@@ -308,12 +267,12 @@ func (m *Manager) reserveFrame() uint64 {
 }
 
 func (m *Manager) FlushPage(pIdent common.PageIdentity) error {
-	m.fastPath.Lock()
-	defer m.fastPath.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	frameInfo, ok := m.pageTable[pIdent]
 	if !ok {
-		return ErrNoSuchPage
+		return fmt.Errorf("no such page: %+v", pIdent)
 	}
 
 	if !frameInfo.isDirty {
@@ -332,8 +291,8 @@ func (m *Manager) FlushPage(pIdent common.PageIdentity) error {
 }
 
 func (m *Manager) FlushAllPages() error {
-	m.fastPath.Lock()
-	defer m.fastPath.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	var err error
 	for pgIdent, pgInfo := range m.pageTable {
@@ -357,8 +316,8 @@ func (m *Manager) FlushAllPages() error {
 }
 
 func (m *Manager) GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {
-	m.fastPath.Lock()
-	defer m.fastPath.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return maps.Clone(m.dirtyPageTable)
 }
 
@@ -410,8 +369,8 @@ func (d *DebugBufferPool) WithMarkDirty(
 }
 
 func (d *DebugBufferPool) EnsureAllPagesUnpinnedAndUnlocked() error {
-	d.m.fastPath.Lock()
-	defer d.m.fastPath.Unlock()
+	d.m.mu.Lock()
+	defer d.m.mu.Unlock()
 
 	pinnedIDs := map[common.PageIdentity]uint64{}
 	unpinnedLeaked := map[common.PageIdentity]struct{}{}
