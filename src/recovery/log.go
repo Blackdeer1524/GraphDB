@@ -702,23 +702,51 @@ func (l *txnLogger) readLogRecord(
 	return tag, r, err
 }
 
-// writeLogRecord writes a serialized log record to the log file managed by the
-// TxnLogger. It attempts to insert the record into the current log page. If
-// there is not enough space on the current page, it advances to the next page
-// and retries the insertion. The function returns the location information of
-// the written log record or an error if the operation fails.
-//
-// Parameters:
-//
-//	serializedRecord []byte - The serialized log record to be written.
-//
-// Returns:
-//
-//	common.LogRecordLocationInfo - The location information of the written log
-//
-// record.
-//
-//	error - An error if the operation fails, otherwise nil.
+func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
+	serializedRecord []byte,
+) (common.FileLocation, error) {
+	pageInfo := common.PageIdentity{
+		FileID: lockedLogger.logfileID,
+		PageID: lockedLogger.lastRecordLocation.PageID,
+	}
+
+	p, err := lockedLogger.pool.GetPageAssumeLocked(pageInfo)
+	if err != nil {
+		return common.FileLocation{}, err
+	}
+	p.Lock()
+	slotNumberOpt := p.Insert(serializedRecord)
+	p.Unlock()
+	lockedLogger.pool.UnpinAssumeLocked(pageInfo)
+	if slotNumberOpt.IsSome() {
+		slotNumber := slotNumberOpt.Unwrap()
+		lockedLogger.lastRecordLocation.SlotNum = slotNumber
+		return lockedLogger.lastRecordLocation, err
+	}
+
+	lockedLogger.lastRecordLocation.PageID++
+	pageInfo.PageID++
+
+	p, err = lockedLogger.pool.GetPageAssumeLocked(pageInfo)
+	if err != nil {
+		return common.FileLocation{}, err
+	}
+
+	p.Lock()
+	slotNumberOpt = p.Insert(serializedRecord)
+	assert.Assert(
+		slotNumberOpt.IsSome(),
+		"impossible, because (1) the logger is locked [no concurrent writes are possible] "+
+			"and (2) the newly allocated page should be empty",
+	)
+	p.Unlock()
+
+	lockedLogger.pool.UnpinAssumeLocked(pageInfo)
+	lockedLogger.lastRecordLocation.SlotNum = slotNumberOpt.Unwrap()
+
+	return lockedLogger.lastRecordLocation, err
+}
+
 func (lockedLogger *txnLogger) writeLogRecord(
 	serializedRecord []byte,
 ) (common.FileLocation, error) {
@@ -792,6 +820,28 @@ func (lockedLogger *txnLogger) GetMasterRecord() common.LSN {
 	return masterRecord
 }
 
+func marshalRecordAndWriteAssumePoolLocked[T LogRecord](
+	lockedLogger *txnLogger,
+	record T,
+) (common.LogRecordLocInfo, error) {
+	bytes, err := record.MarshalBinary()
+	if err != nil {
+		return common.LogRecordLocInfo{}, err
+	}
+
+	loc, err := lockedLogger.writeLogRecordAssumePoolLocked(bytes)
+	if err != nil {
+		return common.LogRecordLocInfo{}, err
+	}
+
+	logInfo := common.LogRecordLocInfo{
+		Lsn:      record.LSN(),
+		Location: loc,
+	}
+
+	return logInfo, nil
+}
+
 func marshalRecordAndWrite[T LogRecord](
 	lockedLogger *txnLogger,
 	record T,
@@ -842,7 +892,7 @@ func (l *txnLogger) AppendUpdate(
 		beforeValue,
 		afterValue,
 	)
-	return marshalRecordAndWrite(l, &r)
+	return marshalRecordAndWriteAssumePoolLocked(l, &r)
 }
 
 func loggerUndoRecord[T RevertableLogRecord](
@@ -881,7 +931,7 @@ func (l *txnLogger) AppendInsert(
 		recordID,
 		value,
 	)
-	return marshalRecordAndWrite(l, &r)
+	return marshalRecordAndWriteAssumePoolLocked(l, &r)
 }
 
 func (l *txnLogger) AppendDelete(
@@ -898,7 +948,7 @@ func (l *txnLogger) AppendDelete(
 		prevLog,
 		recordID,
 	)
-	return marshalRecordAndWrite(l, &r)
+	return marshalRecordAndWriteAssumePoolLocked(l, &r)
 }
 
 func (l *txnLogger) AppendCommit(

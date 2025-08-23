@@ -760,7 +760,7 @@ func TestLoggerRollback(t *testing.T) {
 		}
 	}
 
-	recordValues := fillPages(t, logger, math.MaxUint64, 20, files, 1024, 10)
+	recordValues := fillPages(t, logger, math.MaxUint64, 4, files, 1024, 10)
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	updatedValues := make(map[common.RecordID]uint32, len(recordValues))
@@ -788,12 +788,13 @@ func TestLoggerRollback(t *testing.T) {
 
 	txnID := atomic.Uint64{}
 	wg := sync.WaitGroup{}
-	for batch := range mapBatch(recordValues, 300) {
+	for batch := range mapBatch(recordValues, 1) {
 		wg.Add(1)
-		func(batch []KVPair[common.RecordID, uint32]) {
+		go func(batch []KVPair[common.RecordID, uint32]) {
 			defer func() {
 				r := recover()
 				if r != nil {
+					t.Logf("recovered from panic: %v", r)
 					b := &strings.Builder{}
 					logger.Dump(logStartLocation, b)
 					println(b.String())
@@ -843,14 +844,16 @@ func TestLoggerRollback(t *testing.T) {
 				}
 
 				newValue := rand.Uint32()
+				t.Logf("[%d] getting page %+v", txnID, info.key.PageIdentity())
 				page, err := pool.GetPageNoCreate(info.key.PageIdentity())
 				require.NoError(t, err)
+				t.Logf("[%d] updating page %+v", txnID, info.key.PageIdentity())
 				err = pool.WithMarkDirty(
 					info.key.PageIdentity(),
 					func() (common.LogRecordLocInfo, error) {
 						page.Lock()
 						defer page.Unlock()
-						defer pool.Unpin(info.key.PageIdentity())
+						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
 
 						return page.UpdateWithLogs(
 							utils.ToBytes[uint32](newValue),
@@ -859,6 +862,7 @@ func TestLoggerRollback(t *testing.T) {
 						)
 					},
 				)
+				t.Logf("[%d] done updating page %+v", txnID, info.key.PageIdentity())
 				assert.NoError(t, err)
 			}
 
@@ -887,17 +891,20 @@ func TestLoggerRollback(t *testing.T) {
 					return
 				}
 
+				t.Logf("[%d] getting page %+v", txnID, info.key.PageIdentity())
 				page, err := pool.GetPageNoCreate(info.key.PageIdentity())
 				require.NoError(t, err)
+				t.Logf("[%d] deleting page %+v", txnID, info.key.PageIdentity())
 				err = pool.WithMarkDirty(
 					info.key.PageIdentity(),
 					func() (common.LogRecordLocInfo, error) {
 						page.Lock()
 						defer page.Unlock()
-						defer pool.Unpin(info.key.PageIdentity())
+						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
 						return page.DeleteWithLogs(info.key, logger)
 					},
 				)
+				t.Logf("[%d] done deleting page %+v", txnID, info.key.PageIdentity())
 				require.NoError(t, err)
 			}
 
@@ -907,6 +914,7 @@ func TestLoggerRollback(t *testing.T) {
 	}
 	wg.Wait()
 
+	t.Logf("checking rollback")
 	for k, v := range recordValues {
 		func() {
 			pageID := common.PageIdentity{
