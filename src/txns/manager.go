@@ -43,21 +43,21 @@ func newEdgeInfo[LockModeType GranularLock[LockModeType], ID comparable](
 }
 
 func (g txnDependencyGraph[LockModeType, ID]) IsCyclic() bool {
-	visited := make(map[common.TxnID]bool)
-	recStack := make(map[common.TxnID]bool)
+	visited := make(map[common.TxnID]struct{})
+	recStack := make(map[common.TxnID]struct{})
 
 	var dfs func(txnID common.TxnID) bool
 	dfs = func(txnID common.TxnID) bool {
-		if recStack[txnID] {
+		if _, ok := recStack[txnID]; ok {
 			return true
 		}
 
-		if visited[txnID] {
+		if _, ok := visited[txnID]; ok {
 			return false
 		}
 
-		visited[txnID] = true
-		recStack[txnID] = true
+		visited[txnID] = struct{}{}
+		recStack[txnID] = struct{}{}
 
 		for _, edge := range g[txnID] {
 			if !edge.isPage && dfs(edge.txnDst) {
@@ -65,12 +65,12 @@ func (g txnDependencyGraph[LockModeType, ID]) IsCyclic() bool {
 			}
 		}
 
-		recStack[txnID] = false
+		delete(recStack, txnID)
 		return false
 	}
 
 	for txnID := range g {
-		if !visited[txnID] {
+		if _, ok := visited[txnID]; !ok {
 			if dfs(txnID) {
 				return true
 			}
