@@ -9,6 +9,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
 func setupLoggerMasterPage(
@@ -24,9 +25,16 @@ func setupLoggerMasterPage(
 	require.NoError(t, err)
 	defer pool.Unpin(pgIdent)
 
-	masterPage := (*loggerInfoPage)(pg)
-	masterPage.Setup()
-	masterPage.setInfo(rec)
+	pool.WithMarkDirtyNoLoggerLock(
+		pgIdent,
+		pg,
+		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+			masterPage := (*loggerInfoPage)(lockedPage)
+			masterPage.Setup()
+			masterPage.setInfo(rec)
+			return common.NewNilLogRecordLocation(), nil
+		},
+	)
 }
 
 func TestChainSanity(t *testing.T) {
