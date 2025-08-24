@@ -17,6 +17,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
@@ -59,11 +60,11 @@ func TestBankTransactions(t *testing.T) {
 	const (
 		startBalance      = uint32(60)
 		rollbackCutoff    = uint32(0) // startBalance / 3
-		clientsCount      = 100
-		txnsCount         = 50
-		retryCount        = 1
-		maxEntriesPerPage = 5
-		workersCount      = 2_000
+		clientsCount      = 50_000
+		txnsCount         = 25_000
+		retryCount        = 3
+		maxEntriesPerPage = 12
+		workersCount      = 10_000
 	)
 	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)
@@ -233,11 +234,10 @@ func TestBankTransactions(t *testing.T) {
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
 		err = pool.WithMarkDirty(
 			me.PageIdentity(),
-			func() (common.LogRecordLocInfo, error) {
-				myPage.Lock()
-				defer myPage.Unlock()
-				logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
-				return logLoc, err
+			myPage,
+			logger,
+			func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+				return lockedPage.UpdateWithLogs(myNewBalance, me, lockedLogger)
 			},
 		)
 		require.NoError(t, err)
@@ -245,15 +245,14 @@ func TestBankTransactions(t *testing.T) {
 		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
 		err = pool.WithMarkDirty(
 			first.PageIdentity(),
-			func() (common.LogRecordLocInfo, error) {
-				firstPage.Lock()
-				defer firstPage.Unlock()
-				logLoc, err := firstPage.UpdateWithLogs(
+			firstPage,
+			logger,
+			func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+				return lockedPage.UpdateWithLogs(
 					firstNewBalance,
 					first,
-					logger,
+					lockedLogger,
 				)
-				return logLoc, err
 			},
 		)
 		require.NoError(t, err)

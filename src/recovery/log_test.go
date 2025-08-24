@@ -19,6 +19,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/optional"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
@@ -760,7 +761,7 @@ func TestLoggerRollback(t *testing.T) {
 		}
 	}
 
-	recordValues := fillPages(t, logger, math.MaxUint64, 4, files, 1024, 10)
+	recordValues := fillPages(t, logger, math.MaxUint64, 2000, files, 1024, 40)
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	updatedValues := make(map[common.RecordID]uint32, len(recordValues))
@@ -788,7 +789,7 @@ func TestLoggerRollback(t *testing.T) {
 
 	txnID := atomic.Uint64{}
 	wg := sync.WaitGroup{}
-	for batch := range mapBatch(recordValues, 1) {
+	for batch := range mapBatch(recordValues, 10) {
 		wg.Add(1)
 		go func(batch []KVPair[common.RecordID, uint32]) {
 			defer func() {
@@ -845,20 +846,21 @@ func TestLoggerRollback(t *testing.T) {
 
 				newValue := rand.Uint32()
 				t.Logf("[%d] getting page %+v", txnID, info.key.PageIdentity())
-				page, err := pool.GetPageNoCreate(info.key.PageIdentity())
+				pg, err := pool.GetPageNoCreate(info.key.PageIdentity())
 				require.NoError(t, err)
 				t.Logf("[%d] updating page %+v", txnID, info.key.PageIdentity())
+
 				err = pool.WithMarkDirty(
 					info.key.PageIdentity(),
-					func() (common.LogRecordLocInfo, error) {
-						page.Lock()
-						defer page.Unlock()
+					pg,
+					logger,
+					func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
 						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
 
-						return page.UpdateWithLogs(
+						return lockedPage.UpdateWithLogs(
 							utils.ToBytes[uint32](newValue),
 							info.key,
-							logger,
+							lockedLogger,
 						)
 					},
 				)
@@ -892,16 +894,16 @@ func TestLoggerRollback(t *testing.T) {
 				}
 
 				t.Logf("[%d] getting page %+v", txnID, info.key.PageIdentity())
-				page, err := pool.GetPageNoCreate(info.key.PageIdentity())
+				pg, err := pool.GetPageNoCreate(info.key.PageIdentity())
 				require.NoError(t, err)
 				t.Logf("[%d] deleting page %+v", txnID, info.key.PageIdentity())
 				err = pool.WithMarkDirty(
 					info.key.PageIdentity(),
-					func() (common.LogRecordLocInfo, error) {
-						page.Lock()
-						defer page.Unlock()
+					pg,
+					logger,
+					func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
 						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
-						return page.DeleteWithLogs(info.key, logger)
+						return lockedPage.DeleteWithLogs(info.key, lockedLogger)
 					},
 				)
 				t.Logf("[%d] done deleting page %+v", txnID, info.key.PageIdentity())

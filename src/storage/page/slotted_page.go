@@ -182,7 +182,7 @@ var ErrNoSpaceLeft error = errors.New("the page is full")
 func (p *SlottedPage) InsertWithLogs(
 	data []byte,
 	pageIdent common.PageIdentity,
-	ctxLogger common.ITxnLoggerWithContext,
+	lockedLogger common.ITxnLoggerWithContext,
 ) (uint16, common.LogRecordLocInfo, error) {
 	slotOpt := p.insertPrepare(data)
 	if slotOpt.IsNone() {
@@ -195,14 +195,14 @@ func (p *SlottedPage) InsertWithLogs(
 		PageID:  pageIdent.PageID,
 		SlotNum: slot,
 	}
-	logRecordLoc, err := ctxLogger.AppendInsert(recordID, data)
+	logRecordLoc, err := lockedLogger.AssumeLockedAppendInsert(recordID, data)
 	if err != nil {
 		return 0, common.NewNilLogRecordLocation(), err
 	}
 
 	p.insertCommit(slot)
 	p.SetPageLSN(logRecordLoc.Lsn)
-	return slot, logRecordLoc, err
+	return slot, logRecordLoc, nil
 }
 
 func (p *SlottedPage) UndoInsert(slotID uint16) {
@@ -255,11 +255,11 @@ func (p *SlottedPage) Delete(slotID uint16) {
 
 func (p *SlottedPage) DeleteWithLogs(
 	recordID common.RecordID,
-	ctxLogger common.ITxnLoggerWithContext,
+	lockedLogger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
 	ptr := p.assertSlotInserted(recordID.SlotNum)
 
-	logRecordLoc, err := ctxLogger.AppendDelete(recordID)
+	logRecordLoc, err := lockedLogger.AssumeLockedAppendDelete(recordID)
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
 	}
@@ -296,7 +296,7 @@ func (p *SlottedPage) Update(slotID uint16, newData []byte) {
 func (p *SlottedPage) UpdateWithLogs(
 	newData []byte,
 	recordID common.RecordID,
-	ctxLogger common.ITxnLoggerWithContext,
+	lockedLogger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
 	data := p.Read(recordID.SlotNum)
 	assert.Assert(
@@ -308,7 +308,11 @@ func (p *SlottedPage) UpdateWithLogs(
 
 	before := make([]byte, len(data))
 	copy(before, data)
-	logRecordLoc, err := ctxLogger.AppendUpdate(recordID, before, newData)
+	logRecordLoc, err := lockedLogger.AssumeLockedAppendUpdate(
+		recordID,
+		before,
+		newData,
+	)
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
 	}
@@ -316,7 +320,7 @@ func (p *SlottedPage) UpdateWithLogs(
 	copy(data, newData)
 	p.SetPageLSN(logRecordLoc.Lsn)
 
-	return logRecordLoc, err
+	return logRecordLoc, nil
 }
 
 func (p *SlottedPage) TryLock() bool {
