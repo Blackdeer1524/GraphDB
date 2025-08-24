@@ -94,7 +94,7 @@ func TestUpdateSuccess(t *testing.T) {
 	page.insertCommit(slot.Unwrap())
 
 	newData := []byte("changed0")
-	page.Update(slot.Unwrap(), newData)
+	page.UnsafeUpdateNoLogs(slot.Unwrap(), newData)
 
 	got := page.Read(slot.Unwrap())
 	assert.Equal(t, newData, got)
@@ -109,7 +109,7 @@ func TestUpdateTooLarge(t *testing.T) {
 
 	newData := []byte("this is too long")
 	require.Panics(t, func() {
-		page.Update(slot.Unwrap(), newData)
+		page.UnsafeUpdateNoLogs(slot.Unwrap(), newData)
 	}, "Update should fail when newData is too large")
 
 	got := page.Read(slot.Unwrap())
@@ -124,7 +124,7 @@ func TestDeleteRemovesData(t *testing.T) {
 	require.NotEqual(t, slot, None[uint16]())
 	page.insertCommit(slot.Unwrap())
 
-	page.Delete(slot.Unwrap())
+	page.UnsafeDeleteNoLogs(slot.Unwrap())
 
 	// After delete, the slot status should be Deleted
 	header := page.getHeader()
@@ -154,7 +154,7 @@ func TestDeleteRemovesData(t *testing.T) {
 func TestDeleteInvalidSlotPanics(t *testing.T) {
 	page := NewSlottedPage()
 	assert.Panics(t, func() {
-		page.Delete(1234)
+		page.UnsafeDeleteNoLogs(1234)
 	})
 }
 
@@ -165,9 +165,9 @@ func TestDeleteTwicePanics(t *testing.T) {
 	require.NotEqual(t, slot, None[uint16]())
 	page.insertCommit(slot.Unwrap())
 
-	page.Delete(slot.Unwrap())
+	page.UnsafeDeleteNoLogs(slot.Unwrap())
 	assert.Panics(t, func() {
-		page.Delete(slot.Unwrap())
+		page.UnsafeDeleteNoLogs(slot.Unwrap())
 	})
 }
 
@@ -205,7 +205,7 @@ func TestGetBytes_DeletedSlot_Panics(t *testing.T) {
 	slot := page.insertPrepare(data)
 	require.NotEqual(t, slot, None[uint16]())
 	page.insertCommit(slot.Unwrap())
-	page.Delete(slot.Unwrap())
+	page.UnsafeDeleteNoLogs(slot.Unwrap())
 
 	assert.Panics(t, func() {
 		_ = page.Read(slot.Unwrap())
@@ -220,7 +220,7 @@ func TestUndoDelete_RestoresDataAndStatus(t *testing.T) {
 	page.insertCommit(slot.Unwrap())
 
 	// Delete the slot
-	page.Delete(slot.Unwrap())
+	page.UnsafeDeleteNoLogs(slot.Unwrap())
 	page.UndoDelete(slot.Unwrap())
 
 	// Slot status should be Inserted again

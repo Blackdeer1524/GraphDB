@@ -168,7 +168,7 @@ func (p *SlottedPage) insertCommit(slotHandle uint16) {
 	slots[slotHandle] = newSlotPtr(SlotStatusInserted, ptr.RecordOffset())
 }
 
-func (p *SlottedPage) Insert(data []byte) optional.Optional[uint16] {
+func (p *SlottedPage) UnsafeInsertNoLogs(data []byte) optional.Optional[uint16] {
 	slotOpt := p.insertPrepare(data)
 	if slotOpt.IsNone() {
 		return optional.None[uint16]()
@@ -245,7 +245,7 @@ func (p *SlottedPage) Read(slotID uint16) []byte {
 	return p.getBytesBySlotPtr(ptr)
 }
 
-func (p *SlottedPage) Delete(slotID uint16) {
+func (p *SlottedPage) UnsafeDeleteNoLogs(slotID uint16) {
 	ptr := p.assertSlotInserted(slotID)
 	p.getHeader().getSlots()[slotID] = newSlotPtr(
 		SlotStatusDeleted,
@@ -285,7 +285,7 @@ func (p *SlottedPage) UndoDelete(slotID uint16) {
 	p.UnsafeOverrideSlotStatus(slotID, SlotStatusInserted)
 }
 
-func (p *SlottedPage) Update(slotID uint16, newData []byte) {
+func (p *SlottedPage) UnsafeUpdateNoLogs(slotID uint16, newData []byte) {
 	data := p.Read(slotID)
 	assert.Assert(len(data) == len(newData))
 
@@ -378,5 +378,5 @@ func InsertSerializable[T encoding.BinaryMarshaler](
 ) optional.Optional[uint16] {
 	bytes, err := obj.MarshalBinary()
 	assert.NoError(err)
-	return p.Insert(bytes)
+	return p.UnsafeInsertNoLogs(bytes)
 }

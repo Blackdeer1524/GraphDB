@@ -2,6 +2,7 @@ package recovery
 
 import (
 	"bytes"
+	"errors"
 	"maps"
 	"math"
 	"math/rand"
@@ -235,7 +236,7 @@ func insertValueNoLogs(
 	p.Lock()
 	defer p.Unlock()
 
-	slotOpt := p.Insert(data)
+	slotOpt := p.UnsafeInsertNoLogs(data)
 	if slotOpt.IsNone() {
 		return optional.None[uint16](), nil
 	}
@@ -965,6 +966,7 @@ func fillPages(
 	entriesPerPage := make(map[common.PageIdentity]int)
 
 	chain := NewTxnLogChain(logger, txnID)
+
 	chain.Begin()
 	for range length {
 		for {
@@ -981,17 +983,27 @@ func fillPages(
 			require.NoError(t, err)
 			success := func() bool {
 				defer func() { logger.pool.Unpin(pageID) }()
-				p.Lock()
-				defer p.Unlock()
 
 				value := rand.Uint32() % limit
 				insertedValue := utils.ToBytes[uint32](value)
 
-				slotOpt := p.Insert(insertedValue)
-				if slotOpt.IsNone() {
+				slotNum := optional.None[uint16]()
+				err := logger.pool.WithMarkDirty(
+					pageID,
+					p,
+					common.NoLogs(),
+					func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+						slotNum = lockedPage.UnsafeInsertNoLogs(insertedValue)
+						if slotNum.IsNone() {
+							return common.NewNilLogRecordLocation(), page.ErrNoSpaceLeft
+						}
+						return common.NewNilLogRecordLocation(), nil
+					},
+				)
+				if errors.Is(err, page.ErrNoSpaceLeft) {
 					return false
 				}
-				slot := slotOpt.Unwrap()
+				slot := slotNum.Unwrap()
 				chain.Insert(
 					common.RecordID{
 						FileID:  pageID.FileID,

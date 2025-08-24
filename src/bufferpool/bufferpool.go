@@ -33,6 +33,12 @@ type BufferPool interface {
 		common.ITxnLoggerWithContext,
 		func(*page.SlottedPage, common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error),
 	) error
+	WithMarkDirtyNoLoggerLock(
+		common.PageIdentity,
+		*page.SlottedPage,
+		func(*page.SlottedPage) (common.LogRecordLocInfo, error),
+	) error
+	MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity) error
 	GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo
 	FlushPage(common.PageIdentity) error
 	FlushAllPages() error

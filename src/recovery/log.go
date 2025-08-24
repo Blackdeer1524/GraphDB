@@ -10,6 +10,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/optional"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
@@ -49,23 +50,23 @@ func (p *loggerInfoPage) setInfo(newInfo common.LogRecordLocInfo) {
 	if oldValue >= newInfo.Lsn {
 		return
 	}
-	o.Update(loggerMasterRecordSlot, utils.ToBytes[common.LSN](newInfo.Lsn))
+	o.UnsafeUpdateNoLogs(loggerMasterRecordSlot, utils.ToBytes[common.LSN](newInfo.Lsn))
 
 	data, err := newInfo.Location.MarshalBinary()
 	assert.NoError(err)
-	o.Update(loggerLastLocationSlot, data)
+	o.UnsafeUpdateNoLogs(loggerLastLocationSlot, data)
 }
 
 func (p *loggerInfoPage) Setup() {
 	o := (*page.SlottedPage)(p)
 	o.Clear()
 
-	slotOpt := o.Insert(utils.ToBytes[common.LSN](0))
+	slotOpt := o.UnsafeInsertNoLogs(utils.ToBytes[common.LSN](0))
 	assert.Assert(slotOpt.IsSome())
 	assert.Assert(slotOpt.Unwrap() == loggerMasterRecordSlot)
 
 	dummyRecord := common.FileLocation{
-		PageID:  1,
+		PageID:  masterRecordPage + 1,
 		SlotNum: 0,
 	}
 	slotOpt = page.InsertSerializable(o, &dummyRecord)
@@ -129,8 +130,19 @@ func NewTxnLogger(
 			PageID: masterRecordPage,
 		})
 		assert.NoError(err)
-		l.masterPage = (*loggerInfoPage)(pg)
-		l.masterPage.Setup()
+		assert.NoError(pool.WithMarkDirty(
+			common.PageIdentity{
+				FileID: logFileID,
+				PageID: masterRecordPage,
+			},
+			pg,
+			common.NoLogs(),
+			func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+				l.masterPage = (*loggerInfoPage)(lockedPage)
+				l.masterPage.Setup()
+				return common.NewNilLogRecordLocation(), nil
+			},
+		))
 	} else {
 		assert.NoError(err)
 		l.masterPage = (*loggerInfoPage)(pg)
@@ -160,18 +172,9 @@ func newTxnLoggerWithContext(
 	}
 }
 
-type DummyLoggerWithContext struct{}
-
-var dummyLogger DummyLoggerWithContext = DummyLoggerWithContext{}
-
-func NoLogs() *DummyLoggerWithContext {
-	return &dummyLogger
-}
-
 var (
 	_ common.ITxnLogger            = &txnLogger{}
 	_ common.ITxnLoggerWithContext = &txnLoggerWithContext{}
-	_ common.ITxnLoggerWithContext = &DummyLoggerWithContext{}
 )
 
 func (l *txnLogger) WithContext(
@@ -714,10 +717,17 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 	if err != nil {
 		return common.FileLocation{}, err
 	}
+
 	p.Lock()
-	slotNumberOpt := p.Insert(serializedRecord)
+	slotNumberOpt := p.UnsafeInsertNoLogs(serializedRecord)
 	p.Unlock()
+
 	lockedLogger.pool.UnpinAssumeLocked(pageInfo)
+
+	if err = lockedLogger.pool.MarkDirtyNoLogsAssumeLocked(pageInfo); err != nil {
+		return common.FileLocation{}, err
+	}
+
 	if slotNumberOpt.IsSome() {
 		slotNumber := slotNumberOpt.Unwrap()
 		lockedLogger.lastRecordLocation.SlotNum = slotNumber
@@ -733,7 +743,7 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 	}
 
 	p.Lock()
-	slotNumberOpt = p.Insert(serializedRecord)
+	slotNumberOpt = p.UnsafeInsertNoLogs(serializedRecord)
 	assert.Assert(
 		slotNumberOpt.IsSome(),
 		"impossible, because (1) the logger is locked [no concurrent writes are possible] "+
@@ -742,6 +752,11 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 	p.Unlock()
 
 	lockedLogger.pool.UnpinAssumeLocked(pageInfo)
+
+	if err = lockedLogger.pool.MarkDirtyNoLogsAssumeLocked(pageInfo); err != nil {
+		return common.FileLocation{}, err
+	}
+
 	lockedLogger.lastRecordLocation.SlotNum = slotNumberOpt.Unwrap()
 
 	return lockedLogger.lastRecordLocation, err
@@ -759,15 +774,33 @@ func (lockedLogger *txnLogger) writeLogRecord(
 	if err != nil {
 		return common.FileLocation{}, err
 	}
-	p.Lock()
-	slotNumberOpt := p.Insert(serializedRecord)
-	p.Unlock()
-	lockedLogger.pool.Unpin(pageInfo)
+
+	slotNumberOpt := optional.None[uint16]()
+	err = lockedLogger.pool.WithMarkDirtyNoLoggerLock(
+		pageInfo,
+		p,
+		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+			defer lockedLogger.pool.UnpinAssumeLocked(pageInfo)
+
+			slotNumberOpt = lockedPage.UnsafeInsertNoLogs(serializedRecord)
+			if slotNumberOpt.IsNone() {
+				return common.NewNilLogRecordLocation(), page.ErrNoSpaceLeft
+			}
+			return common.NewNilLogRecordLocation(), nil
+		},
+	)
+
+	if err != nil && !errors.Is(err, page.ErrNoSpaceLeft) {
+		return common.FileLocation{}, err
+	}
+
 	if slotNumberOpt.IsSome() {
 		slotNumber := slotNumberOpt.Unwrap()
 		lockedLogger.lastRecordLocation.SlotNum = slotNumber
 		return lockedLogger.lastRecordLocation, err
 	}
+
+	assert.Assert(errors.Is(err, page.ErrNoSpaceLeft))
 
 	lockedLogger.lastRecordLocation.PageID++
 	pageInfo.PageID++
@@ -777,17 +810,21 @@ func (lockedLogger *txnLogger) writeLogRecord(
 		return common.FileLocation{}, err
 	}
 
-	p.Lock()
-	slotNumberOpt = p.Insert(serializedRecord)
-	assert.Assert(
-		slotNumberOpt.IsSome(),
-		"impossible, because (1) the logger is locked [no concurrent writes are possible] "+
-			"and (2) the newly allocated page should be empty",
-	)
-	p.Unlock()
+	err = lockedLogger.pool.WithMarkDirtyNoLoggerLock(
+		pageInfo,
+		p,
+		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+			defer lockedLogger.pool.UnpinAssumeLocked(pageInfo)
 
-	lockedLogger.pool.Unpin(pageInfo)
-	lockedLogger.lastRecordLocation.SlotNum = slotNumberOpt.Unwrap()
+			slotNumberOpt = lockedPage.UnsafeInsertNoLogs(serializedRecord)
+			assert.Assert(
+				slotNumberOpt.IsSome(),
+				"impossible, because (1) the logger is locked [no concurrent writes are possible] "+
+					"and (2) the newly allocated page should be empty",
+			)
+			return common.NewNilLogRecordLocation(), nil
+		},
+	)
 
 	return lockedLogger.lastRecordLocation, err
 }
@@ -807,7 +844,7 @@ func (lockedLogger *txnLogger) GetMasterRecord() common.LSN {
 		masterRecordPageIdent,
 	)
 	assert.Assert(
-		err != nil,
+		err == nil,
 		"the page should have been loaded into memory on buffer pool init. err: %v",
 		err,
 	)
@@ -1020,7 +1057,7 @@ func (l *txnLogger) activateCLR(record *CompensationLogRecord) {
 	case CLRtypeInsert:
 		page.UndoInsert(record.modifiedRecordID.SlotNum)
 	case CLRtypeUpdate:
-		page.Update(record.modifiedRecordID.SlotNum, record.afterValue)
+		page.UnsafeUpdateNoLogs(record.modifiedRecordID.SlotNum, record.afterValue)
 	case CLRtypeDelete:
 		page.UndoDelete(record.modifiedRecordID.SlotNum)
 	}
@@ -1135,52 +1172,6 @@ func (l *txnLogger) Checkpoint() error {
 
 	dpt := l.pool.GetDirtyPageTable()
 	return l.AppendCheckpointEnd(activeTxns, dpt)
-}
-
-func (l *DummyLoggerWithContext) AppendBegin() error {
-	return nil
-}
-
-func (l *DummyLoggerWithContext) AssumeLockedAppendDelete(
-	recordID common.RecordID,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLoggerWithContext) AssumeLockedAppendInsert(
-	recordID common.RecordID,
-	value []byte,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLoggerWithContext) AssumeLockedAppendUpdate(
-	recordID common.RecordID,
-	before []byte,
-	after []byte,
-) (common.LogRecordLocInfo, error) {
-	return common.NewNilLogRecordLocation(), nil
-}
-
-func (l *DummyLoggerWithContext) AppendCommit() error {
-	return nil
-}
-
-func (l *DummyLoggerWithContext) AppendAbort() error {
-	return nil
-}
-
-func (l *DummyLoggerWithContext) AppendTxnEnd() error {
-	return nil
-}
-
-func (l *DummyLoggerWithContext) Rollback() {
-}
-
-func (l *DummyLoggerWithContext) Lock() {
-}
-
-func (l *DummyLoggerWithContext) Unlock() {
 }
 
 func (l *txnLoggerWithContext) Lock() {
