@@ -36,10 +36,10 @@ func TestBankTransactions(t *testing.T) {
 	const (
 		startBalance      = uint32(60)
 		rollbackCutoff    = uint32(0) // startBalance / 3
-		clientsCount      = 5_000
+		clientsCount      = 7
 		txnsCount         = 10_000
 		retryCount        = 1
-		maxEntriesPerPage = 10
+		maxEntriesPerPage = 2
 		workersCount      = 10_000
 	)
 
@@ -88,12 +88,19 @@ func TestBankTransactions(t *testing.T) {
 
 	totalMoney := uint32(0)
 	for id := range recordValues {
-		page, err := pool.GetPageNoCreate(id.PageIdentity())
+		pg, err := pool.GetPageNoCreate(id.PageIdentity())
 		require.NoError(t, err)
-		page.Lock()
-		page.Update(id.SlotNum, utils.ToBytes[uint32](startBalance))
+		require.NoError(t,
+			pool.WithMarkDirty(
+				id.PageIdentity(),
+				pg,
+				common.NoLogs(),
+				func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+					lockedPage.UnsafeUpdateNoLogs(id.SlotNum, utils.ToBytes[uint32](startBalance))
+					return common.NewNilLogRecordLocation(), nil
+				},
+			))
 		totalMoney += startBalance
-		page.Unlock()
 		pool.Unpin(id.PageIdentity())
 	}
 
