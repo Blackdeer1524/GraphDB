@@ -3,7 +3,6 @@ package page
 import (
 	"encoding"
 	"errors"
-	"log"
 	"sync"
 	"unsafe"
 
@@ -30,7 +29,7 @@ var (
 )
 
 func (p *SlottedPage) UnsafeInitLatch() {
-	p.getHeader().latch = new(sync.RWMutex)
+	p.getHeader().latch = sync.RWMutex{}
 }
 
 type slotPointer uint16
@@ -57,7 +56,7 @@ func (s slotPointer) slotInfo() slotStatus {
 }
 
 type header struct {
-	latch *sync.RWMutex
+	latch sync.RWMutex
 
 	pageLSN common.LSN
 
@@ -91,7 +90,6 @@ func NewSlottedPage() *SlottedPage {
 
 func (p *SlottedPage) setupHeader() {
 	head := p.getHeader()
-	head.latch = new(sync.RWMutex)
 	head.freeStart = uint16(unsafe.Sizeof(header{}))
 	head.freeEnd = PageSize
 }
@@ -296,7 +294,6 @@ func (p *SlottedPage) Update(slotID uint16, newData []byte) {
 }
 
 func (p *SlottedPage) UpdateWithLogs(
-	txID common.TxnID,
 	newData []byte,
 	recordID common.RecordID,
 	ctxLogger common.ITxnLoggerWithContext,
@@ -309,23 +306,12 @@ func (p *SlottedPage) UpdateWithLogs(
 		len(newData),
 	)
 
-	log.Printf("[%d] updating page %+v", txID, 311)
-
 	before := make([]byte, len(data))
 	copy(before, data)
-
-	log.Printf("[%d] updating page %+v", txID, 317)
-
 	logRecordLoc, err := ctxLogger.AppendUpdate(recordID, before, newData)
-
-	log.Printf("[%d] updating page %+v", txID, 320)
-
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
 	}
-
-	log.Printf("[%d] updating page %+v", txID, 327)
-
 	clear(data)
 	copy(data, newData)
 	p.SetPageLSN(logRecordLoc.Lsn)
