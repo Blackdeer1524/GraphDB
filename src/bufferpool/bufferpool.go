@@ -38,7 +38,7 @@ type BufferPool interface {
 		*page.SlottedPage,
 		func(*page.SlottedPage) (common.LogRecordLocInfo, error),
 	) error
-	MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity) error
+	MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity)
 	GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo
 	FlushPage(common.PageIdentity) error
 	FlushAllPages() error
@@ -293,6 +293,32 @@ func (m *Manager) WithMarkDirty(
 	return nil
 }
 
+func (m *Manager) MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity) {
+	m.DPT[pageIdent] = common.NewNilLogRecordLocation()
+}
+
+func (m *Manager) WithMarkDirtyNoLoggerLock(
+	pageIdent common.PageIdentity,
+	pg *page.SlottedPage,
+	fn func(*page.SlottedPage) (common.LogRecordLocInfo, error),
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	pg.Lock()
+	defer pg.Unlock()
+
+	loc, err := fn(pg)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := m.DPT[pageIdent]; !ok {
+		m.DPT[pageIdent] = loc
+	}
+	return nil
+}
+
 func (m *Manager) reserveFrame() uint64 {
 	if len(m.emptyFrames) > 0 {
 		id := m.emptyFrames[len(m.emptyFrames)-1]
@@ -362,6 +388,18 @@ type DebugBufferPool struct {
 var (
 	_ BufferPool = &DebugBufferPool{}
 )
+
+func (d *DebugBufferPool) MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity) {
+	d.m.MarkDirtyNoLogsAssumeLocked(pageIdent)
+}
+
+func (d *DebugBufferPool) WithMarkDirtyNoLoggerLock(
+	pageIdent common.PageIdentity,
+	pg *page.SlottedPage,
+	fn func(*page.SlottedPage) (common.LogRecordLocInfo, error),
+) error {
+	return d.m.WithMarkDirtyNoLoggerLock(pageIdent, pg, fn)
+}
 
 func (d *DebugBufferPool) GetPageAssumeLocked(
 	pIdent common.PageIdentity,
