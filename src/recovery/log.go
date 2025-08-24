@@ -864,37 +864,6 @@ func marshalRecordAndWrite[T LogRecord](
 	return logInfo, nil
 }
 
-func (l *txnLogger) AppendBegin(
-	TransactionID common.TxnID,
-) (common.LogRecordLocInfo, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	r := NewBeginLogRecord(l.newLSN(), TransactionID)
-	return marshalRecordAndWrite(l, &r)
-}
-
-func (l *txnLogger) AppendUpdate(
-	TransactionID common.TxnID,
-	prevLog common.LogRecordLocInfo,
-	recordID common.RecordID,
-	beforeValue []byte,
-	afterValue []byte,
-) (common.LogRecordLocInfo, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	r := NewUpdateLogRecord(
-		l.newLSN(),
-		TransactionID,
-		prevLog,
-		recordID,
-		beforeValue,
-		afterValue,
-	)
-	return marshalRecordAndWriteAssumePoolLocked(l, &r)
-}
-
 func loggerUndoRecord[T RevertableLogRecord](
 	l *txnLogger,
 	record T,
@@ -915,40 +884,62 @@ func loggerUndoRecord[T RevertableLogRecord](
 	return &clr, location, nil
 }
 
-func (l *txnLogger) AppendInsert(
+func (l *txnLogger) AppendBegin(
+	TransactionID common.TxnID,
+) (common.LogRecordLocInfo, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	r := NewBeginLogRecord(l.newLSN(), TransactionID)
+	return marshalRecordAndWrite(l, &r)
+}
+
+func (lockedLogger *txnLogger) AssumeLockedAppendUpdate(
+	TransactionID common.TxnID,
+	prevLog common.LogRecordLocInfo,
+	recordID common.RecordID,
+	beforeValue []byte,
+	afterValue []byte,
+) (common.LogRecordLocInfo, error) {
+	r := NewUpdateLogRecord(
+		lockedLogger.newLSN(),
+		TransactionID,
+		prevLog,
+		recordID,
+		beforeValue,
+		afterValue,
+	)
+	return marshalRecordAndWriteAssumePoolLocked(lockedLogger, &r)
+}
+
+func (lockedLogger *txnLogger) AssumeLockedAppendInsert(
 	txnID common.TxnID,
 	prevLog common.LogRecordLocInfo,
 	recordID common.RecordID,
 	value []byte,
 ) (common.LogRecordLocInfo, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	r := NewInsertLogRecord(
-		l.newLSN(),
+		lockedLogger.newLSN(),
 		txnID,
 		prevLog,
 		recordID,
 		value,
 	)
-	return marshalRecordAndWriteAssumePoolLocked(l, &r)
+	return marshalRecordAndWriteAssumePoolLocked(lockedLogger, &r)
 }
 
-func (l *txnLogger) AppendDelete(
+func (lockedLogger *txnLogger) AssumeLockedAppendDelete(
 	txnID common.TxnID,
 	prevLog common.LogRecordLocInfo,
 	recordID common.RecordID,
 ) (common.LogRecordLocInfo, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	r := NewDeleteLogRecord(
-		l.newLSN(),
+		lockedLogger.newLSN(),
 		txnID,
 		prevLog,
 		recordID,
 	)
-	return marshalRecordAndWriteAssumePoolLocked(l, &r)
+	return marshalRecordAndWriteAssumePoolLocked(lockedLogger, &r)
 }
 
 func (l *txnLogger) AppendCommit(
@@ -1133,36 +1124,37 @@ outer:
 	}
 }
 
-func (l *txnLogger) Checkpoint() {
+func (l *txnLogger) Checkpoint() error {
 	err := l.AppendCheckpointBegin()
 	assert.NoError(err)
-	activeTxns := l.getActiveTransactions()
 
 	err = l.pool.FlushAllPages()
 	assert.NoError(err)
 
+	activeTxns := l.getActiveTransactions()
+
 	dpt := l.pool.GetDirtyPageTable()
-	l.AppendCheckpointEnd(activeTxns, dpt)
+	return l.AppendCheckpointEnd(activeTxns, dpt)
 }
 
 func (l *DummyLoggerWithContext) AppendBegin() error {
 	return nil
 }
 
-func (l *DummyLoggerWithContext) AppendDelete(
+func (l *DummyLoggerWithContext) AssumeLockedAppendDelete(
 	recordID common.RecordID,
 ) (common.LogRecordLocInfo, error) {
 	return common.NewNilLogRecordLocation(), nil
 }
 
-func (l *DummyLoggerWithContext) AppendInsert(
+func (l *DummyLoggerWithContext) AssumeLockedAppendInsert(
 	recordID common.RecordID,
 	value []byte,
 ) (common.LogRecordLocInfo, error) {
 	return common.NewNilLogRecordLocation(), nil
 }
 
-func (l *DummyLoggerWithContext) AppendUpdate(
+func (l *DummyLoggerWithContext) AssumeLockedAppendUpdate(
 	recordID common.RecordID,
 	before []byte,
 	after []byte,
@@ -1185,6 +1177,20 @@ func (l *DummyLoggerWithContext) AppendTxnEnd() error {
 func (l *DummyLoggerWithContext) Rollback() {
 }
 
+func (l *DummyLoggerWithContext) Lock() {
+}
+
+func (l *DummyLoggerWithContext) Unlock() {
+}
+
+func (l *txnLoggerWithContext) Lock() {
+	l.logger.mu.Lock()
+}
+
+func (l *txnLoggerWithContext) Unlock() {
+	l.logger.mu.Unlock()
+}
+
 func (l *txnLoggerWithContext) AppendBegin() error {
 	loc, err := l.logger.AppendBegin(l.txnID)
 	if err != nil {
@@ -1194,46 +1200,31 @@ func (l *txnLoggerWithContext) AppendBegin() error {
 	return nil
 }
 
-func (l *txnLoggerWithContext) AppendDelete(
-	recordID common.RecordID,
-) (common.LogRecordLocInfo, error) {
-	loc, err := l.logger.AppendDelete(
-		l.txnID,
-		l.lastLogRecordLocation,
-		recordID,
-	)
-	if err != nil {
-		return common.NewNilLogRecordLocation(), err
-	}
-	l.lastLogRecordLocation = loc
-	return l.lastLogRecordLocation, nil
-}
-
-func (l *txnLoggerWithContext) AppendInsert(
+func (lockedLogger *txnLoggerWithContext) AssumeLockedAppendInsert(
 	recordID common.RecordID,
 	value []byte,
 ) (common.LogRecordLocInfo, error) {
-	loc, err := l.logger.AppendInsert(
-		l.txnID,
-		l.lastLogRecordLocation,
+	loc, err := lockedLogger.logger.AssumeLockedAppendInsert(
+		lockedLogger.txnID,
+		lockedLogger.lastLogRecordLocation,
 		recordID,
 		value,
 	)
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
 	}
-	l.lastLogRecordLocation = loc
-	return l.lastLogRecordLocation, nil
+	lockedLogger.lastLogRecordLocation = loc
+	return lockedLogger.lastLogRecordLocation, nil
 }
 
-func (l *txnLoggerWithContext) AppendUpdate(
+func (lockedLogger *txnLoggerWithContext) AssumeLockedAppendUpdate(
 	recordID common.RecordID,
 	before []byte,
 	after []byte,
 ) (common.LogRecordLocInfo, error) {
-	loc, err := l.logger.AppendUpdate(
-		l.txnID,
-		l.lastLogRecordLocation,
+	loc, err := lockedLogger.logger.AssumeLockedAppendUpdate(
+		lockedLogger.txnID,
+		lockedLogger.lastLogRecordLocation,
 		recordID,
 		before,
 		after,
@@ -1241,8 +1232,23 @@ func (l *txnLoggerWithContext) AppendUpdate(
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
 	}
-	l.lastLogRecordLocation = loc
-	return l.lastLogRecordLocation, nil
+	lockedLogger.lastLogRecordLocation = loc
+	return lockedLogger.lastLogRecordLocation, nil
+}
+
+func (lockedLogger *txnLoggerWithContext) AssumeLockedAppendDelete(
+	recordID common.RecordID,
+) (common.LogRecordLocInfo, error) {
+	loc, err := lockedLogger.logger.AssumeLockedAppendDelete(
+		lockedLogger.txnID,
+		lockedLogger.lastLogRecordLocation,
+		recordID,
+	)
+	if err != nil {
+		return common.NewNilLogRecordLocation(), err
+	}
+	lockedLogger.lastLogRecordLocation = loc
+	return lockedLogger.lastLogRecordLocation, nil
 }
 
 func (l *txnLoggerWithContext) AppendCommit() error {

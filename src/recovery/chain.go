@@ -62,7 +62,7 @@ func (c *TxnLogChain) Insert(
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendInsert(
+	c.lastLocations[c.TransactionID], c.err = c.logger.AssumeLockedAppendInsert(
 		c.TransactionID,
 		c.lastLocations[c.TransactionID],
 		recordID,
@@ -85,7 +85,7 @@ func (c *TxnLogChain) Update(
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendUpdate(
+	c.lastLocations[c.TransactionID], c.err = c.logger.AssumeLockedAppendUpdate(
 		c.TransactionID,
 		c.lastLocations[c.TransactionID],
 		recordID,
@@ -108,7 +108,7 @@ func (c *TxnLogChain) Delete(
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendDelete(
+	c.lastLocations[c.TransactionID], c.err = c.logger.AssumeLockedAppendDelete(
 		c.TransactionID,
 		c.lastLocations[c.TransactionID],
 		recordID,

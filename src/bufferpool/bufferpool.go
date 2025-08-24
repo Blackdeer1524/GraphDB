@@ -27,7 +27,12 @@ type BufferPool interface {
 	GetPageAssumeLocked(common.PageIdentity) (*page.SlottedPage, error)
 	GetPageNoCreate(common.PageIdentity) (*page.SlottedPage, error)
 	GetPageNoCreateAssumeLocked(common.PageIdentity) (*page.SlottedPage, error)
-	WithMarkDirty(common.PageIdentity, func() (common.LogRecordLocInfo, error)) error
+	WithMarkDirty(
+		common.PageIdentity,
+		*page.SlottedPage,
+		common.ITxnLoggerWithContext,
+		func(*page.SlottedPage, common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error),
+	) error
 	GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo
 	FlushPage(common.PageIdentity) error
 	FlushAllPages() error
@@ -151,7 +156,11 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 
 	victimInfo, ok := m.pageTable[victimPageIdent]
 	assert.Assert(ok, "victim page %+v not found", victimPageIdent)
-	assert.Assert(victimInfo.pinCount == 0, "victim page %+v is pinned", victimPageIdent)
+	assert.Assert(
+		victimInfo.pinCount == 0,
+		"victim page %+v is pinned",
+		victimPageIdent,
+	)
 
 	victimPage := &m.frames[victimInfo.frameID]
 	if _, ok := m.DPT[victimPageIdent]; ok {
@@ -220,7 +229,11 @@ func (m *Manager) GetPageAssumeLocked(
 
 	victimInfo, ok := m.pageTable[victimPageIdent]
 	assert.Assert(ok, "victim page %+v not found", victimPageIdent)
-	assert.Assert(victimInfo.pinCount == 0, "victim page %+v is pinned", victimPageIdent)
+	assert.Assert(
+		victimInfo.pinCount == 0,
+		"victim page %+v is pinned",
+		victimPageIdent,
+	)
 
 	victimPage := &m.frames[victimInfo.frameID]
 	if _, ok := m.DPT[victimPageIdent]; ok {
@@ -250,12 +263,20 @@ func (m *Manager) GetPageAssumeLocked(
 
 func (m *Manager) WithMarkDirty(
 	pageIdent common.PageIdentity,
-	fn func() (common.LogRecordLocInfo, error),
+	page *page.SlottedPage,
+	logger common.ITxnLoggerWithContext,
+	fn func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error),
 ) error {
+	logger.Lock()
+	defer logger.Unlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	loc, err := fn()
+	page.Lock()
+	defer page.Unlock()
+
+	loc, err := fn(page, logger)
 	if err != nil {
 		return err
 	}
@@ -385,9 +406,11 @@ func (d *DebugBufferPool) UnpinAssumeLocked(pIdent common.PageIdentity) {
 
 func (d *DebugBufferPool) WithMarkDirty(
 	pIdent common.PageIdentity,
-	fn func() (common.LogRecordLocInfo, error),
+	page *page.SlottedPage,
+	logger common.ITxnLoggerWithContext,
+	fn func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error),
 ) error {
-	return d.m.WithMarkDirty(pIdent, fn)
+	return d.m.WithMarkDirty(pIdent, page, logger, fn)
 }
 
 func (d *DebugBufferPool) EnsureAllPagesUnpinnedAndUnlocked() error {
