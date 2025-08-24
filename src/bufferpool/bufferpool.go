@@ -16,7 +16,7 @@ const noFrame = ^uint64(0)
 type Replacer interface {
 	Pin(pageID common.PageIdentity)
 	Unpin(pageID common.PageIdentity)
-	ChooseVictim() (common.PageIdentity, error)
+	ChooseVictim() (common.PageIdentity, error) // returns ErrNoVictimAvailable if no victim is available
 	GetSize() uint64
 }
 
@@ -202,6 +202,8 @@ func (m *Manager) GetPage(
 	return m.GetPageAssumeLocked(requestedPage)
 }
 
+var ErrNoSpaceLeft = errors.New("no space left in the buffer pool")
+
 func (m *Manager) GetPageAssumeLocked(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
@@ -230,6 +232,9 @@ func (m *Manager) GetPageAssumeLocked(
 
 	victimPageIdent, err := m.replacer.ChooseVictim()
 	if err != nil {
+		if errors.Is(err, ErrNoVictimAvailable) {
+			return nil, ErrNoSpaceLeft
+		}
 		return nil, err
 	}
 

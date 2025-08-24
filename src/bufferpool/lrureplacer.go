@@ -18,6 +18,8 @@ var (
 	_ Replacer = &LRUReplacer{}
 )
 
+var ErrNoVictimAvailable = errors.New("no victim available")
+
 func NewLRUReplacer() *LRUReplacer {
 	return &LRUReplacer{
 		lru:    list.New(),
@@ -53,7 +55,7 @@ func (l *LRUReplacer) ChooseVictim() (common.PageIdentity, error) {
 
 	elem := l.lru.Back()
 	if elem == nil {
-		return common.PageIdentity{}, errors.New("no victim available")
+		return common.PageIdentity{}, ErrNoVictimAvailable
 	}
 
 	frameID := elem.Value.(common.PageIdentity)

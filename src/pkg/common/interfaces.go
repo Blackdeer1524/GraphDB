@@ -2,7 +2,7 @@ package common
 
 type ITxnLogger interface {
 	WithContext(txnID TxnID) ITxnLoggerWithContext
-	GetMasterRecord() LSN
+	GetMasterRecordAssumePoolLocked() LSN
 	Flush() error
 }
 

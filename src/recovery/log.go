@@ -57,7 +57,7 @@ func (p *loggerInfoPage) setInfo(newInfo common.LogRecordLocInfo) {
 
 func (p *loggerInfoPage) Setup() {
 	o := (*page.SlottedPage)(p)
-	o.Clear()
+	o.UnsafeClear()
 
 	slotOpt := o.UnsafeInsertNoLogs(utils.ToBytes[common.LSN](0))
 	assert.Assert(slotOpt.IsSome())
@@ -113,33 +113,23 @@ func NewTxnLogger(
 		},
 	}
 
+	masterRecordIdent := common.PageIdentity{
+		FileID: logFileID,
+		PageID: masterRecordPage,
+	}
+
 	// this will load master log record's page into memory
 	// note that we don't call `Unpin()`. We are going to need this
 	// page during replacement.
 	var err error
-	pg, err := pool.GetPageNoCreate(common.PageIdentity{
-		FileID: logFileID,
-		PageID: masterRecordPage,
-	})
+	pg, err := pool.GetPageNoCreate(masterRecordIdent)
 
 	if errors.Is(err, disk.ErrNoSuchPage) {
-		pg, err = pool.GetPage(common.PageIdentity{
-			FileID: logFileID,
-			PageID: masterRecordPage,
-		})
+		pg, err = pool.GetPage(masterRecordIdent)
 		assert.NoError(err)
-		assert.NoError(pool.WithMarkDirtyNoLoggerLock(
-			common.PageIdentity{
-				FileID: logFileID,
-				PageID: masterRecordPage,
-			},
-			pg,
-			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-				l.masterPage = (*loggerInfoPage)(lockedPage)
-				l.masterPage.Setup()
-				return common.NewNilLogRecordLocation(), nil
-			},
-		))
+		pool.MarkDirtyNoLogsAssumeLocked(masterRecordIdent)
+		l.masterPage = (*loggerInfoPage)(pg)
+		l.masterPage.Setup()
 	} else {
 		assert.NoError(err)
 		l.masterPage = (*loggerInfoPage)(pg)
@@ -845,12 +835,12 @@ func (lockedLogger *txnLogger) newLSN() common.LSN {
 	return lsn
 }
 
-func (lockedLogger *txnLogger) GetMasterRecord() common.LSN {
+func (lockedLogger *txnLogger) GetMasterRecordAssumePoolLocked() common.LSN {
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: lockedLogger.logfileID,
 		PageID: masterRecordPage,
 	}
-	masterRecordPage, err := lockedLogger.pool.GetPageNoCreate(
+	masterRecordPage, err := lockedLogger.pool.GetPageNoCreateAssumeLocked(
 		masterRecordPageIdent,
 	)
 	assert.Assert(
@@ -863,7 +853,7 @@ func (lockedLogger *txnLogger) GetMasterRecord() common.LSN {
 		masterRecordPage.Read(loggerMasterRecordSlot),
 	)
 	masterRecordPage.Unlock()
-	lockedLogger.pool.Unpin(masterRecordPageIdent)
+	lockedLogger.pool.UnpinAssumeLocked(masterRecordPageIdent)
 	return masterRecord
 }
 

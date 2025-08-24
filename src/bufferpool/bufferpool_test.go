@@ -36,6 +36,7 @@ func TestGetPage_Cached(t *testing.T) {
 		frameID:  frameID,
 		pinCount: 0,
 	}
+	manager.DPT[pageIdent] = common.NewNilLogRecordLocation()
 
 	mockReplacer.On("Pin", pageIdent).Return()
 
@@ -236,11 +237,13 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 }
 
 func TestManager_Replacement(t *testing.T) {
-	disk := disk.NewInMemoryManager()
+	dk := disk.NewInMemoryManager()
 	replacer := NewLRUReplacer()
 
 	N := uint64(100)
-	pool := NewDebugBufferPool(New(4, replacer, disk), map[common.PageIdentity]struct{}{})
+	failedCh := make(chan uint64, N)
+
+	pool := NewDebugBufferPool(New(4, replacer, dk), map[common.PageIdentity]struct{}{})
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	fileID := common.FileID(1)
@@ -256,10 +259,14 @@ func TestManager_Replacement(t *testing.T) {
 			}
 
 			pg, err := pool.GetPage(pid)
-			require.NoError(t, err)
-			defer pool.Unpin(pid)
+			if err != nil {
+				assert.ErrorIs(t, err, ErrNoSpaceLeft)
+				failedCh <- i
+				return
+			}
 
-			pool.WithMarkDirty(
+			defer pool.Unpin(pid)
+			assert.NoError(t, pool.WithMarkDirty(
 				pid,
 				pg,
 				common.NoLogs(),
@@ -269,14 +276,23 @@ func TestManager_Replacement(t *testing.T) {
 						pid,
 						lockedLogger,
 					)
-					assert.NoError(t, err)
+					if err != nil {
+						failedCh <- i
+						return logRecordLoc, err
+					}
 					assert.Equal(t, slotID, uint16(0))
 					return logRecordLoc, nil
 				},
-			)
+			))
 		}(i)
 	}
 	wg.Wait()
+	close(failedCh)
+
+	failedIDs := map[uint64]struct{}{}
+	for i := range failedCh {
+		failedIDs[i] = struct{}{}
+	}
 
 	for i := range N {
 		func(i uint64) {
@@ -285,7 +301,13 @@ func TestManager_Replacement(t *testing.T) {
 				PageID: common.PageID(i),
 			}
 
-			pg, err := pool.GetPage(pid)
+			if _, ok := failedIDs[i]; ok {
+				_, err := pool.GetPageNoCreate(pid)
+				assert.ErrorAs(t, err, disk.ErrNoSuchPage)
+				return
+			}
+
+			pg, err := pool.GetPageNoCreate(pid)
 			require.NoError(t, err)
 			defer pool.Unpin(pid)
 
