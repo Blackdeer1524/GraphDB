@@ -94,7 +94,7 @@ func (p *SlottedPage) setupHeader() {
 	head.freeEnd = PageSize
 }
 
-func (p *SlottedPage) Clear() {
+func (p *SlottedPage) UnsafeClear() {
 	for i := range PageSize {
 		p.data[i] = 0
 	}

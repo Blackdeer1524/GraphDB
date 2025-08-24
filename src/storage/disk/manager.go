@@ -15,14 +15,14 @@ import (
 var ErrNoSuchPage = errors.New("no such page")
 
 type logger interface {
-	GetMasterRecord() common.LSN
+	GetMasterRecordAssumePoolLocked() common.LSN
 	Flush() error
 }
 
 type noOpLogger struct{}
 
-func (noOpLogger) GetMasterRecord() common.LSN { return 0 }
-func (noOpLogger) Flush() error                { return nil }
+func (noOpLogger) GetMasterRecordAssumePoolLocked() common.LSN { return 0 }
+func (noOpLogger) Flush() error                                { return nil }
 
 var (
 	_ logger = (common.ITxnLogger)(nil)
@@ -115,7 +115,7 @@ func (m *Manager) WritePage(page *page.SlottedPage, pageIdent common.PageIdentit
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	masterLSN := m.logger.GetMasterRecord()
+	masterLSN := m.logger.GetMasterRecordAssumePoolLocked()
 	if page.PageLSN() > masterLSN {
 		if err := m.logger.Flush(); err != nil {
 			return err
@@ -213,7 +213,7 @@ func (m *InMemoryManager) WritePage(page *page.SlottedPage, pageIdent common.Pag
 		return fmt.Errorf("page %+v not found", pageIdent)
 	}
 
-	masterLSN := m.logger.GetMasterRecord()
+	masterLSN := m.logger.GetMasterRecordAssumePoolLocked()
 	if page.PageLSN() > masterLSN {
 		if err := m.logger.Flush(); err != nil {
 			return err
