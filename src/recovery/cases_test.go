@@ -33,9 +33,22 @@ func TestBankTransactions(t *testing.T) {
 		PageID: masterRecordPage,
 	}
 
+	const (
+		startBalance      = uint32(60)
+		rollbackCutoff    = uint32(0) // startBalance / 3
+		clientsCount      = 5_000
+		txnsCount         = 10_000
+		retryCount        = 1
+		maxEntriesPerPage = 10
+		workersCount      = 10_000
+	)
+
+	pagesLowerBound := uint64(clientsCount / maxEntriesPerPage)
+	// pagesUpperBound := uint64(clientsCount) + 10
+
 	diskManager := disk.NewInMemoryManager()
 	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(3072, bufferpool.NewLRUReplacer(), diskManager),
+		bufferpool.New(pagesLowerBound, bufferpool.NewLRUReplacer(), diskManager),
 		map[common.PageIdentity]struct{}{
 			masterRecordPageIdent: {},
 		},
@@ -57,15 +70,6 @@ func TestBankTransactions(t *testing.T) {
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
 	diskManager.SetLogger(logger)
 
-	const (
-		startBalance      = uint32(60)
-		rollbackCutoff    = uint32(0) // startBalance / 3
-		clientsCount      = 50_000
-		txnsCount         = 25_000
-		retryCount        = 3
-		maxEntriesPerPage = 12
-		workersCount      = 10_000
-	)
 	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)
 

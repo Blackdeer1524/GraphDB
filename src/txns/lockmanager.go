@@ -177,7 +177,7 @@ func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[Loc
 		cur := q.head.next
 		cur.mu.Lock()
 		runningSet := map[common.TxnID]struct{}{}
-		for ; cur != q.tail && cur.status == entryStatusRunning; cur = cur.SafeNext() {
+		for ; cur != q.tail && cur.status == entryStatusAcquired; cur = cur.SafeNext() {
 			runningSet[cur.r.txnID] = struct{}{}
 			graph[cur.r.txnID] = append(
 				graph[cur.r.txnID],
@@ -202,7 +202,7 @@ func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[Loc
 			cur.r.txnID,
 		)
 		assert.Assert(
-			cur.status != entryStatusRunning,
+			cur.status != entryStatusAcquired,
 			"only queue prefix can be running. txnID: %d, status: %s",
 			cur.r.txnID,
 			cur.status,
@@ -226,7 +226,7 @@ func (m *lockManager[LockModeType, ID]) GetGraphSnaphot() txnDependencyGraph[Loc
 		cur.mu.Lock()
 		for cur != q.tail {
 			assert.Assert(
-				cur.status != entryStatusRunning,
+				cur.status != entryStatusAcquired,
 				"only queue prefix can be running",
 			)
 			graph[cur.r.txnID] = append(

@@ -334,7 +334,7 @@ func (l *txnLogger) recoverAnalyze(
 						Lsn:      record.lsn,
 						Location: iter.Location(),
 					}),
-			), "Found a `begin` record for the already running transaction. TransactionID: %d", record.txnID)
+			), "Found a `begin` record for already running transaction. TransactionID: %d", record.txnID)
 		case TypeInsert:
 			record := assert.Cast[InsertLogRecord](untypedRecord)
 
