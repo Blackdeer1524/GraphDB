@@ -83,7 +83,7 @@ func TestBankTransactions(t *testing.T) {
 
 	totalMoney := uint32(0)
 	for id := range recordValues {
-		page, err := pool.GetPageNoCreate(id.PageIdentity())
+		page, err := pool.GetPageNoCreate(0, id.PageIdentity())
 		require.NoError(t, err)
 		page.Lock()
 		page.Update(id.SlotNum, utils.ToBytes[uint32](startBalance))
@@ -174,7 +174,7 @@ func TestBankTransactions(t *testing.T) {
 			return false
 		}
 
-		myPage, err := pool.GetPageNoCreate(me.PageIdentity())
+		myPage, err := pool.GetPageNoCreate(0, me.PageIdentity())
 		require.NoError(t, err)
 		defer func() { pool.Unpin(me.PageIdentity()) }()
 
@@ -204,7 +204,7 @@ func TestBankTransactions(t *testing.T) {
 			return false
 		}
 
-		firstPage, err := pool.GetPageNoCreate(first.PageIdentity())
+		firstPage, err := pool.GetPageNoCreate(0, first.PageIdentity())
 		require.NoError(t, err)
 		defer func() { pool.Unpin(first.PageIdentity()) }()
 
@@ -236,7 +236,7 @@ func TestBankTransactions(t *testing.T) {
 			func() (common.LogRecordLocInfo, error) {
 				myPage.Lock()
 				defer myPage.Unlock()
-				logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
+				logLoc, err := myPage.UpdateWithLogs(txnID, myNewBalance, me, logger)
 				return logLoc, err
 			},
 		)
@@ -249,6 +249,7 @@ func TestBankTransactions(t *testing.T) {
 				firstPage.Lock()
 				defer firstPage.Unlock()
 				logLoc, err := firstPage.UpdateWithLogs(
+					txnID,
 					firstNewBalance,
 					first,
 					logger,
@@ -335,7 +336,7 @@ func TestBankTransactions(t *testing.T) {
 	t.Log("ensuring consistency...")
 	finalTotalMoney := uint32(0)
 	for id := range recordValues {
-		page, err := pool.GetPageNoCreate(id.PageIdentity())
+		page, err := pool.GetPageNoCreate(0, id.PageIdentity())
 		require.NoError(t, err)
 		page.RLock()
 		curMoney := utils.FromBytes[uint32](page.Read(id.SlotNum))

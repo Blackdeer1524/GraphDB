@@ -364,7 +364,7 @@ func TestMassiveRecovery(t *testing.T) {
 							SlotNum: recordLoc.SlotNum,
 						}, NEW, NEW2)
 					func() {
-						p, err := pool.GetPageNoCreate(pageID)
+						p, err := pool.GetPageNoCreate(0, pageID)
 						require.NoError(t, err)
 
 						defer pool.Unpin(pageID)
@@ -409,7 +409,7 @@ func TestMassiveRecovery(t *testing.T) {
 				FileID: DataFileID,
 				PageID: location.PageID,
 			}
-			p, err := pool.GetPageNoCreate(dataPageId)
+			p, err := pool.GetPageNoCreate(0, dataPageId)
 			require.NoError(t, err)
 			defer func() { pool.Unpin(dataPageId) }()
 
@@ -845,7 +845,7 @@ func TestLoggerRollback(t *testing.T) {
 
 				newValue := rand.Uint32()
 				t.Logf("[%d] getting page %+v", txnID, info.key.PageIdentity())
-				page, err := pool.GetPageNoCreate(info.key.PageIdentity())
+				page, err := pool.GetPageNoCreate(txnID, info.key.PageIdentity())
 				require.NoError(t, err)
 				t.Logf("[%d] updating page %+v", txnID, info.key.PageIdentity())
 				err = pool.WithMarkDirty(
@@ -856,6 +856,7 @@ func TestLoggerRollback(t *testing.T) {
 						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
 
 						return page.UpdateWithLogs(
+							txnID,
 							utils.ToBytes[uint32](newValue),
 							info.key,
 							logger,
@@ -892,7 +893,7 @@ func TestLoggerRollback(t *testing.T) {
 				}
 
 				t.Logf("[%d] getting page %+v", txnID, info.key.PageIdentity())
-				page, err := pool.GetPageNoCreate(info.key.PageIdentity())
+				page, err := pool.GetPageNoCreate(0, info.key.PageIdentity())
 				require.NoError(t, err)
 				t.Logf("[%d] deleting page %+v", txnID, info.key.PageIdentity())
 				err = pool.WithMarkDirty(
@@ -921,7 +922,7 @@ func TestLoggerRollback(t *testing.T) {
 				FileID: k.FileID,
 				PageID: k.PageID,
 			}
-			page, err := pool.GetPageNoCreate(pageID)
+			page, err := pool.GetPageNoCreate(0, pageID)
 			assert.NoError(t, err)
 			defer func() { pool.Unpin(pageID) }()
 

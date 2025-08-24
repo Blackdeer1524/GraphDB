@@ -9,7 +9,7 @@ import (
 )
 
 type LRUReplacer struct {
-	mu     sync.Mutex
+	mu     *sync.Mutex
 	lru    *list.List
 	frames map[common.PageIdentity]*list.Element
 }
@@ -22,6 +22,7 @@ func NewLRUReplacer() *LRUReplacer {
 	return &LRUReplacer{
 		lru:    list.New(),
 		frames: make(map[common.PageIdentity]*list.Element),
+		mu:     new(sync.Mutex),
 	}
 }
 
