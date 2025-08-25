@@ -717,7 +717,7 @@ func TestLoggerRollback(t *testing.T) {
 		PageID: common.CheckpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
+		bufferpool.New(100, bufferpool.NewLRUReplacer(), diskManager),
 		map[common.PageIdentity]struct{}{
 			masterRecordPageIdent: {},
 		},
@@ -735,7 +735,6 @@ func TestLoggerRollback(t *testing.T) {
 		logStartLocation,
 	)
 	logger := NewTxnLogger(pool, logFileID)
-	pool.SetLogger(logger)
 
 	defer func() {
 		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
@@ -753,7 +752,7 @@ func TestLoggerRollback(t *testing.T) {
 		}
 	}
 
-	recordValues := fillPages(t, logger, math.MaxUint64, 2000, files, 1024, 40)
+	recordValues := fillPages(t, logger, math.MaxUint64, 20_000, files, 1024, 40)
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	updatedValues := make(map[common.RecordID]uint32, len(recordValues))
@@ -781,7 +780,8 @@ func TestLoggerRollback(t *testing.T) {
 
 	txnID := atomic.Uint64{}
 	wg := sync.WaitGroup{}
-	for batch := range mapBatch(recordValues, 10) {
+	t.Log("starting to process...")
+	for batch := range mapBatch(recordValues, 200) {
 		wg.Add(1)
 		go func(batch []KVPair[common.RecordID, uint32]) {
 			defer func() {
@@ -854,7 +854,7 @@ func TestLoggerRollback(t *testing.T) {
 						)
 					},
 				)
-				pool.UnpinAssumeLocked(info.key.PageIdentity())
+				pool.Unpin(info.key.PageIdentity())
 				t.Logf("[%d] done updating page %+v", txnID, info.key.PageIdentity())
 				assert.NoError(t, err)
 			}
@@ -959,7 +959,8 @@ func fillPages(
 
 	chain.Begin()
 	for range length {
-		for {
+		i := 0
+		for i = range 256 {
 			pageID := common.PageIdentity{
 				FileID: common.FileID(fileIDs[rand.Int()%len(fileIDs)]),
 				PageID: common.PageID(rand.Uint64() % 1024),
@@ -1015,9 +1016,65 @@ func fillPages(
 				break
 			}
 		}
+		require.True(t, i < 256)
 	}
 	chain.Commit()
 
 	require.NoError(t, chain.Err())
 	return res
+}
+
+func TestTxnLoggerWithContext_Rollback(t *testing.T) {
+	masterRecordPageIdent := common.PageIdentity{
+		FileID: 42,
+		PageID: common.CheckpointInfoPageID,
+	}
+
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
+
+	defer func() {
+		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	}()
+	logger := NewTxnLogger(pool, 42)
+
+	dataPageID := common.PageIdentity{
+		FileID: 321,
+		PageID: 64,
+	}
+
+	pg, err := pool.GetPage(dataPageID)
+	require.NoError(t, err)
+	defer pool.Unpin(dataPageID)
+
+	txnID := common.TxnID(100)
+	slot := uint16(123)
+	require.NoError(t, pool.WithMarkDirty(
+		txnID,
+		dataPageID,
+		pg,
+		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+			slotOpt := lockedPage.UnsafeInsertNoLogs([]byte("test"))
+			require.True(t, slotOpt.IsSome())
+			slot = slotOpt.Unwrap()
+			return common.NewNilLogRecordLocation(), nil
+		},
+	))
+
+	chain := NewTxnLogChain(logger, txnID).
+		Begin().
+		Insert(common.RecordID{
+			FileID:  dataPageID.FileID,
+			PageID:  dataPageID.PageID,
+			SlotNum: slot,
+		}, []byte("test")).
+		Abort()
+
+	require.NoError(t, chain.Err())
+	logger.Rollback(chain.Loc())
 }

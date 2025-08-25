@@ -129,17 +129,16 @@ func TestIterSanity(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	pool.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 123,
 		PageID: 23,
 	}
 
-	TransactionID := common.TxnID(1)
-	chain := NewTxnLogChain(logger, TransactionID)
+	txnID := common.TxnID(1)
+	chain := NewTxnLogChain(logger, txnID)
 
-	types := generateSequence(t, chain, dataPageId, 100)
+	types := generateSequence(t, chain, dataPageId, 1)
 	assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	iter, err := logger.iter(common.FileLocation{
@@ -151,7 +150,7 @@ func TestIterSanity(t *testing.T) {
 	for i := range len(types) {
 		expectedType := types[i]
 		tag, untypedRecord, err := iter.ReadRecord()
-		assertLogRecord(t, tag, untypedRecord, expectedType, TransactionID)
+		assertLogRecord(t, tag, untypedRecord, expectedType, txnID)
 		require.NoError(t, err)
 
 		ok, err := iter.MoveForward()

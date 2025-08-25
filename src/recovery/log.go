@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
@@ -61,7 +62,7 @@ type txnLogger struct {
 	// ================
 	flushLSN       common.LSN
 	firstDirtyPage common.PageID
-	currentPage    common.PageID
+	curPage        common.PageID
 }
 
 /*
@@ -83,7 +84,7 @@ func NewTxnLogger(
 		seqMu:           sync.Mutex{},
 		logRecordsCount: 0,
 		firstDirtyPage:  0,
-		currentPage:     0,
+		curPage:         0,
 	}
 
 	pool.SetLogger(l)
@@ -111,7 +112,7 @@ func NewTxnLogger(
 
 	checkpointLocation := l.masterPage.GetCheckpointLocation()
 	l.firstDirtyPage = checkpointLocation.PageID
-	l.currentPage = checkpointLocation.PageID
+	l.curPage = checkpointLocation.PageID
 
 	checkpointPageIdent := common.PageIdentity{
 		FileID: l.logfileID,
@@ -239,34 +240,27 @@ func (l *txnLogger) Dump(start common.FileLocation, b *strings.Builder) {
 }
 
 func (l *txnLogger) GetFlushInfo() (common.FileID, common.PageID, common.PageID, common.LSN) {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
-	return l.logfileID, common.PageID(
-			l.firstDirtyPage,
-		), common.PageID(
-			l.currentPage,
-		), common.LSN(
-			l.logRecordsCount,
-		)
+	// no parrallel flushing is possible, so no need for locks
+	firstDP := atomic.LoadUint64((*uint64)(&l.firstDirtyPage))
+	curPage := atomic.LoadUint64((*uint64)(&l.curPage))
+	logRecordsCount := atomic.LoadUint64((*uint64)(&l.logRecordsCount))
+
+	return l.logfileID, common.PageID(firstDP), common.PageID(curPage), common.LSN(logRecordsCount)
 }
 
 func (l *txnLogger) GetFlushLSN() common.LSN {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
-	return l.flushLSN
+	// no parrallel flushing is possible, so no need for locks
+	return common.LSN(atomic.LoadUint64(&l.logRecordsCount))
 }
 
 func (l *txnLogger) UpdateFirstUnflushedPage(pageID common.PageID) {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
-	l.firstDirtyPage = pageID
+	// no parrallel flushing is possible, so no need for locks
+	atomic.StoreUint64((*uint64)(&l.firstDirtyPage), uint64(pageID))
 }
 
 func (l *txnLogger) UpdateFlushLSN(lsn common.LSN) {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
-
-	l.flushLSN = lsn
+	// no parrallel flushing is possible, so no need for locks
+	atomic.StoreUint64((*uint64)(&l.flushLSN), uint64(lsn))
 }
 
 func (l *txnLogger) Recover(checkpointLocation common.FileLocation) {
@@ -651,7 +645,7 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 		}
 	}
 
-	l.currentPage = iter.PageID()
+	l.curPage = iter.PageID()
 	l.firstDirtyPage = iter.PageID()
 }
 
@@ -686,7 +680,7 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 ) (common.FileLocation, error) {
 	pageInfo := common.PageIdentity{
 		FileID: lockedLogger.logfileID,
-		PageID: lockedLogger.currentPage,
+		PageID: lockedLogger.curPage,
 	}
 
 	p, err := lockedLogger.pool.GetPageAssumeLocked(pageInfo)
@@ -696,21 +690,20 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 
 	p.Lock()
 	slotNumberOpt := p.UnsafeInsertNoLogs(serializedRecord)
-	p.Unlock()
-
-	lockedLogger.pool.UnpinAssumeLocked(pageInfo)
 	lockedLogger.pool.MarkDirtyNoLogsAssumeLocked(pageInfo)
+	p.Unlock()
+	lockedLogger.pool.UnpinAssumeLocked(pageInfo)
 
 	if slotNumberOpt.IsSome() {
 		slotNumber := slotNumberOpt.Unwrap()
 		loc := common.FileLocation{
-			PageID:  lockedLogger.currentPage,
+			PageID:  lockedLogger.curPage,
 			SlotNum: slotNumber,
 		}
-		return loc, err
+		return loc, nil
 	}
 
-	lockedLogger.currentPage++
+	lockedLogger.curPage++
 	pageInfo.PageID++
 
 	p, err = lockedLogger.pool.GetPageAssumeLocked(pageInfo)
@@ -725,13 +718,12 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 		"impossible, because (1) the logger is locked [no concurrent writes are possible] "+
 			"and (2) the newly allocated page should be empty",
 	)
-	p.Unlock()
-
-	lockedLogger.pool.UnpinAssumeLocked(pageInfo)
 	lockedLogger.pool.MarkDirtyNoLogsAssumeLocked(pageInfo)
+	p.Unlock()
+	lockedLogger.pool.UnpinAssumeLocked(pageInfo)
 
 	loc := common.FileLocation{
-		PageID:  lockedLogger.currentPage,
+		PageID:  lockedLogger.curPage,
 		SlotNum: slotNumberOpt.Unwrap(),
 	}
 	return loc, err
@@ -775,7 +767,7 @@ func loggerUndoRecord[T RevertableLogRecord](
 		l.seqMu.Lock()
 		defer l.seqMu.Unlock()
 
-		clr := record.Undo(
+		clr = record.Undo(
 			l.newLSN(),
 			parentLocation,
 		)
@@ -953,7 +945,7 @@ func (l *txnLogger) activateCLR(record *CompensationLogRecord) error {
 	defer l.pool.Unpin(pageID)
 
 	return l.pool.WithMarkDirty(
-		common.NilTxnID,
+		record.txnID,
 		pageID,
 		pg,
 		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
