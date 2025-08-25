@@ -28,20 +28,17 @@ type BufferPool interface {
 	GetPageNoCreate(common.PageIdentity) (*page.SlottedPage, error)
 	GetPageNoCreateAssumeLocked(common.PageIdentity) (*page.SlottedPage, error)
 	WithMarkDirty(
-		common.PageIdentity,
-		*page.SlottedPage,
-		common.ITxnLoggerWithContext,
-		func(*page.SlottedPage, common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error),
-	) error
-	WithMarkDirtyNoLoggerLock(
+		common.TxnID,
 		common.PageIdentity,
 		*page.SlottedPage,
 		func(*page.SlottedPage) (common.LogRecordLocInfo, error),
 	) error
-	MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity)
-	GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo
+	MarkDirtyNoLogsAssumeLocked(common.PageIdentity)
+	WithMarkDirtyLogPage(func() (common.LogRecordLocInfo, error)) (common.LogRecordLocInfo, error)
+	GetDPTandATT() (map[common.PageIdentity]common.LogRecordLocInfo, map[common.TxnID]common.LogRecordLocInfo)
 	FlushPage(common.PageIdentity) error
 	FlushAllPages() error
+	FlushLogs() error
 }
 
 type frameInfo struct {
@@ -50,18 +47,19 @@ type frameInfo struct {
 }
 
 type Manager struct {
-	poolSize    uint64
+	poolSize uint64
+
+	mu          sync.RWMutex
 	pageTable   map[common.PageIdentity]frameInfo
 	frames      []page.SlottedPage
 	emptyFrames []uint64
 
 	DPT map[common.PageIdentity]common.LogRecordLocInfo
+	ATT map[common.TxnID]common.LogRecordLocInfo
 
-	replacer Replacer
-
+	replacer    Replacer
 	diskManager common.DiskManager[*page.SlottedPage]
-
-	mu sync.Mutex
+	logger      common.ITxnLogger
 }
 
 func New(
@@ -78,12 +76,14 @@ func New(
 
 	m := &Manager{
 		poolSize:    poolSize,
+		mu:          sync.RWMutex{},
 		pageTable:   map[common.PageIdentity]frameInfo{},
 		frames:      make([]page.SlottedPage, poolSize),
 		emptyFrames: emptyFrames,
 		replacer:    replacer,
 		diskManager: diskManager,
 		DPT:         map[common.PageIdentity]common.LogRecordLocInfo{},
+		ATT:         map[common.TxnID]common.LogRecordLocInfo{},
 	}
 
 	return m
@@ -96,10 +96,14 @@ var (
 func (m *Manager) Unpin(pIdent common.PageIdentity) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.UnpinAssumeLocked(pIdent)
+
+	m.Unpin(pIdent)
 }
 
 func (m *Manager) UnpinAssumeLocked(pIdent common.PageIdentity) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	frameInfo, ok := m.pageTable[pIdent]
 	assert.Assert(ok, "coulnd't unpin page %+v: page not found")
 	assert.Assert(frameInfo.pinCount > 0, "invalid pin count")
@@ -124,19 +128,25 @@ func (m *Manager) pin(pIdent common.PageIdentity) {
 func (m *Manager) GetPageNoCreate(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
+	// fast path
+	m.mu.RLock()
+	if frameInfo, ok := m.pageTable[requestedPage]; ok {
+		m.mu.RUnlock()
+		m.pin(requestedPage)
+		return &m.frames[frameInfo.frameID], nil
+	}
+	m.mu.RUnlock()
+
+	// slow path
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.GetPageNoCreateAssumeLocked(requestedPage)
 }
 
 func (m *Manager) GetPageNoCreateAssumeLocked(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
-	if frameInfo, ok := m.pageTable[requestedPage]; ok {
-		m.pin(requestedPage)
-		return &m.frames[frameInfo.frameID], nil
-	}
-
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
 		page := &m.frames[frameID]
@@ -197,12 +207,20 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 func (m *Manager) GetPage(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
+	// fast path
+	m.mu.RLock()
+	if frameInfo, ok := m.pageTable[requestedPage]; ok {
+		m.mu.RUnlock()
+		m.pin(requestedPage)
+		return &m.frames[frameInfo.frameID], nil
+	}
+	m.mu.RUnlock()
+
+	// slow path
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.GetPageAssumeLocked(requestedPage)
 }
-
-var ErrNoSpaceLeft = errors.New("no space left in the buffer pool")
 
 func (m *Manager) GetPageAssumeLocked(
 	requestedPage common.PageIdentity,
@@ -232,9 +250,6 @@ func (m *Manager) GetPageAssumeLocked(
 
 	victimPageIdent, err := m.replacer.ChooseVictim()
 	if err != nil {
-		if errors.Is(err, ErrNoVictimAvailable) {
-			return nil, ErrNoSpaceLeft
-		}
 		return nil, err
 	}
 
@@ -272,56 +287,39 @@ func (m *Manager) GetPageAssumeLocked(
 	return victimPage, nil
 }
 
+var ErrNoSpaceLeft = errors.New("no space left in the buffer pool")
+
 func (m *Manager) WithMarkDirty(
+	txnID common.TxnID,
 	pageIdent common.PageIdentity,
 	page *page.SlottedPage,
-	logger common.ITxnLoggerWithContext,
-	fn func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error),
+	fn func(lockedPage *page.SlottedPage) (loc common.LogRecordLocInfo, err error),
 ) error {
-	logger.Lock()
-	defer logger.Unlock()
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	page.Lock()
 	defer page.Unlock()
 
-	loc, err := fn(page, logger)
+	loc, err := fn(page)
 	if err != nil {
 		return err
 	}
 
 	if _, ok := m.DPT[pageIdent]; !ok {
 		m.DPT[pageIdent] = loc
+	}
+	if txnID != common.NilTxnID {
+		m.ATT[txnID] = loc
 	}
 	return nil
 }
 
 func (m *Manager) MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity) {
-	m.DPT[pageIdent] = common.NewNilLogRecordLocation()
-}
-
-func (m *Manager) WithMarkDirtyNoLoggerLock(
-	pageIdent common.PageIdentity,
-	pg *page.SlottedPage,
-	fn func(*page.SlottedPage) (common.LogRecordLocInfo, error),
-) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	pg.Lock()
-	defer pg.Unlock()
-
-	loc, err := fn(pg)
-	if err != nil {
-		return err
-	}
-
-	if _, ok := m.DPT[pageIdent]; !ok {
+	loc, ok := m.DPT[pageIdent]
+	if !ok {
 		m.DPT[pageIdent] = loc
 	}
-	return nil
 }
 
 func (m *Manager) reserveFrame() uint64 {
@@ -334,25 +332,65 @@ func (m *Manager) reserveFrame() uint64 {
 	return noFrame
 }
 
-func (m *Manager) FlushPage(pIdent common.PageIdentity) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// WARN: expects diskManager to be locked
+func (m *Manager) flushLogPages() error {
+	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
+	logPageID := startPageID
 
-	frameInfo, ok := m.pageTable[pIdent]
-	if !ok {
-		return fmt.Errorf("no such page: %+v", pIdent)
+	for ; logPageID <= endPageID; logPageID++ {
+		logPageIdent := common.PageIdentity{
+			FileID: logFileID,
+			PageID: common.PageID(logPageID),
+		}
+		if _, ok := m.DPT[logPageIdent]; !ok {
+			continue
+		}
+
+		logPageInfo, ok := m.pageTable[logPageIdent]
+		assert.Assert(ok, "dirty log page %+v not found", logPageIdent)
+
+		logPage := &m.frames[logPageInfo.frameID]
+		err := func() error {
+			logPage.Lock()
+			defer logPage.Unlock()
+
+			err := m.diskManager.WritePageAssumeLocked(logPage, logPageIdent)
+			if err != nil {
+				return err
+			}
+
+			delete(m.DPT, logPageIdent)
+			return nil
+		}()
+		if err != nil {
+			m.logger.UpdateFirstUnflushedPage(logPageID)
+			return err
+		}
 	}
 
+	m.logger.UpdateFirstUnflushedPage(logPageID)
+	m.logger.UpdateFlushLSN(lastLSN)
+	return nil
+}
+
+func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdentity) error {
 	if _, ok := m.DPT[pIdent]; !ok {
 		return nil
 	}
 
-	frame := &m.frames[frameInfo.frameID]
-	err := m.diskManager.WritePage(frame, pIdent)
-	if err != nil {
-		return fmt.Errorf("failed to write page to disk: %w", err)
+	m.diskManager.Lock()
+	defer m.diskManager.Unlock()
+	flushLSN := m.logger.GetFlushLSN()
+	if lockedPg.PageLSN() > flushLSN {
+		if err := m.flushLogPages(); err != nil {
+			return err
+		}
 	}
 
+	err := m.diskManager.WritePageAssumeLocked(lockedPg, pIdent)
+	if err != nil {
+		return err
+	}
 	delete(m.DPT, pIdent)
 	return nil
 }
@@ -361,28 +399,38 @@ func (m *Manager) FlushAllPages() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var err error
-	for pgIdent, pgInfo := range m.pageTable {
-		if _, ok := m.DPT[pgIdent]; !ok {
-			continue
-		}
+	m.diskManager.Lock()
+	defer m.diskManager.Unlock()
 
-		frame := &m.frames[pgInfo.frameID]
+	if err := m.flushLogPages(); err != nil {
+		return err
+	}
+
+	flushLSN := m.logger.GetFlushLSN()
+
+	var err error
+	for pgIdent := range m.DPT {
+		frameInfo, ok := m.pageTable[pgIdent]
+		assert.Assert(ok, "dirty page %+v not found", pgIdent)
+
+		frame := &m.frames[frameInfo.frameID]
 		if !frame.TryLock() {
 			continue
 		}
-		err = errors.Join(err, m.diskManager.WritePage(frame, pgIdent))
+		assert.Assert(frame.PageLSN() <= flushLSN, "didn't flush logs for page %+v", pgIdent)
+
+		err = errors.Join(err, m.diskManager.WritePageAssumeLocked(frame, pgIdent))
 		frame.Unlock()
-		delete(m.DPT, pgIdent)
 	}
 
+	clear(m.DPT)
 	return err
 }
 
-func (m *Manager) GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return maps.Clone(m.DPT)
+func (m *Manager) GetDPTandATT() (map[common.PageIdentity]common.LogRecordLocInfo, map[common.TxnID]common.LogRecordLocInfo) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return maps.Clone(m.DPT), maps.Clone(m.ATT)
 }
 
 type DebugBufferPool struct {
@@ -394,30 +442,6 @@ var (
 	_ BufferPool = &DebugBufferPool{}
 )
 
-func (d *DebugBufferPool) MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity) {
-	d.m.MarkDirtyNoLogsAssumeLocked(pageIdent)
-}
-
-func (d *DebugBufferPool) WithMarkDirtyNoLoggerLock(
-	pageIdent common.PageIdentity,
-	pg *page.SlottedPage,
-	fn func(*page.SlottedPage) (common.LogRecordLocInfo, error),
-) error {
-	return d.m.WithMarkDirtyNoLoggerLock(pageIdent, pg, fn)
-}
-
-func (d *DebugBufferPool) GetPageAssumeLocked(
-	pIdent common.PageIdentity,
-) (*page.SlottedPage, error) {
-	return d.m.GetPageAssumeLocked(pIdent)
-}
-
-func (d *DebugBufferPool) GetPageNoCreateAssumeLocked(
-	pIdent common.PageIdentity,
-) (*page.SlottedPage, error) {
-	return d.m.GetPageNoCreateAssumeLocked(pIdent)
-}
-
 func NewDebugBufferPool(
 	m *Manager,
 	leakedPages map[common.PageIdentity]struct{},
@@ -427,14 +451,6 @@ func NewDebugBufferPool(
 
 func (d *DebugBufferPool) FlushAllPages() error {
 	return d.m.FlushAllPages()
-}
-
-func (d *DebugBufferPool) FlushPage(pIdent common.PageIdentity) error {
-	return d.m.FlushPage(pIdent)
-}
-
-func (d *DebugBufferPool) GetDirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {
-	return d.m.GetDirtyPageTable()
 }
 
 func (d *DebugBufferPool) GetPage(pIdent common.PageIdentity) (*page.SlottedPage, error) {
@@ -449,17 +465,17 @@ func (d *DebugBufferPool) Unpin(pIdent common.PageIdentity) {
 	d.m.Unpin(pIdent)
 }
 
-func (d *DebugBufferPool) UnpinAssumeLocked(pIdent common.PageIdentity) {
-	d.m.UnpinAssumeLocked(pIdent)
-}
-
 func (d *DebugBufferPool) WithMarkDirty(
+	txnID common.TxnID,
 	pIdent common.PageIdentity,
 	page *page.SlottedPage,
-	logger common.ITxnLoggerWithContext,
-	fn func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error),
+	fn func(lockedPage *page.SlottedPage) (loc common.LogRecordLocInfo, err error),
 ) error {
-	return d.m.WithMarkDirty(pIdent, page, logger, fn)
+	return d.m.WithMarkDirty(txnID, pIdent, page, fn)
+}
+
+func (d *DebugBufferPool) GetDPTandATT() (map[common.PageIdentity]common.LogRecordLocInfo, map[common.TxnID]common.LogRecordLocInfo) {
+	return d.m.GetDPTandATT()
 }
 
 func (d *DebugBufferPool) EnsureAllPagesUnpinnedAndUnlocked() error {

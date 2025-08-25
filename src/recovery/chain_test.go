@@ -38,7 +38,7 @@ func TestChainSanity(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: masterRecordPage,
+		PageID: checkpointInfoPageID,
 	}
 
 	diskManager := disk.NewInMemoryManager()
@@ -267,7 +267,7 @@ func TestChain(t *testing.T) {
 	logFileID := common.FileID(42)
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: masterRecordPage,
+		PageID: checkpointInfoPageID,
 	}
 
 	diskManager := disk.NewInMemoryManager()

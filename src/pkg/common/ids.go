@@ -14,6 +14,8 @@ type TableID uint64
 // in distributed systems that use this kind of transaction IDs
 type TxnID uint64
 
+const NilTxnID = TxnID(0)
+
 type PageIdentity struct {
 	FileID FileID
 	PageID PageID

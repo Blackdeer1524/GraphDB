@@ -15,14 +15,14 @@ import (
 var ErrNoSuchPage = errors.New("no such page")
 
 type logger interface {
-	GetMasterRecordAssumePoolLocked() common.LSN
+	GetFlushLSN() common.LSN
 	Flush() error
 }
 
 type noOpLogger struct{}
 
-func (noOpLogger) GetMasterRecordAssumePoolLocked() common.LSN { return 0 }
-func (noOpLogger) Flush() error                                { return nil }
+func (noOpLogger) GetFlushLSN() common.LSN { return 0 }
+func (noOpLogger) Flush() error            { return nil }
 
 var (
 	_ logger = (common.ITxnLogger)(nil)
@@ -203,24 +203,25 @@ func (m *InMemoryManager) ReadPage(pg *page.SlottedPage, pageIdent common.PageId
 	return nil
 }
 
-func (m *InMemoryManager) WritePage(page *page.SlottedPage, pageIdent common.PageIdentity) error {
+func (m *InMemoryManager) Lock() {
+	m.mu.Lock()
+}
+
+func (m *InMemoryManager) Unlock() {
+	m.mu.Unlock()
+}
+
+func (m *InMemoryManager) WritePageAssumeLocked(
+	pg *page.SlottedPage,
+	pgIdent common.PageIdentity,
+) error {
 	assert.Assert(m.logger != nil, "logger is not set")
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.pages[pageIdent]; !ok {
-		return fmt.Errorf("page %+v not found", pageIdent)
+	if _, ok := m.pages[pgIdent]; !ok {
+		return fmt.Errorf("page %+v not found", pgIdent)
 	}
 
-	masterLSN := m.logger.GetMasterRecordAssumePoolLocked()
-	if page.PageLSN() > masterLSN {
-		if err := m.logger.Flush(); err != nil {
-			return err
-		}
-	}
-
-	m.pages[pageIdent].SetData(page.GetData())
+	m.pages[pgIdent].SetData(pg.GetData())
 	return nil
 }
 
