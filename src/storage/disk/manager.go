@@ -181,7 +181,7 @@ func (m *Manager) WritePageAssumeLocked(
 }
 
 type InMemoryManager struct {
-	mu    sync.RWMutex
+	mu    sync.Mutex
 	pages map[common.PageIdentity]*page.SlottedPage
 	logger logger
 }
@@ -192,7 +192,7 @@ var (
 
 func NewInMemoryManager() *InMemoryManager {
 	return &InMemoryManager{
-		mu:    sync.RWMutex{},
+		mu:    sync.Mutex{},
 		pages: make(map[common.PageIdentity]*page.SlottedPage),
 	}
 }
@@ -209,8 +209,8 @@ func (m *InMemoryManager) GetPageNoNew(
 	pg *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	return m.GetPageNoNewAssumeLocked(pg, pageIdent)
 }
@@ -230,16 +230,6 @@ func (m *InMemoryManager) GetPageNoNewAssumeLocked(
 }
 
 func (m *InMemoryManager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
-	m.mu.RLock()
-	storedPage, ok := m.pages[pageIdent]
-	if ok {
-		pg.SetData(storedPage.GetData())
-		pg.UnsafeInitLatch()
-		m.mu.RUnlock()
-		return nil
-	}
-	m.mu.RUnlock()
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.ReadPageAssumeLocked(pg, pageIdent)

@@ -42,11 +42,7 @@ func (c *TxnLogChain) Begin() *TxnLogChain {
 		return c
 	}
 
-	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AppendBegin(c.txnID)
-		},
-	)
+	c.lastLocations[c.txnID], c.err = c.logger.AppendBegin(c.txnID)
 
 	return c
 }
@@ -141,15 +137,7 @@ func (c *TxnLogChain) Commit() *TxnLogChain {
 		return c
 	}
 
-	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AppendCommit(
-				c.txnID,
-				c.lastLocations[c.txnID],
-			)
-		},
-	)
-
+	c.lastLocations[c.txnID], c.err = c.logger.AppendCommit(c.txnID, c.lastLocations[c.txnID])
 	return c
 }
 
@@ -163,14 +151,7 @@ func (c *TxnLogChain) Abort() *TxnLogChain {
 		return c
 	}
 
-	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AppendAbort(
-				c.txnID,
-				c.lastLocations[c.txnID],
-			)
-		},
-	)
+	c.lastLocations[c.txnID], c.err = c.logger.AppendAbort(c.txnID, c.lastLocations[c.txnID])
 
 	return c
 }
@@ -185,14 +166,7 @@ func (c *TxnLogChain) TxnEnd() *TxnLogChain {
 		return c
 	}
 
-	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AppendTxnEnd(
-				c.txnID,
-				c.lastLocations[c.txnID],
-			)
-		},
-	)
+	c.lastLocations[c.txnID], c.err = c.logger.AppendTxnEnd(c.txnID, c.lastLocations[c.txnID])
 
 	return c
 }
@@ -202,11 +176,7 @@ func (c *TxnLogChain) CheckpointBegin() *TxnLogChain {
 		return c
 	}
 
-	_, c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return common.NewNilLogRecordLocation(), c.logger.AppendCheckpointBegin()
-		},
-	)
+	c.err = c.logger.AppendCheckpointBegin()
 
 	return c
 }
@@ -219,12 +189,7 @@ func (c *TxnLogChain) CheckpointEnd(
 		return c
 	}
 
-	_, c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return common.NewNilLogRecordLocation(), c.logger.AppendCheckpointEnd(ATT, DPT)
-		},
-	)
-
+	c.err = c.logger.AppendCheckpointEnd(ATT, DPT)
 	return c
 }
 

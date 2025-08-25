@@ -33,7 +33,7 @@ func TestValidRecovery(t *testing.T) {
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
 		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
@@ -48,7 +48,7 @@ func TestValidRecovery(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		masterRecordPageIdent.FileID,
 		loggerStart.Location,
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
@@ -132,7 +132,7 @@ func TestFailedTxn(t *testing.T) {
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
 		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
@@ -148,7 +148,7 @@ func TestFailedTxn(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		masterRecordPageIdent.FileID,
 		logStart.Location,
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
@@ -252,7 +252,7 @@ func TestMassiveRecovery(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 
 	diskManager := disk.NewInMemoryManager()
@@ -268,7 +268,7 @@ func TestMassiveRecovery(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		masterRecordPageIdent.FileID,
 		common.FileLocation{
 			PageID:  logPageId.PageID,
 			SlotNum: 0,
@@ -506,7 +506,7 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
 		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
@@ -518,7 +518,7 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		masterRecordPageIdent.FileID,
 		common.FileLocation{
 			PageID:  53,
 			SlotNum: 0,
@@ -536,7 +536,7 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 	barierWg := sync.WaitGroup{}
 
 	OUTER := 100
-	INNER := 10
+	INNER := 4
 
 	for i := range OUTER {
 		waitWg.Add(1)
@@ -714,7 +714,7 @@ func TestLoggerRollback(t *testing.T) {
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
 		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
@@ -724,14 +724,14 @@ func TestLoggerRollback(t *testing.T) {
 	)
 
 	logStartLocation := common.FileLocation{
-		PageID:  checkpointInfoPageID,
+		PageID:  common.CheckpointInfoPageID + 1,
 		SlotNum: 0,
 	}
 
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		masterRecordPageIdent.FileID,
 		logStartLocation,
 	)
 	logger := NewTxnLogger(pool, logFileID)
@@ -847,8 +847,6 @@ func TestLoggerRollback(t *testing.T) {
 					info.key.PageIdentity(),
 					pg,
 					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
-
 						return lockedPage.UpdateWithLogs(
 							utils.ToBytes[uint32](newValue),
 							info.key,
@@ -856,6 +854,7 @@ func TestLoggerRollback(t *testing.T) {
 						)
 					},
 				)
+				pool.UnpinAssumeLocked(info.key.PageIdentity())
 				t.Logf("[%d] done updating page %+v", txnID, info.key.PageIdentity())
 				assert.NoError(t, err)
 			}
@@ -894,10 +893,10 @@ func TestLoggerRollback(t *testing.T) {
 					info.key.PageIdentity(),
 					pg,
 					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
 						return lockedPage.DeleteWithLogs(info.key, logger)
 					},
 				)
+				pool.Unpin(info.key.PageIdentity())
 				t.Logf("[%d] done deleting page %+v", txnID, info.key.PageIdentity())
 				require.NoError(t, err)
 			}

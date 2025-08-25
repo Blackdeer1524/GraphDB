@@ -49,7 +49,7 @@ type frameInfo struct {
 type Manager struct {
 	poolSize uint64
 
-	mu          sync.RWMutex
+	mu          sync.Mutex
 	pageTable   map[common.PageIdentity]frameInfo
 	frames      []page.SlottedPage
 	emptyFrames []uint64
@@ -80,7 +80,7 @@ func New(
 
 	m := &Manager{
 		poolSize:    poolSize,
-		mu:          sync.RWMutex{},
+		mu:          sync.Mutex{},
 		pageTable:   map[common.PageIdentity]frameInfo{},
 		frames:      make([]page.SlottedPage, poolSize),
 		emptyFrames: emptyFrames,
@@ -140,19 +140,73 @@ func (m *Manager) GetPageNoCreate(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
 	// fast path
-	m.mu.RLock()
-	if frameInfo, ok := m.pageTable[requestedPage]; ok {
-		m.mu.RUnlock()
-		m.pin(requestedPage)
-		return &m.frames[frameInfo.frameID], nil
-	}
-	m.mu.RUnlock()
+	// m.mu.RLock()
+	// if frameInfo, ok := m.pageTable[requestedPage]; ok {
+	// 	m.pin(requestedPage)
+	// 	m.mu.RUnlock()
+	// 	return &m.frames[frameInfo.frameID], nil
+	// }
+	// m.mu.RUnlock()
 
 	// slow path
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.GetPageNoCreateAssumeLocked(requestedPage)
+	frameID := m.reserveFrame()
+	if frameID != noFrame {
+		page := &m.frames[frameID]
+		err := m.diskManager.GetPageNoNew(page, requestedPage)
+		if err != nil {
+			m.emptyFrames = append(m.emptyFrames, frameID)
+			return nil, err
+		}
+
+		m.pageTable[requestedPage] = frameInfo{
+			frameID:  frameID,
+			pinCount: 1,
+		}
+		m.replacer.Pin(requestedPage)
+
+		return page, nil
+	}
+
+	victimPageIdent, err := m.replacer.ChooseVictim()
+	if err != nil {
+		if errors.Is(err, ErrNoVictimAvailable) {
+			return nil, ErrNoSpaceLeft
+		}
+		return nil, err
+	}
+
+	victimInfo, ok := m.pageTable[victimPageIdent]
+	assert.Assert(ok, "victim page %+v not found", victimPageIdent)
+	assert.Assert(
+		victimInfo.pinCount == 0,
+		"victim page %+v is pinned",
+		victimPageIdent,
+	)
+
+	victimPage := &m.frames[victimInfo.frameID]
+	err = m.flushPage(victimPage, victimPageIdent)
+	if err != nil {
+		m.replacer.Pin(victimPageIdent)
+		m.replacer.Unpin(victimPageIdent)
+		return nil, err
+	}
+	delete(m.pageTable, victimPageIdent)
+
+	err = m.diskManager.GetPageNoNew(victimPage, requestedPage)
+	if err != nil {
+		m.emptyFrames = append(m.emptyFrames, victimInfo.frameID)
+		return nil, err
+	}
+
+	m.pageTable[requestedPage] = frameInfo{
+		frameID:  victimInfo.frameID,
+		pinCount: 1,
+	}
+	m.replacer.Pin(requestedPage)
+	return victimPage, nil
 }
 
 func (m *Manager) GetPageNoCreateAssumeLocked(
@@ -178,6 +232,9 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 
 	victimPageIdent, err := m.replacer.ChooseVictim()
 	if err != nil {
+		if errors.Is(err, ErrNoVictimAvailable) {
+			return nil, ErrNoSpaceLeft
+		}
 		return nil, err
 	}
 
@@ -216,13 +273,13 @@ func (m *Manager) GetPage(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
 	// fast path
-	m.mu.RLock()
-	if frameInfo, ok := m.pageTable[requestedPage]; ok {
-		m.mu.RUnlock()
-		m.pin(requestedPage)
-		return &m.frames[frameInfo.frameID], nil
-	}
-	m.mu.RUnlock()
+	// m.mu.RLock()
+	// if frameInfo, ok := m.pageTable[requestedPage]; ok {
+	// 	m.pin(requestedPage)
+	// 	m.mu.RUnlock()
+	// 	return &m.frames[frameInfo.frameID], nil
+	// }
+	// m.mu.RUnlock()
 
 	// slow path
 	m.mu.Lock()
@@ -253,6 +310,9 @@ func (m *Manager) GetPage(
 
 	victimPageIdent, err := m.replacer.ChooseVictim()
 	if err != nil {
+		if errors.Is(err, ErrNoVictimAvailable) {
+			return nil, ErrNoSpaceLeft
+		}
 		return nil, err
 	}
 
@@ -316,6 +376,9 @@ func (m *Manager) GetPageAssumeLocked(
 
 	victimPageIdent, err := m.replacer.ChooseVictim()
 	if err != nil {
+		if errors.Is(err, ErrNoVictimAvailable) {
+			return nil, ErrNoSpaceLeft
+		}
 		return nil, err
 	}
 
@@ -414,13 +477,13 @@ func (m *Manager) FlushLogs() error {
 	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
 	logPageID := startPageID
 
-	for ; logPageID <= endPageID; logPageID++ {
+	var flush = func(pageID common.PageID) error {
 		logPageIdent := common.PageIdentity{
 			FileID: logFileID,
 			PageID: common.PageID(logPageID),
 		}
 		if _, ok := m.DPT[logPageIdent]; !ok {
-			continue
+			return nil
 		}
 
 		logPageInfo, ok := m.pageTable[logPageIdent]
@@ -439,7 +502,11 @@ func (m *Manager) FlushLogs() error {
 			delete(m.DPT, logPageIdent)
 			return nil
 		}()
-		if err != nil {
+		return err
+	}
+
+	for ; logPageID <= endPageID; logPageID++ {
+		if err := flush(logPageID); err != nil {
 			m.logger.UpdateFirstUnflushedPage(logPageID)
 			return err
 		}
@@ -447,6 +514,11 @@ func (m *Manager) FlushLogs() error {
 
 	m.logger.UpdateFirstUnflushedPage(logPageID)
 	m.logger.UpdateFlushLSN(lastLSN)
+
+	if err := flush(common.CheckpointInfoPageID); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -531,8 +603,8 @@ func (m *Manager) FlushAllPages() error {
 }
 
 func (m *Manager) GetDPTandATT() (map[common.PageIdentity]common.LogRecordLocInfo, map[common.TxnID]common.LogRecordLocInfo) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return maps.Clone(m.DPT), maps.Clone(m.ATT)
 }
 

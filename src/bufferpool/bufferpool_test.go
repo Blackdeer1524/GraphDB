@@ -199,6 +199,10 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	require.True(t, newSlotOpt.IsSome())
 
 	mockReplacer.On("ChooseVictim").Return(existingPageIdent, nil)
+
+	mockDisk.On("Lock").Return()
+	mockDisk.On("Unlock").Return()
+
 	mockDisk.On("WritePageAssumeLocked", mock.AnythingOfType("*page.SlottedPage"), existingPageIdent).
 		Return(nil)
 
@@ -206,6 +210,7 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 		FileID: common.FileID(uint64(2)),
 		PageID: common.PageID(uint64(1)),
 	}
+
 	mockDisk.On("ReadPage", mock.AnythingOfType("*page.SlottedPage"), newPageIdent).
 		Run(func(args mock.Arguments) {
 			pg := args.Get(0).(*page.SlottedPage)
@@ -213,6 +218,7 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 			pg.UnsafeInitLatch()
 		}).
 		Return(nil)
+
 	mockReplacer.On("Pin", newPageIdent).Return()
 
 	result, err := manager.GetPage(newPageIdent)
@@ -221,7 +227,7 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	assert.Equal(t, newPage, result)
 
 	_, exists := manager.pageTable[existingPageIdent]
-	assert.False(t, exists, "Старая страница не удалена из pageTable")
+	assert.False(t, exists, "old page not removed from pageTable")
 
 	assert.Equal(t, *newPage, manager.frames[frameID])
 	assert.Equal(t, frameInfo{
@@ -303,7 +309,7 @@ func TestManager_Replacement(t *testing.T) {
 
 			if _, ok := failedIDs[i]; ok {
 				_, err := pool.GetPageNoCreate(pid)
-				assert.ErrorAs(t, err, disk.ErrNoSuchPage)
+				assert.ErrorIs(t, err, disk.ErrNoSuchPage)
 				return
 			}
 
