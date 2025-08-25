@@ -3,6 +3,7 @@ package disk
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,7 +17,7 @@ var ErrNoSuchPage = errors.New("no such page")
 const PageSize = 4096
 
 type Manager struct {
-	mu sync.RWMutex
+	mu sync.Mutex
 
 	fileIDToPath map[common.FileID]string
 	newPageFunc  func(fileID common.FileID, pageID common.PageID) *page.SlottedPage
@@ -45,9 +46,16 @@ func (m *Manager) Unlock() {
 }
 
 func (m *Manager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	return m.ReadPageAssumeLocked(pg, pageIdent)
+}
+
+func (m *Manager) ReadPageAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
 	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
@@ -64,21 +72,31 @@ func (m *Manager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) 
 	data := make([]byte, PageSize)
 
 	_, err = file.ReadAt(data, offset)
-	if err != nil {
+	if errors.Is(err, io.EOF) {
+		// TODO: CHECK THIS !!!
+		m.newPageFunc(pageIdent.FileID, pageIdent.PageID)
+		pg.UnsafeClear()
+		return nil
+	} else if err != nil {
 		return err
 	}
 
-	page := m.newPageFunc(pageIdent.FileID, pageIdent.PageID)
-
-	page.SetData(data)
-	page.UnsafeInitLatch()
+	pg.SetData(data)
+	pg.UnsafeInitLatch()
 	return nil
 }
 
-func (m *Manager) GetPageNoNew(page *page.SlottedPage, pageIdent common.PageIdentity) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (m *Manager) GetPageNoNew(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	return m.GetPageNoNewAssumeLocked(pg, pageIdent)
+}
+
+func (m *Manager) GetPageNoNewAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
 	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
@@ -99,7 +117,7 @@ func (m *Manager) GetPageNoNew(page *page.SlottedPage, pageIdent common.PageIden
 		return errors.Join(err, ErrNoSuchPage)
 	}
 
-	page.SetData(data)
+	pg.SetData(data)
 	return nil
 }
 
@@ -154,13 +172,28 @@ func NewInMemoryManager() *InMemoryManager {
 	}
 }
 
+func (m *InMemoryManager) Lock() {
+	m.mu.Lock()
+}
+
+func (m *InMemoryManager) Unlock() {
+	m.mu.Unlock()
+}
+
 func (m *InMemoryManager) GetPageNoNew(
 	pg *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
+	return m.GetPageNoNewAssumeLocked(pg, pageIdent)
+}
+
+func (m *InMemoryManager) GetPageNoNewAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
 	storedPage, ok := m.pages[pageIdent]
 	if !ok {
 		return ErrNoSuchPage
@@ -173,8 +206,24 @@ func (m *InMemoryManager) GetPageNoNew(
 
 func (m *InMemoryManager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	storedPage, ok := m.pages[pageIdent]
+	if ok {
+		pg.SetData(storedPage.GetData())
+		pg.UnsafeInitLatch()
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ReadPageAssumeLocked(pg, pageIdent)
+}
+
+func (m *InMemoryManager) ReadPageAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
 	storedPage, ok := m.pages[pageIdent]
 	if !ok {
 		m.pages[pageIdent] = page.NewSlottedPage()
@@ -182,17 +231,9 @@ func (m *InMemoryManager) ReadPage(pg *page.SlottedPage, pageIdent common.PageId
 		return nil
 	}
 
-	storedPage.UnsafeInitLatch()
 	pg.SetData(storedPage.GetData())
+	pg.UnsafeInitLatch()
 	return nil
-}
-
-func (m *InMemoryManager) Lock() {
-	m.mu.Lock()
-}
-
-func (m *InMemoryManager) Unlock() {
-	m.mu.Unlock()
 }
 
 func (m *InMemoryManager) WritePageAssumeLocked(
