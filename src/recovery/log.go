@@ -21,17 +21,15 @@ const (
 	loggerCheckpointLocationSlot = iota
 )
 
-const checkpointInfoPageID = 0
-
 func (p *loggerInfoPage) GetCheckpointLocation() common.FileLocation {
 	o := (*page.SlottedPage)(p)
 	return utils.FromBytes[common.FileLocation](o.Read(loggerCheckpointLocationSlot))
 }
 
-func (p *loggerInfoPage) setInfo(newInfo common.FileLocation) {
+func (p *loggerInfoPage) setCheckpointLocation(loc common.FileLocation) {
 	o := (*page.SlottedPage)(p)
 
-	data, err := newInfo.MarshalBinary()
+	data, err := loc.MarshalBinary()
 	assert.NoError(err)
 	o.UnsafeUpdateNoLogs(loggerCheckpointLocationSlot, data)
 }
@@ -41,7 +39,7 @@ func (p *loggerInfoPage) Setup() {
 	o.UnsafeClear()
 
 	dummyRecord := common.FileLocation{
-		PageID:  checkpointInfoPageID + 1,
+		PageID:  common.CheckpointInfoPageID + 1,
 		SlotNum: 0,
 	}
 	slotOpt := page.InsertSerializable(o, &dummyRecord)
@@ -91,7 +89,7 @@ func NewTxnLogger(
 	pool.SetLogger(l)
 	masterRecordIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 
 	// this will load master log record's page into memory
@@ -870,20 +868,19 @@ func (l *txnLogger) AppendCommit(
 	loc, err := l.pool.WithMarkDirtyLogPage(
 		func() (common.LogRecordLocInfo, error) {
 			l.seqMu.Lock()
-			defer l.seqMu.Unlock()
 
 			r := NewCommitLogRecord(l.newLSN(), txnID, prevLog)
 			logInfo, err := marshalRecordAndWriteAssumePoolLocked(l, &r)
 			if err != nil {
+				l.seqMu.Unlock()
 				return common.NewNilLogRecordLocation(), err
 			}
-			return logInfo, nil
+
+			l.seqMu.Unlock()
+			return logInfo, l.pool.FlushLogs()
 		},
 	)
-	if err != nil {
-		return common.NewNilLogRecordLocation(), err
-	}
-	return loc, l.pool.FlushLogs()
+	return loc, err
 }
 
 func (l *txnLogger) AppendAbort(

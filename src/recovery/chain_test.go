@@ -14,20 +14,22 @@ import (
 func setupLoggerMasterPage(
 	t *testing.T,
 	pool bufferpool.BufferPool,
-	pgIdent common.PageIdentity,
-	rec common.FileLocation,
+	logFileID common.FileID,
+	checkpointLocation common.FileLocation,
 ) {
-	pg, err := pool.GetPage(common.PageIdentity{
-		FileID: pgIdent.FileID,
-		PageID: pgIdent.PageID,
-	})
+	pg, err := pool.GetPage(
+		common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID},
+	)
 	require.NoError(t, err)
-	defer pool.Unpin(pgIdent)
+	defer pool.Unpin(common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID})
 
-	pool.MarkDirtyNoLogsAssumeLocked(pgIdent)
+	pool.MarkDirtyNoLogsAssumeLocked(
+		common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID},
+	)
 	masterPage := (*loggerInfoPage)(pg)
 	masterPage.Setup()
-	masterPage.setInfo(rec)
+	masterPage.setCheckpointLocation(checkpointLocation)
+	pool.FlushAllPages()
 }
 
 func TestChainSanity(t *testing.T) {
@@ -38,7 +40,7 @@ func TestChainSanity(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 
 	diskManager := disk.NewInMemoryManager()
@@ -53,14 +55,13 @@ func TestChainSanity(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		logPageId.FileID,
 		common.FileLocation{
 			PageID:  logPageId.PageID,
 			SlotNum: 0,
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	pool.SetLogger(logger)
 
 	txnID := common.TxnID(89)
 	chain := NewTxnLogChain(logger, txnID)
@@ -273,7 +274,7 @@ func TestChain(t *testing.T) {
 	logFileID := common.FileID(42)
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 
 	diskManager := disk.NewInMemoryManager()
@@ -290,7 +291,7 @@ func TestChain(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		logFileID,
 		common.FileLocation{
 			PageID:  logPageId.PageID,
 			SlotNum: 0,

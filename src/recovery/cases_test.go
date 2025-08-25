@@ -30,7 +30,7 @@ func TestBankTransactions(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: generatedFileIDs[0],
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 
 	const (
@@ -61,9 +61,9 @@ func TestBankTransactions(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		masterRecordPageIdent.FileID,
 		common.FileLocation{
-			PageID:  1,
+			PageID:  common.CheckpointInfoPageID + 1,
 			SlotNum: 0,
 		},
 	)

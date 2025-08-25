@@ -107,7 +107,7 @@ func TestIterSanity(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: checkpointInfoPageID,
+		PageID: common.CheckpointInfoPageID,
 	}
 
 	diskManager := disk.NewInMemoryManager()
@@ -122,7 +122,7 @@ func TestIterSanity(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		masterRecordPageIdent.FileID,
 		common.FileLocation{
 			PageID:  logPageId.PageID,
 			SlotNum: 0,
