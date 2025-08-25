@@ -61,6 +61,10 @@ type Manager struct {
 	logger      common.ITxnLogger
 }
 
+func (m *Manager) MarkDirtyNoLogsAssumeLocked(pIdent common.PageIdentity) {
+	m.DPT[pIdent] = common.NewNilLogRecordLocation()
+}
+
 func New(
 	poolSize uint64,
 	replacer Replacer,
@@ -539,10 +543,6 @@ func NewDebugBufferPool(
 
 func (d *DebugBufferPool) FlushLogs() error {
 	return d.m.FlushLogs()
-}
-
-func (d *DebugBufferPool) FlushPage(pIdent common.PageIdentity) error {
-	return d.m.FlushPage(pIdent)
 }
 
 func (d *DebugBufferPool) GetPageAssumeLocked(
