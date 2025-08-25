@@ -63,7 +63,9 @@ type Manager struct {
 }
 
 func (m *Manager) MarkDirtyNoLogsAssumeLocked(pIdent common.PageIdentity) {
-	m.DPT[pIdent] = common.NewNilLogRecordLocation()
+	if _, ok := m.DPT[pIdent]; !ok {
+		m.DPT[pIdent] = common.NewNilLogRecordLocation()
+	}
 }
 
 func New(
@@ -139,18 +141,13 @@ func (m *Manager) pin(pIdent common.PageIdentity) {
 func (m *Manager) GetPageNoCreate(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
-	// fast path
-	// m.mu.RLock()
-	// if frameInfo, ok := m.pageTable[requestedPage]; ok {
-	// 	m.pin(requestedPage)
-	// 	m.mu.RUnlock()
-	// 	return &m.frames[frameInfo.frameID], nil
-	// }
-	// m.mu.RUnlock()
-
-	// slow path
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if frameInfo, ok := m.pageTable[requestedPage]; ok {
+		m.pin(requestedPage)
+		return &m.frames[frameInfo.frameID], nil
+	}
 
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
@@ -212,6 +209,11 @@ func (m *Manager) GetPageNoCreate(
 func (m *Manager) GetPageNoCreateAssumeLocked(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
+	if frameInfo, ok := m.pageTable[requestedPage]; ok {
+		m.pin(requestedPage)
+		return &m.frames[frameInfo.frameID], nil
+	}
+
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
 		page := &m.frames[frameID]
@@ -272,16 +274,6 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 func (m *Manager) GetPage(
 	requestedPage common.PageIdentity,
 ) (*page.SlottedPage, error) {
-	// fast path
-	// m.mu.RLock()
-	// if frameInfo, ok := m.pageTable[requestedPage]; ok {
-	// 	m.pin(requestedPage)
-	// 	m.mu.RUnlock()
-	// 	return &m.frames[frameInfo.frameID], nil
-	// }
-	// m.mu.RUnlock()
-
-	// slow path
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -592,10 +584,8 @@ func (m *Manager) FlushAllPages() error {
 		}
 		assert.Assert(frame.PageLSN() <= flushLSN, "didn't flush logs for page %+v", pgIdent)
 
-		m.diskManager.Lock()
 		err = errors.Join(err, m.diskManager.WritePageAssumeLocked(frame, pgIdent))
 		frame.Unlock()
-		m.diskManager.Unlock()
 	}
 
 	clear(m.DPT)

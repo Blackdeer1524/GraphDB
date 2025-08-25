@@ -36,10 +36,10 @@ func TestBankTransactions(t *testing.T) {
 	const (
 		startBalance      = uint32(60)
 		rollbackCutoff    = uint32(0) // startBalance / 3
-		clientsCount      = 7
+		clientsCount      = 100_000
 		txnsCount         = 10_000
 		retryCount        = 1
-		maxEntriesPerPage = 2
+		maxEntriesPerPage = 12
 		workersCount      = 10_000
 	)
 
@@ -316,6 +316,18 @@ func TestBankTransactions(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, txnsCount, int(txnsTicker.Load()))
+
+	totalFail := int(fileLockFail.Load() +
+		myPageLockFail.Load() +
+		balanceFail.Load() +
+		firstPageLockFail.Load() +
+		catalogUpgradeFail.Load() +
+		fileLockUpgradeFail.Load() +
+		myPageUpgradeFail.Load() +
+		firstPageUpgradeFail.Load() +
+		rollbackCutoffFail.Load())
+
+	assert.Less(t, fileLockFail.Load(), totalFail, txnsCount)
 
 	successCount := succ.Load()
 	assert.Greater(t, successCount, uint64(0))

@@ -29,7 +29,7 @@ func setupLoggerMasterPage(
 	masterPage := (*loggerInfoPage)(pg)
 	masterPage.Setup()
 	masterPage.setCheckpointLocation(checkpointLocation)
-	pool.FlushAllPages()
+	require.NoError(t, err)
 }
 
 func TestChainSanity(t *testing.T) {
