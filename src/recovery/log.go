@@ -6,12 +6,10 @@ import (
 	"math"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
-	"github.com/Blackdeer1524/GraphDB/src/pkg/optional"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
@@ -63,14 +61,9 @@ type txnLogger struct {
 	logRecordsCount uint64
 
 	// ================
-	lastDirtyPage atomic.Uint64
-	currentPage   atomic.Uint64
-
-	getActiveTransactions func() []common.TxnID // Прийдет из лок менеджера
-}
-
-func (l *txnLogger) SetActiveTransactionsGetter(getter func() []common.TxnID) {
-	l.getActiveTransactions = getter
+	flushLSN       common.LSN
+	firstDirtyPage common.PageID
+	currentPage    common.PageID
 }
 
 /*
@@ -86,11 +79,13 @@ func NewTxnLogger(
 	logFileID common.FileID,
 ) *txnLogger {
 	l := &txnLogger{
-		pool:      pool,
-		logfileID: logFileID,
-		getActiveTransactions: func() []common.TxnID {
-			panic("TODO")
-		},
+		pool:            pool,
+		logfileID:       logFileID,
+		masterPage:      &loggerInfoPage{},
+		seqMu:           sync.Mutex{},
+		logRecordsCount: 0,
+		firstDirtyPage:  0,
+		currentPage:     0,
 	}
 
 	masterRecordIdent := common.PageIdentity{
@@ -116,8 +111,8 @@ func NewTxnLogger(
 	}
 
 	info := l.masterPage.GetCheckpointLocation()
-	l.lastDirtyPage.Store(uint64(info.PageID))
-	l.currentPage.Store(uint64(info.PageID))
+	l.firstDirtyPage = info.PageID
+	l.currentPage = info.PageID
 	l.Recover(info)
 	panic("TODO: setup locations after recovery")
 	return l
@@ -148,21 +143,6 @@ func (l *txnLogger) WithContext(
 	txnID common.TxnID,
 ) common.ITxnLoggerWithContext {
 	return newTxnLoggerWithContext(l, txnID)
-}
-
-func (l *txnLogger) Flush() error {
-	for i := l.lastDirtyPage.Load(); i <= l.currentPage.Load(); i = l.lastDirtyPage.Load() + 1 {
-		err := l.pool.FlushPage(common.PageIdentity{
-			FileID: l.logfileID,
-			PageID: common.PageID(i),
-		})
-
-		if err != nil && !errors.Is(err, disk.ErrNoSuchPage) {
-			return err
-		}
-		l.lastDirtyPage.CompareAndSwap(i, i+1)
-	}
-	return nil
 }
 
 func (l *txnLogger) iter(
@@ -248,6 +228,31 @@ func (l *txnLogger) Dump(start common.FileLocation, b *strings.Builder) {
 			break
 		}
 	}
+}
+
+func (l *txnLogger) GetFlushInfo() (common.FileID, common.PageID, common.PageID, common.LSN) {
+	l.seqMu.Lock()
+	defer l.seqMu.Unlock()
+	return l.logfileID, common.PageID(l.firstDirtyPage), common.PageID(l.currentPage), l.flushLSN
+}
+
+func (l *txnLogger) GetFlushLSN() common.LSN {
+	l.seqMu.Lock()
+	defer l.seqMu.Unlock()
+	return l.flushLSN
+}
+
+func (l *txnLogger) UpdateFirstUnflushedPage(pageID common.PageID) {
+	l.seqMu.Lock()
+	defer l.seqMu.Unlock()
+	l.firstDirtyPage = pageID
+}
+
+func (l *txnLogger) UpdateFlushLSN(lsn common.LSN) {
+	l.seqMu.Lock()
+	defer l.seqMu.Unlock()
+
+	l.flushLSN = lsn
 }
 
 func (l *txnLogger) Recover(checkpointLocation common.FileLocation) {
@@ -664,7 +669,7 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 ) (common.FileLocation, error) {
 	pageInfo := common.PageIdentity{
 		FileID: lockedLogger.logfileID,
-		PageID: common.PageID(lockedLogger.currentPage.Load()),
+		PageID: lockedLogger.currentPage,
 	}
 
 	p, err := lockedLogger.pool.GetPageAssumeLocked(pageInfo)
@@ -682,13 +687,13 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 	if slotNumberOpt.IsSome() {
 		slotNumber := slotNumberOpt.Unwrap()
 		loc := common.FileLocation{
-			PageID:  common.PageID(lockedLogger.currentPage.Load()),
+			PageID:  lockedLogger.currentPage,
 			SlotNum: slotNumber,
 		}
 		return loc, err
 	}
 
-	lockedLogger.currentPage.Add(1)
+	lockedLogger.currentPage++
 	pageInfo.PageID++
 
 	p, err = lockedLogger.pool.GetPageAssumeLocked(pageInfo)
@@ -709,83 +714,7 @@ func (lockedLogger *txnLogger) writeLogRecordAssumePoolLocked(
 	lockedLogger.pool.MarkDirtyNoLogsAssumeLocked(pageInfo)
 
 	loc := common.FileLocation{
-		PageID:  common.PageID(lockedLogger.currentPage.Load()),
-		SlotNum: slotNumberOpt.Unwrap(),
-	}
-	return loc, err
-}
-
-func (lockedLogger *txnLogger) writeLogRecord(
-	serializedRecord []byte,
-) (common.FileLocation, error) {
-	pageInfo := common.PageIdentity{
-		FileID: lockedLogger.logfileID,
-		PageID: common.PageID(lockedLogger.currentPage.Load()),
-	}
-
-	p, err := lockedLogger.pool.GetPage(pageInfo)
-	if err != nil {
-		return common.FileLocation{}, err
-	}
-
-	slotNumberOpt := optional.None[uint16]()
-	err = lockedLogger.pool.WithMarkDirty(
-		common.NilTxnID,
-		pageInfo,
-		p,
-		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-			defer lockedLogger.pool.UnpinAssumeLocked(pageInfo)
-
-			slotNumberOpt = lockedPage.UnsafeInsertNoLogs(serializedRecord)
-			if slotNumberOpt.IsNone() {
-				return common.NewNilLogRecordLocation(), page.ErrNoSpaceLeft
-			}
-			return common.NewNilLogRecordLocation(), nil
-		},
-	)
-
-	if err != nil && !errors.Is(err, page.ErrNoSpaceLeft) {
-		return common.FileLocation{}, err
-	}
-
-	if slotNumberOpt.IsSome() {
-		slotNumber := slotNumberOpt.Unwrap()
-		loc := common.FileLocation{
-			PageID:  common.PageID(lockedLogger.currentPage.Load()),
-			SlotNum: slotNumber,
-		}
-		return loc, err
-	}
-
-	assert.Assert(errors.Is(err, page.ErrNoSpaceLeft))
-
-	lockedLogger.currentPage.Add(1)
-	pageInfo.PageID++
-
-	p, err = lockedLogger.pool.GetPage(pageInfo)
-	if err != nil {
-		return common.FileLocation{}, err
-	}
-
-	err = lockedLogger.pool.WithMarkDirty(
-		common.NilTxnID,
-		pageInfo,
-		p,
-		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-			defer lockedLogger.pool.UnpinAssumeLocked(pageInfo)
-
-			slotNumberOpt = lockedPage.UnsafeInsertNoLogs(serializedRecord)
-			assert.Assert(
-				slotNumberOpt.IsSome(),
-				"impossible, because (1) the logger is locked [no concurrent writes are possible] "+
-					"and (2) the newly allocated page should be empty",
-			)
-			return common.NewNilLogRecordLocation(), nil
-		},
-	)
-
-	loc := common.FileLocation{
-		PageID:  common.PageID(lockedLogger.currentPage.Load()),
+		PageID:  lockedLogger.currentPage,
 		SlotNum: slotNumberOpt.Unwrap(),
 	}
 	return loc, err
@@ -924,8 +853,7 @@ func (l *txnLogger) AppendCommit(
 			if err != nil {
 				return common.NewNilLogRecordLocation(), err
 			}
-
-			return logInfo, err
+			return logInfo, nil
 		},
 	)
 	if err != nil {
@@ -938,46 +866,60 @@ func (l *txnLogger) AppendAbort(
 	TransactionID common.TxnID,
 	prevLog common.LogRecordLocInfo,
 ) (common.LogRecordLocInfo, error) {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
+	loc, err := l.pool.WithMarkDirtyLogPage(
+		func() (common.LogRecordLocInfo, error) {
+			l.seqMu.Lock()
+			defer l.seqMu.Unlock()
 
-	r := NewAbortLogRecord(l.newLSN(), TransactionID, prevLog)
-	return marshalRecordAndWrite(l, &r)
+			r := NewAbortLogRecord(l.newLSN(), TransactionID, prevLog)
+			return marshalRecordAndWriteAssumePoolLocked(l, &r)
+		},
+	)
+	return loc, err
 }
 
 func (l *txnLogger) AppendTxnEnd(
 	TransactionID common.TxnID,
 	prevLog common.LogRecordLocInfo,
 ) (common.LogRecordLocInfo, error) {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
+	loc, err := l.pool.WithMarkDirtyLogPage(
+		func() (common.LogRecordLocInfo, error) {
+			l.seqMu.Lock()
+			defer l.seqMu.Unlock()
 
-	r := NewTxnEndLogRecord(l.newLSN(), TransactionID, prevLog)
-	return marshalRecordAndWrite(l, &r)
+			r := NewTxnEndLogRecord(l.newLSN(), TransactionID, prevLog)
+			return marshalRecordAndWriteAssumePoolLocked(l, &r)
+		},
+	)
+	return loc, err
 }
 
 func (l *txnLogger) AppendCheckpointBegin() error {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
+	_, err := l.pool.WithMarkDirtyLogPage(
+		func() (common.LogRecordLocInfo, error) {
+			l.seqMu.Lock()
+			defer l.seqMu.Unlock()
 
-	r := NewCheckpointBegin(l.newLSN())
-	_, err := marshalRecordAndWrite(l, &r)
+			r := NewCheckpointBegin(l.newLSN())
+			return marshalRecordAndWriteAssumePoolLocked(l, &r)
+		},
+	)
 	return err
 }
 
 func (l *txnLogger) AppendCheckpointEnd(
-	activeTransacitons []common.TxnID,
+	activeTransacitons map[common.TxnID]common.LogRecordLocInfo,
 	dirtyPageTable map[common.PageIdentity]common.LogRecordLocInfo,
 ) error {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
+	_, err := l.pool.WithMarkDirtyLogPage(
+		func() (common.LogRecordLocInfo, error) {
+			l.seqMu.Lock()
+			defer l.seqMu.Unlock()
 
-	r := NewCheckpointEnd(
-		l.newLSN(),
-		activeTransacitons,
-		dirtyPageTable,
+			r := NewCheckpointEnd(l.newLSN(), activeTransacitons, dirtyPageTable)
+			return marshalRecordAndWriteAssumePoolLocked(l, &r)
+		},
 	)
-	_, err := marshalRecordAndWrite(l, &r)
 	return err
 }
 
@@ -1103,14 +1045,6 @@ outer:
 			panic("unreachable")
 		}
 	}
-}
-
-func (l *txnLoggerWithContext) Lock() {
-	l.logger.seqMu.Lock()
-}
-
-func (l *txnLoggerWithContext) Unlock() {
-	l.logger.seqMu.Unlock()
 }
 
 func (l *txnLoggerWithContext) AppendBegin() error {

@@ -7,34 +7,19 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
 var ErrNoSuchPage = errors.New("no such page")
 
-type logger interface {
-	GetFlushLSN() common.LSN
-	Flush() error
-}
-
-type noOpLogger struct{}
-
-func (noOpLogger) GetFlushLSN() common.LSN { return 0 }
-func (noOpLogger) Flush() error            { return nil }
-
-var (
-	_ logger = (common.ITxnLogger)(nil)
-	_ logger = noOpLogger{}
-)
-
 const PageSize = 4096
 
 type Manager struct {
+	mu sync.RWMutex
+
 	fileIDToPath map[common.FileID]string
 	newPageFunc  func(fileID common.FileID, pageID common.PageID) *page.SlottedPage
-	logger       logger
 }
 
 var (
@@ -48,15 +33,21 @@ func New(
 	return &Manager{
 		fileIDToPath: fileIDToPath,
 		newPageFunc:  newPageFunc,
-		logger:       noOpLogger{},
 	}
 }
 
-func (m *Manager) SetLogger(logger logger) {
-	m.logger = logger
+func (m *Manager) Lock() {
+	m.mu.Lock()
+}
+
+func (m *Manager) Unlock() {
+	m.mu.Unlock()
 }
 
 func (m *Manager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
@@ -85,6 +76,9 @@ func (m *Manager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) 
 }
 
 func (m *Manager) GetPageNoNew(page *page.SlottedPage, pageIdent common.PageIdentity) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
@@ -109,20 +103,16 @@ func (m *Manager) GetPageNoNew(page *page.SlottedPage, pageIdent common.PageIden
 	return nil
 }
 
-func (m *Manager) WritePage(page *page.SlottedPage, pageIdent common.PageIdentity) error {
+func (m *Manager) WritePageAssumeLocked(
+	lockedPage *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
 	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	masterLSN := m.logger.GetMasterRecordAssumePoolLocked()
-	if page.PageLSN() > masterLSN {
-		if err := m.logger.Flush(); err != nil {
-			return err
-		}
-	}
-
-	data := page.GetData()
+	data := lockedPage.GetData()
 	if len(data) == 0 {
 		return errors.New("page data is empty")
 	}
@@ -149,9 +139,8 @@ func (m *Manager) WritePage(page *page.SlottedPage, pageIdent common.PageIdentit
 }
 
 type InMemoryManager struct {
-	mu     sync.RWMutex
-	pages  map[common.PageIdentity]*page.SlottedPage
-	logger logger
+	mu    sync.RWMutex
+	pages map[common.PageIdentity]*page.SlottedPage
 }
 
 var (
@@ -160,13 +149,9 @@ var (
 
 func NewInMemoryManager() *InMemoryManager {
 	return &InMemoryManager{
-		pages:  make(map[common.PageIdentity]*page.SlottedPage),
-		logger: &noOpLogger{},
+		mu:    sync.RWMutex{},
+		pages: make(map[common.PageIdentity]*page.SlottedPage),
 	}
-}
-
-func (m *InMemoryManager) SetLogger(logger logger) {
-	m.logger = logger
 }
 
 func (m *InMemoryManager) GetPageNoNew(
@@ -214,8 +199,6 @@ func (m *InMemoryManager) WritePageAssumeLocked(
 	pg *page.SlottedPage,
 	pgIdent common.PageIdentity,
 ) error {
-	assert.Assert(m.logger != nil, "logger is not set")
-
 	if _, ok := m.pages[pgIdent]; !ok {
 		return fmt.Errorf("page %+v not found", pgIdent)
 	}

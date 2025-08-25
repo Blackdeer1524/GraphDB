@@ -10,8 +10,6 @@ type ITxnLogger interface {
 
 type ITxnLoggerWithContext interface {
 	AppendBegin() error
-	Lock()
-	Unlock()
 	AssumeLockedAppendInsert(recordID RecordID, value []byte) (LogRecordLocInfo, error)
 	AssumeLockedAppendUpdate(
 		recordID RecordID,
