@@ -182,7 +182,7 @@ func (c *TxnLogChain) CheckpointBegin() *TxnLogChain {
 }
 
 func (c *TxnLogChain) CheckpointEnd(
-	ATT []common.TxnID,
+	ATT map[common.TxnID]common.LogRecordLocInfo,
 	DPT map[common.PageIdentity]common.LogRecordLocInfo,
 ) *TxnLogChain {
 	if c.err != nil {

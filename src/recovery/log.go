@@ -753,19 +753,24 @@ func loggerUndoRecord[T RevertableLogRecord](
 	record T,
 	parentLocation common.LogRecordLocInfo,
 ) (*CompensationLogRecord, common.LogRecordLocInfo, error) {
-	l.seqMu.Lock()
-	defer l.seqMu.Unlock()
+	var clr CompensationLogRecord
+	location, err := l.pool.WithMarkDirtyLogPage(func() (common.LogRecordLocInfo, error) {
+		l.seqMu.Lock()
+		defer l.seqMu.Unlock()
 
-	clr := record.Undo(
-		l.newLSN(),
-		parentLocation,
-	)
-	location, err := marshalRecordAndWrite(l, &clr)
-	if err != nil {
-		return nil, common.LogRecordLocInfo{}, err
-	}
+		clr := record.Undo(
+			l.newLSN(),
+			parentLocation,
+		)
 
-	return &clr, location, nil
+		location, err := marshalRecordAndWriteAssumePoolLocked(l, &clr)
+		if err != nil {
+			return common.LogRecordLocInfo{}, err
+		}
+		return location, nil
+	})
+
+	return &clr, location, err
 }
 
 func (l *txnLogger) AppendBegin(

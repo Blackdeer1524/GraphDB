@@ -52,7 +52,6 @@ func TestValidRecovery(t *testing.T) {
 		loggerStart,
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	diskManager.SetLogger(logger)
 
 	defer func() {
 		if recover() != nil {
@@ -152,7 +151,6 @@ func TestFailedTxn(t *testing.T) {
 		logStart,
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	diskManager.SetLogger(logger)
 
 	pageIdent := common.PageIdentity{FileID: 13, PageID: 7}
 
@@ -278,7 +276,6 @@ func TestMassiveRecovery(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	diskManager.SetLogger(logger)
 
 	INIT := []byte("init")
 	NEW := []byte("new1")
@@ -531,7 +528,6 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logFileID)
-	diskManager.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 33,
@@ -744,7 +740,6 @@ func TestLoggerRollback(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logFileID)
-	diskManager.SetLogger(logger)
 
 	defer func() {
 		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
@@ -852,16 +847,16 @@ func TestLoggerRollback(t *testing.T) {
 				t.Logf("[%d] updating page %+v", txnID, info.key.PageIdentity())
 
 				err = pool.WithMarkDirty(
+					txnID,
 					info.key.PageIdentity(),
 					pg,
-					logger,
-					func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
 
 						return lockedPage.UpdateWithLogs(
 							utils.ToBytes[uint32](newValue),
 							info.key,
-							lockedLogger,
+							logger,
 						)
 					},
 				)
@@ -899,12 +894,12 @@ func TestLoggerRollback(t *testing.T) {
 				require.NoError(t, err)
 				t.Logf("[%d] deleting page %+v", txnID, info.key.PageIdentity())
 				err = pool.WithMarkDirty(
+					txnID,
 					info.key.PageIdentity(),
 					pg,
-					logger,
-					func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 						defer pool.UnpinAssumeLocked(info.key.PageIdentity())
-						return lockedPage.DeleteWithLogs(info.key, lockedLogger)
+						return lockedPage.DeleteWithLogs(info.key, logger)
 					},
 				)
 				t.Logf("[%d] done deleting page %+v", txnID, info.key.PageIdentity())
@@ -989,10 +984,10 @@ func fillPages(
 
 				slotNum := optional.None[uint16]()
 				err := logger.pool.WithMarkDirty(
+					txnID,
 					pageID,
 					p,
-					common.NoLogs(),
-					func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 						slotNum = lockedPage.UnsafeInsertNoLogs(insertedValue)
 						if slotNum.IsNone() {
 							return common.NewNilLogRecordLocation(), page.ErrNoSpaceLeft
