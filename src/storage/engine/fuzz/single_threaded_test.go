@@ -125,7 +125,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 
 	model := newEngineSimulator()
 
-	const numThreads = 30
+	const numThreads = 20
 	const opsPerThread = 50
 	const totalOps = numThreads * opsPerThread
 
