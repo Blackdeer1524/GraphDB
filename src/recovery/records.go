@@ -392,24 +392,32 @@ func (l *CheckpointBeginLogRecord) String() string {
 
 type CheckpointEndLogRecord struct {
 	lsn                common.LSN
-	activeTransactions []common.TxnID
+	activeTransactions map[common.TxnID]common.LogRecordLocInfo
 	dirtyPageTable     map[common.PageIdentity]common.LogRecordLocInfo
 }
 
 func NewCheckpointEnd(
 	lsn common.LSN,
-	activeTransacitons []common.TxnID,
+	activeTransactions map[common.TxnID]common.LogRecordLocInfo,
 	dirtyPageTable map[common.PageIdentity]common.LogRecordLocInfo,
 ) CheckpointEndLogRecord {
 	return CheckpointEndLogRecord{
 		lsn:                lsn,
-		activeTransactions: activeTransacitons,
+		activeTransactions: activeTransactions,
 		dirtyPageTable:     dirtyPageTable,
 	}
 }
 
 func (l *CheckpointEndLogRecord) LSN() common.LSN {
 	return l.lsn
+}
+
+func (l *CheckpointEndLogRecord) ActiveTransactions() map[common.TxnID]common.LogRecordLocInfo {
+	return l.activeTransactions
+}
+
+func (l *CheckpointEndLogRecord) DirtyPageTable() map[common.PageIdentity]common.LogRecordLocInfo {
+	return l.dirtyPageTable
 }
 
 func (l *CheckpointEndLogRecord) String() string {

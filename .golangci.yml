@@ -60,7 +60,7 @@ formatters:
     - goimports
   settings:
     golines:
-      max-len: 80
+      max-len: 100
       tab-len: 4
       shorten-comments: true
       reformat-tags: true

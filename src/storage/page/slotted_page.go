@@ -24,6 +24,10 @@ type SlottedPage struct {
 	data [PageSize]byte
 }
 
+var (
+	_ common.Page = &SlottedPage{}
+)
+
 func (p *SlottedPage) UnsafeInitLatch() {
 	p.getHeader().latch = sync.RWMutex{}
 }
@@ -90,7 +94,7 @@ func (p *SlottedPage) setupHeader() {
 	head.freeEnd = PageSize
 }
 
-func (p *SlottedPage) Clear() {
+func (p *SlottedPage) UnsafeClear() {
 	for i := range PageSize {
 		p.data[i] = 0
 	}
@@ -164,7 +168,7 @@ func (p *SlottedPage) insertCommit(slotHandle uint16) {
 	slots[slotHandle] = newSlotPtr(SlotStatusInserted, ptr.RecordOffset())
 }
 
-func (p *SlottedPage) Insert(data []byte) optional.Optional[uint16] {
+func (p *SlottedPage) UnsafeInsertNoLogs(data []byte) optional.Optional[uint16] {
 	slotOpt := p.insertPrepare(data)
 	if slotOpt.IsNone() {
 		return optional.None[uint16]()
@@ -178,7 +182,7 @@ var ErrNoSpaceLeft error = errors.New("the page is full")
 func (p *SlottedPage) InsertWithLogs(
 	data []byte,
 	pageIdent common.PageIdentity,
-	ctxLogger common.ITxnLoggerWithContext,
+	lockedLogger common.ITxnLoggerWithContext,
 ) (uint16, common.LogRecordLocInfo, error) {
 	slotOpt := p.insertPrepare(data)
 	if slotOpt.IsNone() {
@@ -191,14 +195,14 @@ func (p *SlottedPage) InsertWithLogs(
 		PageID:  pageIdent.PageID,
 		SlotNum: slot,
 	}
-	logRecordLoc, err := ctxLogger.AppendInsert(recordID, data)
+	logRecordLoc, err := lockedLogger.AssumeLockedAppendInsert(recordID, data)
 	if err != nil {
 		return 0, common.NewNilLogRecordLocation(), err
 	}
 
 	p.insertCommit(slot)
 	p.SetPageLSN(logRecordLoc.Lsn)
-	return slot, logRecordLoc, err
+	return slot, logRecordLoc, nil
 }
 
 func (p *SlottedPage) UndoInsert(slotID uint16) {
@@ -241,7 +245,7 @@ func (p *SlottedPage) Read(slotID uint16) []byte {
 	return p.getBytesBySlotPtr(ptr)
 }
 
-func (p *SlottedPage) Delete(slotID uint16) {
+func (p *SlottedPage) UnsafeDeleteNoLogs(slotID uint16) {
 	ptr := p.assertSlotInserted(slotID)
 	p.getHeader().getSlots()[slotID] = newSlotPtr(
 		SlotStatusDeleted,
@@ -251,12 +255,11 @@ func (p *SlottedPage) Delete(slotID uint16) {
 
 func (p *SlottedPage) DeleteWithLogs(
 	recordID common.RecordID,
-	ctxLogger common.ITxnLoggerWithContext,
+	lockedLogger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
-	// TODO: может всё-таки заносить значения, которые удаляем, в CLR?
 	ptr := p.assertSlotInserted(recordID.SlotNum)
 
-	logRecordLoc, err := ctxLogger.AppendDelete(recordID)
+	logRecordLoc, err := lockedLogger.AssumeLockedAppendDelete(recordID)
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
 	}
@@ -282,7 +285,7 @@ func (p *SlottedPage) UndoDelete(slotID uint16) {
 	p.UnsafeOverrideSlotStatus(slotID, SlotStatusInserted)
 }
 
-func (p *SlottedPage) Update(slotID uint16, newData []byte) {
+func (p *SlottedPage) UnsafeUpdateNoLogs(slotID uint16, newData []byte) {
 	data := p.Read(slotID)
 	assert.Assert(len(data) == len(newData))
 
@@ -293,14 +296,23 @@ func (p *SlottedPage) Update(slotID uint16, newData []byte) {
 func (p *SlottedPage) UpdateWithLogs(
 	newData []byte,
 	recordID common.RecordID,
-	ctxLogger common.ITxnLoggerWithContext,
+	logger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
 	data := p.Read(recordID.SlotNum)
-	assert.Assert(len(data) == len(newData))
+	assert.Assert(
+		len(data) == len(newData),
+		"data and newData have different lengths. data: %d, newData: %d",
+		len(data),
+		len(newData),
+	)
 
 	before := make([]byte, len(data))
 	copy(before, data)
-	logRecordLoc, err := ctxLogger.AppendUpdate(recordID, before, newData)
+	logRecordLoc, err := logger.AssumeLockedAppendUpdate(
+		recordID,
+		before,
+		newData,
+	)
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
 	}
@@ -308,7 +320,7 @@ func (p *SlottedPage) UpdateWithLogs(
 	copy(data, newData)
 	p.SetPageLSN(logRecordLoc.Lsn)
 
-	return logRecordLoc, err
+	return logRecordLoc, nil
 }
 
 func (p *SlottedPage) TryLock() bool {
@@ -366,5 +378,5 @@ func InsertSerializable[T encoding.BinaryMarshaler](
 ) optional.Optional[uint16] {
 	bytes, err := obj.MarshalBinary()
 	assert.NoError(err)
-	return p.Insert(bytes)
+	return p.UnsafeInsertNoLogs(bytes)
 }

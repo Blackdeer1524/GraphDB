@@ -419,7 +419,11 @@ func TestCheckpointBegin_TruncatedData(t *testing.T) {
 }
 
 func TestCheckpointEnd_MarshalUnmarshal(t *testing.T) {
-	activeTxns := []common.TxnID{123, 456, 789}
+	activeTxns := map[common.TxnID]common.LogRecordLocInfo{
+		123: {Lsn: 100, Location: common.FileLocation{PageID: 1, SlotNum: 1}},
+		456: {Lsn: 200, Location: common.FileLocation{PageID: 2, SlotNum: 2}},
+		789: {Lsn: 300, Location: common.FileLocation{PageID: 3, SlotNum: 3}},
+	}
 	dirtyPages := map[common.PageIdentity]common.LogRecordLocInfo{
 		{PageID: 1, FileID: 1}: {
 			Lsn:      100,
@@ -453,13 +457,18 @@ func TestCheckpointEnd_MarshalUnmarshal(t *testing.T) {
 			len(recovered.activeTransactions), len(original.activeTransactions))
 	}
 
-	for i := range original.activeTransactions {
-		if original.activeTransactions[i] != recovered.activeTransactions[i] {
+	for txnID, expectedLoc := range original.activeTransactions {
+		recoveredLoc, exists := recovered.activeTransactions[txnID]
+		if !exists {
+			t.Errorf("missing txnID in recovered activeTransactions: %v", txnID)
+			continue
+		}
+		if expectedLoc != recoveredLoc {
 			t.Errorf(
-				"activeTransactions[%d] mismatch: got %v, want %v",
-				i,
-				recovered.activeTransactions[i],
-				original.activeTransactions[i],
+				"activeTransactions[%v] mismatch: got %v, want %v",
+				txnID,
+				recoveredLoc,
+				expectedLoc,
 			)
 		}
 	}
@@ -494,7 +503,7 @@ func TestCheckpointEnd_InvalidTypeTag(t *testing.T) {
 	// Create a valid record first
 	original := NewCheckpointEnd(
 		999,
-		[]common.TxnID{123},
+		map[common.TxnID]common.LogRecordLocInfo{123: {Lsn: 100, Location: common.FileLocation{}}},
 		make(map[common.PageIdentity]common.LogRecordLocInfo),
 	)
 
@@ -511,6 +520,63 @@ func TestCheckpointEnd_InvalidTypeTag(t *testing.T) {
 		t.Fatal("Expected error for invalid type tag, got nil")
 	}
 }
+
+func TestCheckpointEnd_EmptyMaps(t *testing.T) {
+	// Test with empty maps
+	original := NewCheckpointEnd(
+		999,
+		make(map[common.TxnID]common.LogRecordLocInfo),
+		make(map[common.PageIdentity]common.LogRecordLocInfo),
+	)
+
+	data, err := original.MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary failed: %v", err)
+	}
+
+	var recovered CheckpointEndLogRecord
+	if err := recovered.UnmarshalBinary(data); err != nil {
+		t.Fatalf("UnmarshalBinary failed: %v", err)
+	}
+
+	// Verify fields
+	if original.lsn != recovered.lsn {
+		t.Errorf("lsn mismatch: got %v, want %v", recovered.lsn, original.lsn)
+	}
+
+	if len(recovered.activeTransactions) != 0 {
+		t.Errorf("expected empty activeTransactions, got %d", len(recovered.activeTransactions))
+	}
+
+	if len(recovered.dirtyPageTable) != 0 {
+		t.Errorf("expected empty dirtyPageTable, got %d", len(recovered.dirtyPageTable))
+	}
+}
+
+func TestCheckpointEnd_TruncatedData(t *testing.T) {
+	// Create a valid record first
+	original := NewCheckpointEnd(
+		999,
+		map[common.TxnID]common.LogRecordLocInfo{123: {Lsn: 100, Location: common.FileLocation{}}},
+		map[common.PageIdentity]common.LogRecordLocInfo{
+			{PageID: 1, FileID: 1}: {Lsn: 200, Location: common.FileLocation{}},
+		},
+	)
+
+	data, err := original.MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary failed: %v", err)
+	}
+
+	// Truncate the data
+	data = data[:len(data)-2]
+
+	var recovered CheckpointEndLogRecord
+	if err := recovered.UnmarshalBinary(data); err == nil {
+		t.Fatal("Expected error for truncated data, got nil")
+	}
+}
+
 func TestDeleteLogRecord_MarshalUnmarshal(t *testing.T) {
 	original := NewDeleteLogRecord(
 		123,

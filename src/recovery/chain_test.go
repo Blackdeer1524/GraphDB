@@ -8,24 +8,28 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 )
 
 func setupLoggerMasterPage(
 	t *testing.T,
 	pool bufferpool.BufferPool,
-	pgIdent common.PageIdentity,
-	rec common.LogRecordLocInfo,
+	logFileID common.FileID,
+	checkpointLocation common.FileLocation,
 ) {
-	pg, err := pool.GetPage(common.PageIdentity{
-		FileID: pgIdent.FileID,
-		PageID: pgIdent.PageID,
-	})
+	pg, err := pool.GetPage(
+		common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID},
+	)
 	require.NoError(t, err)
-	defer pool.Unpin(pgIdent)
+	defer pool.Unpin(common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID})
 
+	pool.MarkDirtyNoLogsAssumeLocked(
+		common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID},
+	)
 	masterPage := (*loggerInfoPage)(pg)
 	masterPage.Setup()
-	masterPage.setInfo(rec)
+	masterPage.setCheckpointLocation(checkpointLocation)
+	require.NoError(t, err)
 }
 
 func TestChainSanity(t *testing.T) {
@@ -36,23 +40,25 @@ func TestChainSanity(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: masterRecordPage,
+		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
+
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
-		common.LogRecordLocInfo{
-			Lsn: 123,
-			Location: common.FileLocation{
-				PageID:  logPageId.PageID,
-				SlotNum: 0,
-			},
+		logPageId.FileID,
+		common.FileLocation{
+			PageID:  logPageId.PageID,
+			SlotNum: 0,
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
@@ -81,7 +87,16 @@ func TestChainSanity(t *testing.T) {
 		PageID: 1,
 	}
 
-	checkpointATT := []common.TxnID{1, 2, 3}
+	checkpointATT := map[common.TxnID]common.LogRecordLocInfo{
+		1: {
+			Lsn: 1,
+			Location: common.FileLocation{
+				PageID:  2,
+				SlotNum: 3,
+			},
+		},
+	}
+
 	checkpointDPT := map[common.PageIdentity]common.LogRecordLocInfo{
 		{
 			FileID: 42,
@@ -259,13 +274,16 @@ func TestChain(t *testing.T) {
 	logFileID := common.FileID(42)
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: masterRecordPage,
+		PageID: common.CheckpointInfoPageID,
 	}
 
-	pool := bufferpool.NewBufferPoolMock(
-		[]common.PageIdentity{masterRecordPageIdent},
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
 	)
-
 	logPageId := common.PageIdentity{
 		FileID: logFileID,
 		PageID: 23,
@@ -273,16 +291,14 @@ func TestChain(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
-		common.LogRecordLocInfo{
-			Lsn: 1,
-			Location: common.FileLocation{
-				PageID:  logPageId.PageID,
-				SlotNum: 0,
-			},
+		logFileID,
+		common.FileLocation{
+			PageID:  logPageId.PageID,
+			SlotNum: 0,
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	pool.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 1,

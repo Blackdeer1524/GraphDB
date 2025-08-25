@@ -16,6 +16,8 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
@@ -28,11 +30,27 @@ func TestBankTransactions(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: generatedFileIDs[0],
-		PageID: masterRecordPage,
+		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewBufferPoolMock(
-		[]common.PageIdentity{
-			masterRecordPageIdent,
+
+	const (
+		startBalance      = uint32(60)
+		rollbackCutoff    = uint32(0) // startBalance / 3
+		clientsCount      = 100_000
+		txnsCount         = 10_000
+		retryCount        = 1
+		maxEntriesPerPage = 12
+		workersCount      = 10_000
+	)
+
+	pagesLowerBound := uint64(clientsCount / maxEntriesPerPage)
+	// pagesUpperBound := uint64(clientsCount) + 10
+
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(pagesLowerBound, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
 		},
 	)
 	files := generatedFileIDs[1:]
@@ -43,21 +61,14 @@ func TestBankTransactions(t *testing.T) {
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
-		common.LogRecordLocInfo{
-			Lsn:      1,
-			Location: common.FileLocation{PageID: 1, SlotNum: 0},
+		masterRecordPageIdent.FileID,
+		common.FileLocation{
+			PageID:  common.CheckpointInfoPageID + 1,
+			SlotNum: 0,
 		},
 	)
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
-
-	const startBalance = uint32(60)
-	const rollbackCutoff = uint32(0) // START_BALANCE / 3
-	const clientsCount = 100
-	const txnsCount = 50
-	const retryCount = 5
-	const maxEntriesPerPage = 30
-	const workersCount = 2000
+	pool.SetLogger(logger)
 
 	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)
@@ -77,12 +88,19 @@ func TestBankTransactions(t *testing.T) {
 
 	totalMoney := uint32(0)
 	for id := range recordValues {
-		page, err := pool.GetPageNoCreate(id.PageIdentity())
+		pg, err := pool.GetPageNoCreate(id.PageIdentity())
 		require.NoError(t, err)
-		page.Lock()
-		page.Update(id.SlotNum, utils.ToBytes[uint32](startBalance))
+		require.NoError(t,
+			pool.WithMarkDirty(
+				common.NilTxnID,
+				id.PageIdentity(),
+				pg,
+				func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+					lockedPage.UnsafeUpdateNoLogs(id.SlotNum, utils.ToBytes[uint32](startBalance))
+					return common.NewNilLogRecordLocation(), nil
+				},
+			))
 		totalMoney += startBalance
-		page.Unlock()
 		pool.Unpin(id.PageIdentity())
 	}
 
@@ -91,7 +109,7 @@ func TestBankTransactions(t *testing.T) {
 		IDs = append(IDs, i)
 	}
 
-	locker := txns.NewLocker()
+	locker := txns.NewHierarchyLocker()
 	defer func() {
 		stillLockedTxns := locker.GetActiveTransactions()
 		assert.Equal(
@@ -104,12 +122,16 @@ func TestBankTransactions(t *testing.T) {
 		assert.True(t, locker.AreAllQueuesEmpty())
 	}()
 
-	go func() {
-		<-time.After(1 * time.Second)
+	graphDump := func() {
+		waitTime := 20
+		t.Logf("Waiting for %d seconds...\n", waitTime)
+		<-time.After(time.Duration(waitTime) * time.Second)
 
+		t.Logf("Have been waiting for too long. Creating a graph...\n")
 		graph := locker.DumpDependencyGraph()
-		t.Logf("Have been waiting for too long. Graph:\n%s", graph)
-	}()
+		t.Logf("%s", graph)
+	}
+	require.NoError(t, workerPool.Submit(graphDump))
 
 	succ := atomic.Uint64{}
 	fileLockFail := atomic.Uint64{}
@@ -202,33 +224,9 @@ func TestBankTransactions(t *testing.T) {
 		firstBalance := utils.FromBytes[uint32](firstPage.Read(first.SlotNum))
 		firstPage.RUnlock()
 
-		time.Sleep(time.Second * 10)
-
 		// transfering
-		if !locker.UpgradeCatalogLock(
-			ctoken,
-			txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
-		) {
-			catalogUpgradeFail.Add(1)
-			err = logger.AppendAbort()
-			require.NoError(t, err)
-			logger.Rollback()
-			return false
-		}
-
-		if !locker.UpgradeFileLock(
-			ttoken,
-			txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
-		) {
-			fileLockUpgradeFail.Add(1)
-			err = logger.AppendAbort()
-			require.NoError(t, err)
-			logger.Rollback()
-			return false
-		}
-
 		transferAmount := uint32(rand.Intn(int(myBalance)))
-		if !locker.UpgradePageLock(myPageToken, txns.PAGE_LOCK_EXCLUSIVE) {
+		if !locker.UpgradePageLock(myPageToken) {
 			myPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
@@ -236,7 +234,7 @@ func TestBankTransactions(t *testing.T) {
 			return false
 		}
 
-		if !locker.UpgradePageLock(firstPageToken, txns.PAGE_LOCK_EXCLUSIVE) {
+		if !locker.UpgradePageLock(firstPageToken) {
 			firstPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
 			require.NoError(t, err)
@@ -244,26 +242,36 @@ func TestBankTransactions(t *testing.T) {
 			return false
 		}
 
-		myPage.Lock()
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
-		logLoc, err := myPage.UpdateWithLogs(myNewBalance, me, logger)
-		pool.MarkDirty(me.PageIdentity(), logLoc)
+		err = pool.WithMarkDirty(
+			txnID,
+			me.PageIdentity(),
+			myPage,
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+				return lockedPage.UpdateWithLogs(myNewBalance, me, logger)
+			},
+		)
 		require.NoError(t, err)
-		myPage.Unlock()
 
-		firstPage.Lock()
 		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
-		logLoc, err = firstPage.UpdateWithLogs(firstNewBalance, first,
-			logger)
-		pool.MarkDirty(first.PageIdentity(), logLoc)
+		err = pool.WithMarkDirty(
+			txnID,
+			first.PageIdentity(),
+			firstPage,
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+				return lockedPage.UpdateWithLogs(
+					firstNewBalance,
+					first,
+					logger,
+				)
+			},
+		)
 		require.NoError(t, err)
-		firstPage.Unlock()
 
 		myPage.RLock()
-		myNewBalanceFromPage :=
-			utils.FromBytes[uint32](myPage.Read(me.SlotNum))
-		require.Equal(t, myNewBalanceFromPage, myBalance-transferAmount)
+		myNewBalanceFromPage := utils.FromBytes[uint32](myPage.Read(me.SlotNum))
 		myPage.RUnlock()
+		require.Equal(t, myNewBalanceFromPage, myBalance-transferAmount)
 
 		firstPage.RLock()
 		firstNewBalanceFromPage := utils.FromBytes[uint32](
@@ -309,6 +317,18 @@ func TestBankTransactions(t *testing.T) {
 
 	assert.Equal(t, txnsCount, int(txnsTicker.Load()))
 
+	totalFail := int(fileLockFail.Load() +
+		myPageLockFail.Load() +
+		balanceFail.Load() +
+		firstPageLockFail.Load() +
+		catalogUpgradeFail.Load() +
+		fileLockUpgradeFail.Load() +
+		myPageUpgradeFail.Load() +
+		firstPageUpgradeFail.Load() +
+		rollbackCutoffFail.Load())
+
+	assert.Less(t, fileLockFail.Load(), totalFail, txnsCount)
+
 	successCount := succ.Load()
 	assert.Greater(t, successCount, uint64(0))
 	if int(successCount) < txnsCount/2 {
@@ -334,6 +354,7 @@ func TestBankTransactions(t *testing.T) {
 		)
 	}
 
+	t.Log("ensuring consistency...")
 	finalTotalMoney := uint32(0)
 	for id := range recordValues {
 		page, err := pool.GetPageNoCreate(id.PageIdentity())
