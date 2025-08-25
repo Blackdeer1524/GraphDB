@@ -35,9 +35,11 @@ type Page interface {
 }
 
 type DiskManager[T Page] interface {
-	ReadPage(page T, pageIdent PageIdentity) error
-	GetPageNoNew(page T, pageIdent PageIdentity) error
 	Lock()
 	Unlock()
+	ReadPage(page T, pageIdent PageIdentity) error
+	ReadPageAssumeLocked(page T, pageIdent PageIdentity) error
+	GetPageNoNew(page T, pageIdent PageIdentity) error
+	GetPageNoNewAssumeLocked(page T, pageIdent PageIdentity) error
 	WritePageAssumeLocked(page T, pageIdent PageIdentity) error
 }

@@ -36,7 +36,6 @@ type BufferPool interface {
 	MarkDirtyNoLogsAssumeLocked(common.PageIdentity)
 	WithMarkDirtyLogPage(func() (common.LogRecordLocInfo, error)) (common.LogRecordLocInfo, error)
 	GetDPTandATT() (map[common.PageIdentity]common.LogRecordLocInfo, map[common.TxnID]common.LogRecordLocInfo)
-	FlushPage(common.PageIdentity) error
 	FlushAllPages() error
 	FlushLogs() error
 }
@@ -150,7 +149,7 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 	frameID := m.reserveFrame()
 	if frameID != noFrame {
 		page := &m.frames[frameID]
-		err := m.diskManager.GetPageNoNew(page, requestedPage)
+		err := m.diskManager.GetPageNoNewAssumeLocked(page, requestedPage)
 		if err != nil {
 			m.emptyFrames = append(m.emptyFrames, frameID)
 			return nil, err
@@ -179,7 +178,7 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 	)
 
 	victimPage := &m.frames[victimInfo.frameID]
-	err = m.flushPage(victimPage, victimPageIdent)
+	err = m.flushPageAssumeLocked(victimPage, victimPageIdent)
 	if err != nil {
 		m.replacer.Pin(victimPageIdent)
 		m.replacer.Unpin(victimPageIdent)
@@ -187,7 +186,7 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 	}
 	delete(m.pageTable, victimPageIdent)
 
-	err = m.diskManager.GetPageNoNew(victimPage, requestedPage)
+	err = m.diskManager.GetPageNoNewAssumeLocked(victimPage, requestedPage)
 	if err != nil {
 		m.emptyFrames = append(m.emptyFrames, victimInfo.frameID)
 		return nil, err
@@ -216,12 +215,7 @@ func (m *Manager) GetPage(
 	// slow path
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.GetPageAssumeLocked(requestedPage)
-}
 
-func (m *Manager) GetPageAssumeLocked(
-	requestedPage common.PageIdentity,
-) (*page.SlottedPage, error) {
 	if frameInfo, ok := m.pageTable[requestedPage]; ok {
 		m.pin(requestedPage)
 		return &m.frames[frameInfo.frameID], nil
@@ -282,6 +276,69 @@ func (m *Manager) GetPageAssumeLocked(
 	return victimPage, nil
 }
 
+func (m *Manager) GetPageAssumeLocked(
+	requestedPage common.PageIdentity,
+) (*page.SlottedPage, error) {
+	if frameInfo, ok := m.pageTable[requestedPage]; ok {
+		m.pin(requestedPage)
+		return &m.frames[frameInfo.frameID], nil
+	}
+
+	frameID := m.reserveFrame()
+	if frameID != noFrame {
+		page := &m.frames[frameID]
+		err := m.diskManager.ReadPageAssumeLocked(page, requestedPage)
+		if err != nil {
+			m.emptyFrames = append(m.emptyFrames, frameID)
+			return nil, err
+		}
+
+		m.pageTable[requestedPage] = frameInfo{
+			frameID:  frameID,
+			pinCount: 1,
+		}
+		m.replacer.Pin(requestedPage)
+
+		return page, nil
+	}
+
+	victimPageIdent, err := m.replacer.ChooseVictim()
+	if err != nil {
+		return nil, err
+	}
+
+	victimInfo, ok := m.pageTable[victimPageIdent]
+	assert.Assert(ok, "victim page %+v not found", victimPageIdent)
+	assert.Assert(
+		victimInfo.pinCount == 0,
+		"victim page %+v is pinned",
+		victimPageIdent,
+	)
+
+	victimPage := &m.frames[victimInfo.frameID]
+
+	err = m.flushPageAssumeLocked(victimPage, victimPageIdent)
+	if err != nil {
+		m.replacer.Pin(victimPageIdent)
+		m.replacer.Unpin(victimPageIdent)
+		return nil, err
+	}
+	delete(m.pageTable, victimPageIdent)
+
+	err = m.diskManager.ReadPageAssumeLocked(victimPage, requestedPage)
+	if err != nil {
+		m.emptyFrames = append(m.emptyFrames, victimInfo.frameID)
+		return nil, err
+	}
+
+	m.pageTable[requestedPage] = frameInfo{
+		frameID:  victimInfo.frameID,
+		pinCount: 1,
+	}
+	m.replacer.Pin(requestedPage)
+	return victimPage, nil
+}
+
 var ErrNoSpaceLeft = errors.New("no space left in the buffer pool")
 
 func (m *Manager) WithMarkDirty(
@@ -292,6 +349,9 @@ func (m *Manager) WithMarkDirty(
 ) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.diskManager.Lock()
+	defer m.diskManager.Unlock()
 
 	page.Lock()
 	defer page.Unlock()
@@ -310,11 +370,21 @@ func (m *Manager) WithMarkDirty(
 	return nil
 }
 
-func (m *Manager) MarkDirtyNoLogsAssumeLocked(pageIdent common.PageIdentity) {
-	loc, ok := m.DPT[pageIdent]
-	if !ok {
-		m.DPT[pageIdent] = loc
+func (m *Manager) WithMarkDirtyLogPage(
+	fn func() (common.LogRecordLocInfo, error),
+) (common.LogRecordLocInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.diskManager.Lock()
+	defer m.diskManager.Unlock()
+
+	loc, err := fn()
+	if err != nil {
+		return common.LogRecordLocInfo{}, err
 	}
+
+	return loc, nil
 }
 
 func (m *Manager) reserveFrame() uint64 {
@@ -327,7 +397,7 @@ func (m *Manager) reserveFrame() uint64 {
 	return noFrame
 }
 
-// WARN: expects diskManager to be locked
+// WARN: expects **BOTH** buffer pool and diskManager to be locked
 func (m *Manager) FlushLogs() error {
 	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
 	logPageID := startPageID
@@ -368,6 +438,29 @@ func (m *Manager) FlushLogs() error {
 	return nil
 }
 
+func (m *Manager) flushPageAssumeLocked(
+	lockedPg *page.SlottedPage,
+	pIdent common.PageIdentity,
+) error {
+	if _, ok := m.DPT[pIdent]; !ok {
+		return nil
+	}
+
+	flushLSN := m.logger.GetFlushLSN()
+	if lockedPg.PageLSN() > flushLSN {
+		if err := m.FlushLogs(); err != nil {
+			return err
+		}
+	}
+
+	err := m.diskManager.WritePageAssumeLocked(lockedPg, pIdent)
+	if err != nil {
+		return err
+	}
+	delete(m.DPT, pIdent)
+	return nil
+}
+
 func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdentity) error {
 	if _, ok := m.DPT[pIdent]; !ok {
 		return nil
@@ -375,6 +468,7 @@ func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdenti
 
 	m.diskManager.Lock()
 	defer m.diskManager.Unlock()
+
 	flushLSN := m.logger.GetFlushLSN()
 	if lockedPg.PageLSN() > flushLSN {
 		if err := m.FlushLogs(); err != nil {
@@ -394,9 +488,6 @@ func (m *Manager) FlushAllPages() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.diskManager.Lock()
-	defer m.diskManager.Unlock()
-
 	if err := m.FlushLogs(); err != nil {
 		return err
 	}
@@ -414,8 +505,10 @@ func (m *Manager) FlushAllPages() error {
 		}
 		assert.Assert(frame.PageLSN() <= flushLSN, "didn't flush logs for page %+v", pgIdent)
 
+		m.diskManager.Lock()
 		err = errors.Join(err, m.diskManager.WritePageAssumeLocked(frame, pgIdent))
 		frame.Unlock()
+		m.diskManager.Unlock()
 	}
 
 	clear(m.DPT)

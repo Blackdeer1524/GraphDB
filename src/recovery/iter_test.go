@@ -130,7 +130,6 @@ func TestIterSanity(t *testing.T) {
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	diskManager.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 123,
