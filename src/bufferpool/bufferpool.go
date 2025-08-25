@@ -21,6 +21,7 @@ type Replacer interface {
 }
 
 type BufferPool interface {
+	SetLogger(logger common.ITxnLogger)
 	Unpin(common.PageIdentity)
 	UnpinAssumeLocked(common.PageIdentity)
 	GetPage(common.PageIdentity) (*page.SlottedPage, error)
@@ -110,8 +111,13 @@ func (m *Manager) Unpin(pIdent common.PageIdentity) {
 
 func (m *Manager) UnpinAssumeLocked(pIdent common.PageIdentity) {
 	frameInfo, ok := m.pageTable[pIdent]
-	assert.Assert(ok, "coulnd't unpin page %+v: page not found")
-	assert.Assert(frameInfo.pinCount > 0, "invalid pin count")
+	assert.Assert(ok, "coulnd't unpin page %+v: page not found", pIdent)
+	assert.Assert(
+		frameInfo.pinCount > 0,
+		"invalid pin count for page %+v: %d",
+		pIdent,
+		frameInfo.pinCount,
+	)
 
 	frameInfo.pinCount--
 	m.pageTable[pIdent] = frameInfo

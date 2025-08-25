@@ -88,6 +88,7 @@ func NewTxnLogger(
 		currentPage:     0,
 	}
 
+	pool.SetLogger(l)
 	masterRecordIdent := common.PageIdentity{
 		FileID: logFileID,
 		PageID: checkpointInfoPageID,
@@ -110,10 +111,20 @@ func NewTxnLogger(
 		l.masterPage = (*loggerInfoPage)(pg)
 	}
 
-	info := l.masterPage.GetCheckpointLocation()
-	l.firstDirtyPage = info.PageID
-	l.currentPage = info.PageID
-	l.Recover(info)
+	checkpointLocation := l.masterPage.GetCheckpointLocation()
+	l.firstDirtyPage = checkpointLocation.PageID
+	l.currentPage = checkpointLocation.PageID
+
+	checkpointPageIdent := common.PageIdentity{
+		FileID: l.logfileID,
+		PageID: checkpointLocation.PageID,
+	}
+	_, err = pool.GetPageNoCreate(checkpointPageIdent)
+	if errors.Is(err, disk.ErrNoSuchPage) {
+		return l
+	}
+	pool.Unpin(checkpointPageIdent)
+	l.Recover(checkpointLocation)
 	return l
 }
 
