@@ -117,19 +117,19 @@ func TestIterSanity(t *testing.T) {
 			masterRecordPageIdent: {},
 		},
 	)
-
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	setupLoggerMasterPage(
 		t,
 		pool,
 		masterRecordPageIdent,
-		common.LogRecordLocInfo{
-			Lsn:      1,
-			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
+		common.FileLocation{
+			PageID:  logPageId.PageID,
+			SlotNum: 0,
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
+	pool.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 123,

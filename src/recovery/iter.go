@@ -34,6 +34,10 @@ func newLogRecordIter(
 
 var ErrInvalidIterator = errors.New("iterator is invalid")
 
+func (iter *LogRecordsIter) PageID() common.PageID {
+	return iter.curLoc.PageID
+}
+
 // Returns an error only if couldn't read the next page
 func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 	assert.Assert(iter.currentPage != nil)

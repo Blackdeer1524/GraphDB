@@ -87,9 +87,14 @@ func New(
 		diskManager: diskManager,
 		DPT:         map[common.PageIdentity]common.LogRecordLocInfo{},
 		ATT:         map[common.TxnID]common.LogRecordLocInfo{},
+		logger:      common.DummyLogger(),
 	}
 
 	return m
+}
+
+func (m *Manager) SetLogger(logger common.ITxnLogger) {
+	m.logger = logger
 }
 
 var (
@@ -100,13 +105,10 @@ func (m *Manager) Unpin(pIdent common.PageIdentity) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.Unpin(pIdent)
+	m.UnpinAssumeLocked(pIdent)
 }
 
 func (m *Manager) UnpinAssumeLocked(pIdent common.PageIdentity) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	frameInfo, ok := m.pageTable[pIdent]
 	assert.Assert(ok, "coulnd't unpin page %+v: page not found")
 	assert.Assert(frameInfo.pinCount > 0, "invalid pin count")
@@ -182,7 +184,7 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 	)
 
 	victimPage := &m.frames[victimInfo.frameID]
-	err = m.flushPageAssumeLocked(victimPage, victimPageIdent)
+	err = m.flushPageAssumeDiskLocked(victimPage, victimPageIdent)
 	if err != nil {
 		m.replacer.Pin(victimPageIdent)
 		m.replacer.Unpin(victimPageIdent)
@@ -321,7 +323,7 @@ func (m *Manager) GetPageAssumeLocked(
 
 	victimPage := &m.frames[victimInfo.frameID]
 
-	err = m.flushPageAssumeLocked(victimPage, victimPageIdent)
+	err = m.flushPageAssumeDiskLocked(victimPage, victimPageIdent)
 	if err != nil {
 		m.replacer.Pin(victimPageIdent)
 		m.replacer.Unpin(victimPageIdent)
@@ -442,7 +444,7 @@ func (m *Manager) FlushLogs() error {
 	return nil
 }
 
-func (m *Manager) flushPageAssumeLocked(
+func (m *Manager) flushPageAssumeDiskLocked(
 	lockedPg *page.SlottedPage,
 	pIdent common.PageIdentity,
 ) error {
@@ -492,6 +494,9 @@ func (m *Manager) FlushAllPages() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	m.diskManager.Lock()
+	defer m.diskManager.Unlock()
+
 	if err := m.FlushLogs(); err != nil {
 		return err
 	}
@@ -528,6 +533,10 @@ func (m *Manager) GetDPTandATT() (map[common.PageIdentity]common.LogRecordLocInf
 type DebugBufferPool struct {
 	m           *Manager
 	leakedPages map[common.PageIdentity]struct{}
+}
+
+func (d *DebugBufferPool) SetLogger(logger common.ITxnLogger) {
+	d.m.SetLogger(logger)
 }
 
 var (

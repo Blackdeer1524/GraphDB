@@ -199,7 +199,7 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	require.True(t, newSlotOpt.IsSome())
 
 	mockReplacer.On("ChooseVictim").Return(existingPageIdent, nil)
-	mockDisk.On("WritePage", mock.AnythingOfType("*page.SlottedPage"), existingPageIdent).
+	mockDisk.On("WritePageAssumeLocked", mock.AnythingOfType("*page.SlottedPage"), existingPageIdent).
 		Return(nil)
 
 	newPageIdent := common.PageIdentity{
@@ -267,14 +267,14 @@ func TestManager_Replacement(t *testing.T) {
 
 			defer pool.Unpin(pid)
 			assert.NoError(t, pool.WithMarkDirty(
+				common.TxnID(i),
 				pid,
 				pg,
-				common.NoLogs(),
-				func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+				func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 					slotID, logRecordLoc, err := lockedPage.InsertWithLogs(
 						utils.ToBytes[uint64](i),
 						pid,
-						lockedLogger,
+						common.NoLogs(),
 					)
 					if err != nil {
 						failedCh <- i

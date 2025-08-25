@@ -15,7 +15,7 @@ func setupLoggerMasterPage(
 	t *testing.T,
 	pool bufferpool.BufferPool,
 	pgIdent common.PageIdentity,
-	rec common.LogRecordLocInfo,
+	rec common.FileLocation,
 ) {
 	pg, err := pool.GetPage(common.PageIdentity{
 		FileID: pgIdent.FileID,
@@ -54,16 +54,13 @@ func TestChainSanity(t *testing.T) {
 		t,
 		pool,
 		masterRecordPageIdent,
-		common.LogRecordLocInfo{
-			Lsn: 123,
-			Location: common.FileLocation{
-				PageID:  logPageId.PageID,
-				SlotNum: 0,
-			},
+		common.FileLocation{
+			PageID:  logPageId.PageID,
+			SlotNum: 0,
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	diskManager.SetLogger(logger)
+	pool.SetLogger(logger)
 
 	txnID := common.TxnID(89)
 	chain := NewTxnLogChain(logger, txnID)
@@ -89,7 +86,16 @@ func TestChainSanity(t *testing.T) {
 		PageID: 1,
 	}
 
-	checkpointATT := []common.TxnID{1, 2, 3}
+	checkpointATT := map[common.TxnID]common.LogRecordLocInfo{
+		1: {
+			Lsn: 1,
+			Location: common.FileLocation{
+				PageID:  2,
+				SlotNum: 3,
+			},
+		},
+	}
+
 	checkpointDPT := map[common.PageIdentity]common.LogRecordLocInfo{
 		{
 			FileID: 42,
@@ -285,16 +291,13 @@ func TestChain(t *testing.T) {
 		t,
 		pool,
 		masterRecordPageIdent,
-		common.LogRecordLocInfo{
-			Lsn: 1,
-			Location: common.FileLocation{
-				PageID:  logPageId.PageID,
-				SlotNum: 0,
-			},
+		common.FileLocation{
+			PageID:  logPageId.PageID,
+			SlotNum: 0,
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	diskManager.SetLogger(logger)
+	pool.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 1,

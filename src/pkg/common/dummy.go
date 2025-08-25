@@ -1,13 +1,42 @@
 package common
 
-type DummyLoggerWithContext struct{}
+type dummyLogger struct{}
 
-var dummyLogger DummyLoggerWithContext = DummyLoggerWithContext{}
+var _ ITxnLogger = &dummyLogger{}
+
+func DummyLogger() *dummyLogger {
+	return &dummyLogger{}
+}
+
+// GetFlushInfo implements ITxnLogger.
+func (d *dummyLogger) GetFlushInfo() (FileID, PageID, PageID, LSN) {
+	return 0, 0, 0, 0
+}
+
+// GetFlushLSN implements ITxnLogger.
+func (d *dummyLogger) GetFlushLSN() LSN {
+	return 0
+}
+
+// UpdateFirstUnflushedPage implements ITxnLogger.
+func (d *dummyLogger) UpdateFirstUnflushedPage(pageID PageID) {
+}
+
+// UpdateFlushLSN implements ITxnLogger.
+func (d *dummyLogger) UpdateFlushLSN(lsn LSN) {
+}
+
+// WithContext implements ITxnLogger.
+func (d *dummyLogger) WithContext(txnID TxnID) ITxnLoggerWithContext {
+	return &DummyLoggerWithContext{}
+}
+
+type DummyLoggerWithContext struct{}
 
 var _ ITxnLoggerWithContext = &DummyLoggerWithContext{}
 
 func NoLogs() *DummyLoggerWithContext {
-	return &dummyLogger
+	return &DummyLoggerWithContext{}
 }
 
 func (l *DummyLoggerWithContext) AppendBegin() error {

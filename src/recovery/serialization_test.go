@@ -523,7 +523,11 @@ func TestCheckpointEnd_InvalidTypeTag(t *testing.T) {
 
 func TestCheckpointEnd_EmptyMaps(t *testing.T) {
 	// Test with empty maps
-	original := NewCheckpointEnd(999, make(map[common.TxnID]common.LogRecordLocInfo), make(map[common.PageIdentity]common.LogRecordLocInfo))
+	original := NewCheckpointEnd(
+		999,
+		make(map[common.TxnID]common.LogRecordLocInfo),
+		make(map[common.PageIdentity]common.LogRecordLocInfo),
+	)
 
 	data, err := original.MarshalBinary()
 	if err != nil {
@@ -554,7 +558,9 @@ func TestCheckpointEnd_TruncatedData(t *testing.T) {
 	original := NewCheckpointEnd(
 		999,
 		map[common.TxnID]common.LogRecordLocInfo{123: {Lsn: 100, Location: common.FileLocation{}}},
-		map[common.PageIdentity]common.LogRecordLocInfo{{PageID: 1, FileID: 1}: {Lsn: 200, Location: common.FileLocation{}}},
+		map[common.PageIdentity]common.LogRecordLocInfo{
+			{PageID: 1, FileID: 1}: {Lsn: 200, Location: common.FileLocation{}},
+		},
 	)
 
 	data, err := original.MarshalBinary()
