@@ -217,3 +217,24 @@ func NewTxnUnlockRequest[ObjectIDType comparable](
 		objectId: objectId,
 	}
 }
+
+type PageLockRequest struct {
+	TxnID    common.TxnID
+	LockMode PageLockMode
+	PageID   uint64
+}
+
+type SystemCatalogLock int
+
+const (
+	SystemCatalogIntentionShared SystemCatalogLock = iota
+	SystemCatalogIntentionExclusive
+	SystemCatalogShared
+	SystemCatalogSharedIntentionExclusive
+	SystemCatalogExclusive
+)
+
+type SystemCatalogLockRequest struct {
+	TxnID    common.TxnID
+	LockMode SystemCatalogLock
+}
