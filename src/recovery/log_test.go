@@ -33,7 +33,7 @@ func TestValidRecovery(t *testing.T) {
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: masterRecordPage,
+		PageID: checkpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
 		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
@@ -132,7 +132,7 @@ func TestFailedTxn(t *testing.T) {
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: masterRecordPage,
+		PageID: checkpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
 		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
@@ -252,7 +252,7 @@ func TestMassiveRecovery(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: masterRecordPage,
+		PageID: checkpointInfoPageID,
 	}
 
 	diskManager := disk.NewInMemoryManager()
@@ -509,7 +509,7 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: masterRecordPage,
+		PageID: checkpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
 		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
@@ -720,7 +720,7 @@ func TestLoggerRollback(t *testing.T) {
 	diskManager := disk.NewInMemoryManager()
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: masterRecordPage,
+		PageID: checkpointInfoPageID,
 	}
 	pool := bufferpool.NewDebugBufferPool(
 		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
@@ -730,7 +730,7 @@ func TestLoggerRollback(t *testing.T) {
 	)
 
 	logStartLocation := common.FileLocation{
-		PageID:  masterRecordPage,
+		PageID:  checkpointInfoPageID,
 		SlotNum: 0,
 	}
 

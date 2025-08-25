@@ -30,7 +30,7 @@ func TestBankTransactions(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: generatedFileIDs[0],
-		PageID: masterRecordPage,
+		PageID: checkpointInfoPageID,
 	}
 
 	const (

@@ -2,18 +2,17 @@ package common
 
 type ITxnLogger interface {
 	WithContext(txnID TxnID) ITxnLoggerWithContext
-	GetMasterRecordAssumePoolLocked() LSN
-	Flush() error
+	GetFlushLSN() LSN
+	GetFlushInfo() (FileID, PageID, PageID, LSN)
+	UpdateFirstUnflushedPage(pageID PageID)
+	UpdateFlushLSN(lsn LSN)
 }
 
 type ITxnLoggerWithContext interface {
 	AppendBegin() error
 	Lock()
 	Unlock()
-	AssumeLockedAppendInsert(
-		recordID RecordID,
-		value []byte,
-	) (LogRecordLocInfo, error)
+	AssumeLockedAppendInsert(recordID RecordID, value []byte) (LogRecordLocInfo, error)
 	AssumeLockedAppendUpdate(
 		recordID RecordID,
 		before []byte,
@@ -40,5 +39,7 @@ type Page interface {
 type DiskManager[T Page] interface {
 	ReadPage(page T, pageIdent PageIdentity) error
 	GetPageNoNew(page T, pageIdent PageIdentity) error
-	WritePage(page T, pageIdent PageIdentity) error
+	Lock()
+	Unlock()
+	WritePageAssumeLocked(page T, pageIdent PageIdentity) error
 }

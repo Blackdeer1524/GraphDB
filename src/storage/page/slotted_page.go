@@ -296,7 +296,7 @@ func (p *SlottedPage) UnsafeUpdateNoLogs(slotID uint16, newData []byte) {
 func (p *SlottedPage) UpdateWithLogs(
 	newData []byte,
 	recordID common.RecordID,
-	lockedLogger common.ITxnLoggerWithContext,
+	logger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
 	data := p.Read(recordID.SlotNum)
 	assert.Assert(
@@ -308,7 +308,7 @@ func (p *SlottedPage) UpdateWithLogs(
 
 	before := make([]byte, len(data))
 	copy(before, data)
-	logRecordLoc, err := lockedLogger.AssumeLockedAppendUpdate(
+	logRecordLoc, err := logger.AssumeLockedAppendUpdate(
 		recordID,
 		before,
 		newData,
