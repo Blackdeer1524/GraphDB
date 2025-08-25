@@ -179,14 +179,11 @@ func (m *Manager) GetPageNoCreateAssumeLocked(
 	)
 
 	victimPage := &m.frames[victimInfo.frameID]
-	if _, ok := m.DPT[victimPageIdent]; ok {
-		err = m.diskManager.WritePage(victimPage, victimPageIdent)
-		if err != nil {
-			m.replacer.Pin(victimPageIdent)
-			m.replacer.Unpin(victimPageIdent)
-			return nil, err
-		}
-		delete(m.DPT, victimPageIdent)
+	err = m.flushPage(victimPage, victimPageIdent)
+	if err != nil {
+		m.replacer.Pin(victimPageIdent)
+		m.replacer.Unpin(victimPageIdent)
+		return nil, err
 	}
 	delete(m.pageTable, victimPageIdent)
 
@@ -262,14 +259,12 @@ func (m *Manager) GetPageAssumeLocked(
 	)
 
 	victimPage := &m.frames[victimInfo.frameID]
-	if _, ok := m.DPT[victimPageIdent]; ok {
-		err = m.diskManager.WritePage(victimPage, victimPageIdent)
-		if err != nil {
-			m.replacer.Pin(victimPageIdent)
-			m.replacer.Unpin(victimPageIdent)
-			return nil, err
-		}
-		delete(m.DPT, victimPageIdent)
+
+	err = m.flushPage(victimPage, victimPageIdent)
+	if err != nil {
+		m.replacer.Pin(victimPageIdent)
+		m.replacer.Unpin(victimPageIdent)
+		return nil, err
 	}
 	delete(m.pageTable, victimPageIdent)
 
@@ -333,7 +328,7 @@ func (m *Manager) reserveFrame() uint64 {
 }
 
 // WARN: expects diskManager to be locked
-func (m *Manager) flushLogPages() error {
+func (m *Manager) FlushLogs() error {
 	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
 	logPageID := startPageID
 
@@ -382,7 +377,7 @@ func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdenti
 	defer m.diskManager.Unlock()
 	flushLSN := m.logger.GetFlushLSN()
 	if lockedPg.PageLSN() > flushLSN {
-		if err := m.flushLogPages(); err != nil {
+		if err := m.FlushLogs(); err != nil {
 			return err
 		}
 	}
@@ -402,7 +397,7 @@ func (m *Manager) FlushAllPages() error {
 	m.diskManager.Lock()
 	defer m.diskManager.Unlock()
 
-	if err := m.flushLogPages(); err != nil {
+	if err := m.FlushLogs(); err != nil {
 		return err
 	}
 
@@ -447,6 +442,40 @@ func NewDebugBufferPool(
 	leakedPages map[common.PageIdentity]struct{},
 ) *DebugBufferPool {
 	return &DebugBufferPool{m: m, leakedPages: leakedPages}
+}
+
+func (d *DebugBufferPool) FlushLogs() error {
+	return d.m.FlushLogs()
+}
+
+func (d *DebugBufferPool) FlushPage(pIdent common.PageIdentity) error {
+	return d.m.FlushPage(pIdent)
+}
+
+func (d *DebugBufferPool) GetPageAssumeLocked(
+	pIdent common.PageIdentity,
+) (*page.SlottedPage, error) {
+	return d.m.GetPageAssumeLocked(pIdent)
+}
+
+func (d *DebugBufferPool) GetPageNoCreateAssumeLocked(
+	pIdent common.PageIdentity,
+) (*page.SlottedPage, error) {
+	return d.m.GetPageNoCreateAssumeLocked(pIdent)
+}
+
+func (d *DebugBufferPool) MarkDirtyNoLogsAssumeLocked(pIdent common.PageIdentity) {
+	d.m.MarkDirtyNoLogsAssumeLocked(pIdent)
+}
+
+func (d *DebugBufferPool) UnpinAssumeLocked(pIdent common.PageIdentity) {
+	d.m.UnpinAssumeLocked(pIdent)
+}
+
+func (d *DebugBufferPool) WithMarkDirtyLogPage(
+	fn func() (common.LogRecordLocInfo, error),
+) (common.LogRecordLocInfo, error) {
+	return d.m.WithMarkDirtyLogPage(fn)
 }
 
 func (d *DebugBufferPool) FlushAllPages() error {
