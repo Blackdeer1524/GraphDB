@@ -62,13 +62,13 @@ func TestBankTransactions(t *testing.T) {
 		t,
 		pool,
 		masterRecordPageIdent,
-		common.LogRecordLocInfo{
-			Lsn:      1,
-			Location: common.FileLocation{PageID: 1, SlotNum: 0},
+		common.FileLocation{
+			PageID:  1,
+			SlotNum: 0,
 		},
 	)
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
-	diskManager.SetLogger(logger)
+	pool.SetLogger(logger)
 
 	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)
@@ -92,10 +92,10 @@ func TestBankTransactions(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t,
 			pool.WithMarkDirty(
+				common.NilTxnID,
 				id.PageIdentity(),
 				pg,
-				common.NoLogs(),
-				func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+				func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 					lockedPage.UnsafeUpdateNoLogs(id.SlotNum, utils.ToBytes[uint32](startBalance))
 					return common.NewNilLogRecordLocation(), nil
 				},
@@ -244,25 +244,25 @@ func TestBankTransactions(t *testing.T) {
 
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
 		err = pool.WithMarkDirty(
+			txnID,
 			me.PageIdentity(),
 			myPage,
-			logger,
-			func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
-				return lockedPage.UpdateWithLogs(myNewBalance, me, lockedLogger)
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+				return lockedPage.UpdateWithLogs(myNewBalance, me, logger)
 			},
 		)
 		require.NoError(t, err)
 
 		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
 		err = pool.WithMarkDirty(
+			txnID,
 			first.PageIdentity(),
 			firstPage,
-			logger,
-			func(lockedPage *page.SlottedPage, lockedLogger common.ITxnLoggerWithContext) (common.LogRecordLocInfo, error) {
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 				return lockedPage.UpdateWithLogs(
 					firstNewBalance,
 					first,
-					lockedLogger,
+					logger,
 				)
 			},
 		)

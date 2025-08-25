@@ -114,7 +114,6 @@ func NewTxnLogger(
 	l.firstDirtyPage = info.PageID
 	l.currentPage = info.PageID
 	l.Recover(info)
-	panic("TODO: setup locations after recovery")
 	return l
 }
 
@@ -233,7 +232,13 @@ func (l *txnLogger) Dump(start common.FileLocation, b *strings.Builder) {
 func (l *txnLogger) GetFlushInfo() (common.FileID, common.PageID, common.PageID, common.LSN) {
 	l.seqMu.Lock()
 	defer l.seqMu.Unlock()
-	return l.logfileID, common.PageID(l.firstDirtyPage), common.PageID(l.currentPage), l.flushLSN
+	return l.logfileID, common.PageID(
+			l.firstDirtyPage,
+		), common.PageID(
+			l.currentPage,
+		), common.LSN(
+			l.logRecordsCount,
+		)
 }
 
 func (l *txnLogger) GetFlushLSN() common.LSN {
@@ -386,10 +391,10 @@ func (l *txnLogger) recoverAnalyze(
 				untypedRecord,
 			)
 
-			for _, TransactionID := range record.activeTransactions {
+			for TransactionID, logInfo := range record.activeTransactions {
 				ATT.Insert(TransactionID, TypeBegin, NewATTEntry(
 					TxnStatusUndo,
-					common.NewNilLogRecordLocation(),
+					logInfo,
 				))
 			}
 
@@ -636,6 +641,9 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 			break
 		}
 	}
+
+	l.currentPage = iter.PageID()
+	l.firstDirtyPage = iter.PageID()
 }
 
 func (l *txnLogger) readLogRecord(

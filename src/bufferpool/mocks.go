@@ -24,6 +24,22 @@ func (m *MockDiskManager) ReadPage(
 	return args.Error(0)
 }
 
+func (m *MockDiskManager) ReadPageAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	args := m.Called(pg, pageIdent)
+	return args.Error(0)
+}
+
+func (m *MockDiskManager) Lock() {
+	m.Called()
+}
+
+func (m *MockDiskManager) Unlock() {
+	m.Called()
+}
+
 func (m *MockDiskManager) GetPageNoNew(
 	pg *page.SlottedPage,
 	pageIdent common.PageIdentity,
@@ -32,7 +48,15 @@ func (m *MockDiskManager) GetPageNoNew(
 	return args.Error(0)
 }
 
-func (m *MockDiskManager) WritePage(
+func (m *MockDiskManager) GetPageNoNewAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	args := m.Called(pg, pageIdent)
+	return args.Error(0)
+}
+
+func (m *MockDiskManager) WritePageAssumeLocked(
 	page *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
