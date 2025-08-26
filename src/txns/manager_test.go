@@ -1,10 +1,14 @@
 package txns
 
 import (
-	"fmt"
+	"context"
+	"math/rand"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
@@ -22,21 +26,19 @@ func TestManagerBasicOperation(t *testing.T) {
 	expectClosedChannel(t, notifier, "Initial lock should be granted")
 
 	// Verify queue exists
-	m.qsGuard.Lock()
-	if _, exists := m.qs[100]; !exists {
+	_, exists := m.qs.Load(common.PageID(100))
+	if !exists {
 		t.Error("Manager should create queue for new record ID")
 	}
-	m.qsGuard.Unlock()
 
 	// Successful unlock
-	m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 100})
+	m.unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 100})
 
 	// Verify queue persists after unlock
-	m.qsGuard.Lock()
-	if _, exists := m.qs[100]; !exists {
+	_, exists = m.qs.Load(common.PageID(100))
+	if !exists {
 		t.Error("Queue should remain after unlock")
 	}
-	m.qsGuard.Unlock()
 }
 
 func TestManagerConcurrentRecordAccess(t *testing.T) {
@@ -58,24 +60,19 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 				lockMode: PAGE_LOCK_SHARED,
 			}
 
-			fmt.Printf("before lock %d\n", id)
-
 			notifier := m.Lock(req)
-			fmt.Printf("after lock %d\n", id)
 			expectClosedChannel(
 				t,
 				notifier,
 				"Concurrent access to different records should work",
 			)
 
-			fmt.Printf("before unlock %d\n", id)
-			m.Unlock(
+			m.unlock(
 				TxnUnlockRequest[common.PageID]{
 					txnID:    common.TxnID(id),
 					objectId: recordID,
 				},
 			) //nolint:gosec
-			fmt.Printf("after unlock %d\n", id)
 		}(i)
 	}
 
@@ -92,7 +89,7 @@ func TestManagerUnlockPanicScenarios(t *testing.T) {
 				t.Error("Expected panic for non-existent record")
 			}
 		}()
-		m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 999})
+		m.unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 999})
 	})
 
 	// Test double unlock panic
@@ -110,8 +107,8 @@ func TestManagerUnlockPanicScenarios(t *testing.T) {
 		}
 		notifier := m.Lock(req)
 		expectClosedChannel(t, notifier, "Lock should be granted")
-		m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 200})
-		m.Unlock(
+		m.unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 200})
+		m.unlock(
 			TxnUnlockRequest[common.PageID]{txnID: 1, objectId: 200},
 		) // Panic here
 	})
@@ -149,13 +146,13 @@ func TestManagerLockContention(t *testing.T) {
 	expectOpenChannel(t, notifier3, "Shared lock should block behind exclusive")
 
 	// Unlock first and verify chain
-	m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 5, objectId: recordID})
+	m.unlock(TxnUnlockRequest[common.PageID]{txnID: 5, objectId: recordID})
 	expectClosedChannel(
 		t,
 		notifier2,
 		"Second lock should be granted after unlock",
 	)
-	m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 4, objectId: recordID})
+	m.unlock(TxnUnlockRequest[common.PageID]{txnID: 4, objectId: recordID})
 	expectClosedChannel(
 		t,
 		notifier3,
@@ -183,19 +180,28 @@ func TestManagerUnlockRetry(t *testing.T) {
 
 	go func() {
 		// Acquire lock on previous node to force retry
-		m.qs[recordID].head.mu.Lock()
+		qAny, _ := m.qs.Load(recordID)
+		q := qAny.(*txnQueue[PageLockMode, common.PageID])
+		q.head.mu.Lock()
 		time.Sleep(50 * time.Millisecond) // Hold lock briefly
-		m.qs[recordID].head.mu.Unlock()
+		q.head.mu.Unlock()
 		wg.Done()
 	}()
 
 	// This should retry until successful
-	m.Unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: recordID})
+	m.unlock(TxnUnlockRequest[common.PageID]{txnID: 1, objectId: recordID})
 	wg.Wait()
 }
 
 func TestManagerUnlockAll(t *testing.T) {
 	m := NewManager[PageLockMode, common.PageID]()
+	defer func() {
+		m.qs.Range(func(_, value any) bool {
+			q := value.(*txnQueue[PageLockMode, common.PageID])
+			assertQueueConsistency(t, q)
+			return true
+		})
+	}()
 
 	waitingTxn := common.TxnID(0)
 	runningTxn := common.TxnID(1)
@@ -223,5 +229,118 @@ func TestManagerUnlockAll(t *testing.T) {
 		t,
 		notifier0s,
 		"Txn 0 should have been granted the lock after the running transaction has finished",
+	)
+}
+
+func waitWithDeadline(ctx context.Context, notifier <-chan struct{}) bool {
+	if notifier == nil {
+		return false
+	}
+	select {
+	case <-notifier:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func TestManagerConcurrency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping slow test in short mode")
+	}
+
+	m := NewManager[PageLockMode, common.PageID]()
+	defer func() {
+		m.qs.Range(func(_, value any) bool {
+			q := value.(*txnQueue[PageLockMode, common.PageID])
+			assertQueueConsistency(t, q)
+			return true
+		})
+	}()
+
+	numTxns := 20000
+	numObjects := 1000
+	opsPerTxn := 5
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	lockModes := []PageLockMode{
+		PAGE_LOCK_SHARED,
+		PAGE_LOCK_EXCLUSIVE,
+	}
+
+	go func() {
+		<-time.After(20 * time.Second)
+
+		graph := m.GetGraphSnaphot()
+		t.Logf("Have been waiting for too long. Graph:\n%s", graph.Dump())
+	}()
+
+	failsCount := atomic.Int32{}
+	var wg sync.WaitGroup
+	for txnID := range numTxns {
+		wg.Add(1)
+
+		go func(txnID int) {
+			defer wg.Done()
+
+			txn := common.TxnID(txnID)
+			lockedObjects := make(map[common.PageID]struct{})
+
+			defer m.UnlockAll(txn)
+
+			for op := range opsPerTxn {
+				if len(lockedObjects) > 0 && op%3 == 0 {
+					for objectID := range lockedObjects {
+						upgradeReq := TxnLockRequest[PageLockMode, common.PageID]{
+							txnID:    txn,
+							objectId: objectID,
+							lockMode: PAGE_LOCK_EXCLUSIVE,
+						}
+
+						if !waitWithDeadline(ctx, m.Upgrade(upgradeReq)) {
+							failsCount.Add(1)
+							m.UnlockAll(txn)
+							return
+						}
+						break
+					}
+				} else {
+					objectID := common.PageID(rand.Intn(numObjects))
+					lockMode := lockModes[txnID%len(lockModes)]
+
+					req := TxnLockRequest[PageLockMode, common.PageID]{
+						txnID:    txn,
+						objectId: objectID,
+						lockMode: lockMode,
+					}
+
+					if !waitWithDeadline(ctx, m.Lock(req)) {
+						failsCount.Add(1)
+						m.UnlockAll(txn)
+						return
+					}
+					lockedObjects[objectID] = struct{}{}
+				}
+
+				time.Sleep(time.Millisecond * time.Duration(txnID%3))
+			}
+		}(txnID)
+	}
+	wg.Wait()
+
+	numFailed := failsCount.Load()
+	t.Logf("Failed transactions: %d/%d", numFailed, numTxns)
+
+	assert.True(
+		t,
+		m.AreAllQueuesEmpty(),
+		"Some queues are not empty after all transactions completed",
+	)
+
+	activeTxns := m.GetActiveTransactions()
+	assert.Equal(t, len(activeTxns), 0,
+		"Expected no active transactions, but found %d",
+		len(activeTxns),
 	)
 }

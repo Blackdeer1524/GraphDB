@@ -5,26 +5,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
 const PageSize = 4096
 
 type Manager[T Page] struct {
-	fileIDToPath map[uint64]string
-	newPageFunc  func(fileID, pageID uint64) T
+	fileIDToPath map[common.FileID]string
+	newPageFunc  func() T
+
+	mu *sync.RWMutex
 }
 
 type Page interface {
 	GetData() []byte
 	SetData(d []byte)
 
-	SetDirtiness(val bool)
-	IsDirty() bool
-
-	GetFileID() uint64
-	GetPageID() uint64
-
-	// latch methods
 	Lock()
 	Unlock()
 	RLock()
@@ -32,21 +30,26 @@ type Page interface {
 }
 
 func New[T Page](
-	fileIDToPath map[uint64]string,
-	newPageFunc func(fileID, pageID uint64) T,
+	fileIDToPath map[common.FileID]string,
+	newPageFunc func() T,
 ) *Manager[T] {
 	return &Manager[T]{
 		fileIDToPath: fileIDToPath,
 		newPageFunc:  newPageFunc,
+
+		mu: new(sync.RWMutex),
 	}
 }
 
-func (m *Manager[T]) ReadPage(fileID, pageID uint64) (T, error) {
+func (m *Manager[T]) ReadPage(pageIdent common.PageIdentity) (T, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var zeroVal T
 
-	path, ok := m.fileIDToPath[fileID]
+	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
-		return zeroVal, fmt.Errorf("fileID %d not found in path map", fileID)
+		return zeroVal, fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
 	file, err := os.Open(filepath.Clean(path))
@@ -56,7 +59,7 @@ func (m *Manager[T]) ReadPage(fileID, pageID uint64) (T, error) {
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageID * PageSize)
+	offset := int64(pageIdent.PageID * PageSize)
 	data := make([]byte, PageSize)
 
 	_, err = file.ReadAt(data, offset)
@@ -64,19 +67,22 @@ func (m *Manager[T]) ReadPage(fileID, pageID uint64) (T, error) {
 		return zeroVal, err
 	}
 
-	page := m.newPageFunc(fileID, pageID)
+	page := m.newPageFunc()
 
 	page.SetData(data)
 
 	return page, nil
 }
 
-func (m *Manager[T]) GetPageNoNew(page T, fileID, pageID uint64) (T, error) {
+func (m *Manager[T]) GetPageNoNew(page T, pageIdent common.PageIdentity) (T, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var zeroVal T
 
-	path, ok := m.fileIDToPath[fileID]
+	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
-		return zeroVal, fmt.Errorf("fileID %d not found in path map", fileID)
+		return zeroVal, fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
 	file, err := os.Open(filepath.Clean(path))
@@ -86,7 +92,7 @@ func (m *Manager[T]) GetPageNoNew(page T, fileID, pageID uint64) (T, error) {
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageID * PageSize)
+	offset := int64(pageIdent.PageID * PageSize)
 	data := make([]byte, PageSize)
 
 	_, err = file.ReadAt(data, offset)
@@ -99,16 +105,16 @@ func (m *Manager[T]) GetPageNoNew(page T, fileID, pageID uint64) (T, error) {
 	return page, nil
 }
 
-func (m *Manager[T]) WritePage(page *T) error {
-	fileID := (*page).GetFileID()
-	pageID := (*page).GetPageID()
+func (m *Manager[T]) WritePage(page T, pageIdent common.PageIdentity) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	path, ok := m.fileIDToPath[fileID]
+	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
-		return fmt.Errorf("fileID %d not found in path map", fileID)
+		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	data := (*page).GetData()
+	data := page.GetData()
 	if len(data) == 0 {
 		return errors.New("page data is empty")
 	}
@@ -124,14 +130,26 @@ func (m *Manager[T]) WritePage(page *T) error {
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageID * PageSize)
+	offset := int64(pageIdent.PageID * PageSize)
 
 	_, err = file.WriteAt(data, offset)
 	if err != nil {
 		return fmt.Errorf("failed to write at file %s: %w", path, err)
 	}
 
-	(*page).SetDirtiness(false)
-
 	return nil
+}
+
+func (m *Manager[T]) UpdateFileMap(mp map[common.FileID]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.fileIDToPath = mp
+}
+
+func (m *Manager[T]) InsertToFileMap(id common.FileID, path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.fileIDToPath[id] = path
 }

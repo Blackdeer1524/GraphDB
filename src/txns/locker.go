@@ -1,6 +1,8 @@
 package txns
 
 import (
+	"strings"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
@@ -17,6 +19,16 @@ func NewLocker() *Locker {
 		fileLockManager:    NewManager[GranularLockMode, common.FileID](),
 		pageLockManager:    NewManager[PageLockMode, common.PageIdentity](),
 	}
+}
+
+func (l *Locker) DumpDependencyGraph() string {
+	sb := strings.Builder{}
+	sb.WriteString(l.pageLockManager.GetGraphSnaphot().Dump())
+	sb.WriteString("\n")
+	sb.WriteString(l.fileLockManager.GetGraphSnaphot().Dump())
+	sb.WriteString("\n")
+	sb.WriteString(l.catalogLockManager.GetGraphSnaphot().Dump())
+	return sb.String()
 }
 
 type catalogLockToken struct {
@@ -194,4 +206,10 @@ func (l *Locker) GetActiveTransactions() []common.TxnID {
 	}
 
 	return res
+}
+
+func (l *Locker) AreAllQueuesEmpty() bool {
+	return l.catalogLockManager.AreAllQueuesEmpty() &&
+		l.fileLockManager.AreAllQueuesEmpty() &&
+		l.pageLockManager.AreAllQueuesEmpty()
 }

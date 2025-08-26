@@ -80,14 +80,17 @@ type txnLogger struct {
 	// ================
 	// лок на запись логов. Нужно для четкой упорядоченности
 	// номеров записей и записей на диск
-	mu sync.Mutex
-	// "где-то" лежит на диске
+	mu                 sync.Mutex
 	logRecordsCount    uint64
 	lastRecordLocation common.FileLocation
 	lastFlushedPage    common.PageID
 	// ================
 
 	getActiveTransactions func() []common.TxnID // Прийдет из лок менеджера
+}
+
+func (l *txnLogger) SetActiveTransactionsGetter(getter func() []common.TxnID) {
+	l.getActiveTransactions = getter
 }
 
 /*
@@ -445,9 +448,9 @@ func (l *txnLogger) recoverAnalyze(
 			// The DPT contains all pages that are dirty in the buffer pool.
 			// It doesn’t matter if the changes were caused
 			// by a transaction that is running, committed, or aborted.
-			for pageInfo, firstDirtyLSN := range record.dirtyPageTable {
+			for pageInfo, firstLogInfo := range record.dirtyPageTable {
 				if _, alreadyExists := DPT[pageInfo]; !alreadyExists {
-					DPT[pageInfo] = firstDirtyLSN
+					DPT[pageInfo] = firstLogInfo
 				}
 			}
 		case TypeCompensation:
@@ -935,18 +938,19 @@ func (l *txnLogger) AppendTxnEnd(
 	return marshalRecordAndWrite(l, &r)
 }
 
-func (l *txnLogger) AppendCheckpointBegin() (common.LogRecordLocInfo, error) {
+func (l *txnLogger) AppendCheckpointBegin() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	r := NewCheckpointBegin(l.NewLSN())
-	return marshalRecordAndWrite(l, &r)
+	_, err := marshalRecordAndWrite(l, &r)
+	return err
 }
 
 func (l *txnLogger) AppendCheckpointEnd(
 	activeTransacitons []common.TxnID,
 	dirtyPageTable map[common.PageIdentity]common.LogRecordLocInfo,
-) (common.LogRecordLocInfo, error) {
+) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -955,10 +959,10 @@ func (l *txnLogger) AppendCheckpointEnd(
 		activeTransacitons,
 		dirtyPageTable,
 	)
-	return marshalRecordAndWrite(l, &r)
+	_, err := marshalRecordAndWrite(l, &r)
+	return err
 }
 
-// TODO: handle insertion and deletion UNDOs
 func (l *txnLogger) activateCLR(record *CompensationLogRecord) {
 	pageID := record.modifiedRecordID.PageIdentity()
 	page, err := l.pool.GetPageNoCreate(pageID)
@@ -1074,6 +1078,18 @@ outer:
 			panic("unreachable")
 		}
 	}
+}
+
+func (l *txnLogger) Checkpoint() {
+	err := l.AppendCheckpointBegin()
+	assert.NoError(err)
+	activeTxns := l.getActiveTransactions()
+
+	err = l.pool.FlushAllPages()
+	assert.NoError(err)
+
+	dpt := l.pool.GetDirtyPageTable()
+	l.AppendCheckpointEnd(activeTxns, dpt)
 }
 
 func (l *DummyLoggerWithContext) AppendBegin() error {

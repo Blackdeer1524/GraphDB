@@ -734,7 +734,7 @@ func TestLoggerRollback(t *testing.T) {
 		}
 	}
 
-	recordValues := fillPages(t, logger, math.MaxUint64, 20000, files, 1024)
+	recordValues := fillPages(t, logger, math.MaxUint64, 20000, files, 1024, 10)
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	updatedValues := make(map[common.RecordID]uint32, len(recordValues))
@@ -904,8 +904,10 @@ func fillPages(
 	length int,
 	fileIDs []common.FileID,
 	limit uint32,
+	maxEntriesPerPage int,
 ) map[common.RecordID]uint32 {
 	res := make(map[common.RecordID]uint32, length)
+	entriesPerPage := make(map[common.PageIdentity]int)
 
 	chain := NewTxnLogChain(logger, txnID)
 	chain.Begin()
@@ -914,6 +916,10 @@ func fillPages(
 			pageID := common.PageIdentity{
 				FileID: common.FileID(fileIDs[rand.Int()%len(fileIDs)]),
 				PageID: common.PageID(rand.Uint64() % 1024),
+			}
+
+			if entriesPerPage[pageID] >= maxEntriesPerPage {
+				continue
 			}
 
 			p, err := logger.pool.GetPage(pageID)
