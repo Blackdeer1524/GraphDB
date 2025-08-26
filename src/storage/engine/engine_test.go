@@ -1,14 +1,17 @@
 package engine
 
 import (
-	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
-	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog/mocks"
+	"os"
+	"testing"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"os"
-	"testing"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 func Test_getVertexTableFilePath(t *testing.T) {
@@ -35,13 +38,12 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := &mocks.MockLockManager{
-		AllowLock: true,
-	}
+	lockMgr := txns.NewHierarchyLocker()
 
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs(), lockMgr)
+	se, err = New(dir, uint64(200), afero.NewOsFs())
+	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
@@ -49,23 +51,32 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 		"name": storage.Column{Type: "string"},
 	}
 
-	err = se.CreateVertexTable(1, tableName, schema)
-	require.NoError(t, err)
+	func() {
+		firstTxnID := common.TxnID(1)
+		defer lockMgr.UnlockByTxnID(firstTxnID)
+		_, err = se.CreateVertexTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+		require.NoError(t, err)
 
-	tablePath := GetVertexTableFilePath(dir, tableName)
-	info, err := os.Stat(tablePath)
-	require.NoError(t, err)
+		tablePath := GetVertexTableFilePath(dir, tableName)
+		info, err := os.Stat(tablePath)
+		require.NoError(t, err)
 
-	require.False(t, info.IsDir())
+		require.False(t, info.IsDir())
 
-	tblMeta, err := se.catalog.GetVertexTableMeta(tableName)
-	require.NoError(t, err)
-	require.Equal(t, tableName, tblMeta.Name)
+		tblMeta, err := se.catalog.GetVertexTableMeta(tableName)
+		require.NoError(t, err)
+		require.Equal(t, tableName, tblMeta.Name)
 
-	require.Greater(t, se.catalog.CurrentVersion(), uint64(0))
+		require.Greater(t, se.catalog.CurrentVersion(), uint64(0))
+	}()
 
-	err = se.CreateVertexTable(2, tableName, schema)
-	require.Error(t, err)
+	func() {
+		secondTxnID := common.TxnID(2)
+		defer lockMgr.UnlockByTxnID(secondTxnID)
+
+		_, err = se.CreateVertexTable(secondTxnID, tableName, schema, lockMgr, common.NoLogs())
+		require.Error(t, err)
+	}()
 }
 
 func TestStorageEngine_DropVertexTable(t *testing.T) {
@@ -74,13 +85,10 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := &mocks.MockLockManager{
-		AllowLock: true,
-	}
-
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs(), lockMgr)
+	se, err = New(dir, uint64(200), afero.NewOsFs())
+	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
@@ -88,32 +96,43 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		"name": storage.Column{Type: "string"},
 	}
 
-	err = se.CreateVertexTable(1, tableName, schema)
-	require.NoError(t, err)
+	lockMgr := txns.NewHierarchyLocker()
+	func() {
+		firstTxnID := common.TxnID(1)
+		defer lockMgr.UnlockByTxnID(firstTxnID)
 
-	tablePath := GetVertexTableFilePath(dir, tableName)
-	info, err := os.Stat(tablePath)
-	require.NoError(t, err)
+		_, err = se.CreateVertexTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+		require.NoError(t, err)
 
-	require.False(t, info.IsDir())
+		tablePath := GetVertexTableFilePath(dir, tableName)
+		info, err := os.Stat(tablePath)
+		require.NoError(t, err)
 
-	err = se.DropVertexTable(1, tableName)
-	require.NoError(t, err)
+		require.False(t, info.IsDir())
 
-	info, err = os.Stat(tablePath)
-	require.NoError(t, err)
+		_, err = se.DropVertexTable(1, tableName, lockMgr, common.NoLogs())
+		require.NoError(t, err)
 
-	err = se.DropVertexTable(1, tableName)
-	require.Error(t, err)
+		_, err = os.Stat(tablePath)
+		require.NoError(t, err)
 
-	require.Equal(t, uint64(2), se.catalog.CurrentVersion())
+		_, err = se.DropVertexTable(1, tableName, lockMgr, common.NoLogs())
+		require.Error(t, err)
 
-	err = se.CreateVertexTable(2, tableName, schema)
-	require.NoError(t, err)
+		require.Equal(t, uint64(2), se.catalog.CurrentVersion())
+	}()
 
-	tablePath = GetVertexTableFilePath(dir, tableName)
-	info, err = os.Stat(tablePath)
-	require.NoError(t, err)
+	func() {
+		secondTxnID := common.TxnID(2)
+		defer lockMgr.UnlockByTxnID(secondTxnID)
+
+		_, err = se.CreateVertexTable(secondTxnID, tableName, schema, lockMgr, common.NoLogs())
+		require.NoError(t, err)
+
+		tablePath := GetVertexTableFilePath(dir, tableName)
+		_, err := os.Stat(tablePath)
+		require.NoError(t, err)
+	}()
 }
 
 func TestStorageEngine_CreateEdgeTable(t *testing.T) {
@@ -122,13 +141,10 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := &mocks.MockLockManager{
-		AllowLock: true,
-	}
-
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs(), lockMgr)
+	se, err = New(dir, uint64(200), afero.NewOsFs())
+	require.NoError(t, err)
 
 	tableName := "IsFriendWith"
 	schema := storage.Schema{
@@ -136,23 +152,35 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		"to":   storage.Column{Type: "int"},
 	}
 
-	err = se.CreateEdgesTable(1, tableName, schema)
-	require.NoError(t, err)
+	lockMgr := txns.NewHierarchyLocker()
 
-	tablePath := GetEdgeTableFilePath(dir, tableName)
-	info, err := os.Stat(tablePath)
-	require.NoError(t, err)
+	func() {
+		firstTxnID := common.TxnID(1)
+		defer lockMgr.UnlockByTxnID(firstTxnID)
 
-	require.False(t, info.IsDir())
+		_, err = se.CreateEdgesTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+		require.NoError(t, err)
 
-	tblMeta, err := se.catalog.GetEdgeTableMeta(tableName)
-	require.NoError(t, err)
-	require.Equal(t, tableName, tblMeta.Name)
+		tablePath := GetEdgeTableFilePath(dir, tableName)
+		info, err := os.Stat(tablePath)
+		require.NoError(t, err)
 
-	require.Greater(t, se.catalog.CurrentVersion(), uint64(0))
+		require.False(t, info.IsDir())
 
-	err = se.CreateEdgesTable(2, tableName, schema)
-	require.Error(t, err)
+		tblMeta, err := se.catalog.GetEdgeTableMeta(tableName)
+		require.NoError(t, err)
+		require.Equal(t, tableName, tblMeta.Name)
+
+		require.Greater(t, se.catalog.CurrentVersion(), uint64(0))
+	}()
+
+	func() {
+		secondTxnID := common.TxnID(2)
+		defer lockMgr.UnlockByTxnID(secondTxnID)
+
+		_, err = se.CreateEdgesTable(secondTxnID, tableName, schema, lockMgr, common.NoLogs())
+		require.Error(t, err)
+	}()
 }
 
 func TestStorageEngine_DropEdgesTable(t *testing.T) {
@@ -161,13 +189,10 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := &mocks.MockLockManager{
-		AllowLock: true,
-	}
-
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs(), lockMgr)
+	se, err = New(dir, uint64(200), afero.NewOsFs())
+	require.NoError(t, err)
 
 	tableName := "IsFriendWith"
 	schema := storage.Schema{
@@ -175,32 +200,43 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		"to":   storage.Column{Type: "int"},
 	}
 
-	err = se.CreateEdgesTable(1, tableName, schema)
-	require.NoError(t, err)
+	lockMgr := txns.NewHierarchyLocker()
+	func() {
+		firstTxnID := common.TxnID(1)
+		defer lockMgr.UnlockByTxnID(firstTxnID)
 
-	tablePath := GetEdgeTableFilePath(dir, tableName)
-	info, err := os.Stat(tablePath)
-	require.NoError(t, err)
+		_, err = se.CreateEdgesTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+		require.NoError(t, err)
 
-	require.False(t, info.IsDir())
+		tablePath := GetEdgeTableFilePath(dir, tableName)
+		info, err := os.Stat(tablePath)
+		require.NoError(t, err)
 
-	err = se.DropEdgesTable(1, tableName)
-	require.NoError(t, err)
+		require.False(t, info.IsDir())
 
-	info, err = os.Stat(tablePath)
-	require.NoError(t, err)
+		_, err = se.DropEdgesTable(firstTxnID, tableName, lockMgr, common.NoLogs())
+		require.NoError(t, err)
 
-	err = se.DropEdgesTable(1, tableName)
-	require.Error(t, err)
+		_, err = os.Stat(tablePath)
+		require.NoError(t, err)
 
-	require.Equal(t, uint64(2), se.catalog.CurrentVersion())
+		_, err = se.DropEdgesTable(firstTxnID, tableName, lockMgr, common.NoLogs())
+		require.Error(t, err)
 
-	err = se.CreateEdgesTable(2, tableName, schema)
-	require.NoError(t, err)
+		require.Equal(t, uint64(2), se.catalog.CurrentVersion())
+	}()
 
-	tablePath = GetEdgeTableFilePath(dir, tableName)
-	info, err = os.Stat(tablePath)
-	require.NoError(t, err)
+	func() {
+		secondTxnID := common.TxnID(2)
+		defer lockMgr.UnlockByTxnID(secondTxnID)
+
+		_, err = se.CreateEdgesTable(secondTxnID, tableName, schema, lockMgr, common.NoLogs())
+		require.NoError(t, err)
+
+		tablePath := GetEdgeTableFilePath(dir, tableName)
+		_, err := os.Stat(tablePath)
+		require.NoError(t, err)
+	}()
 }
 
 func TestStorageEngine_CreateIndex(t *testing.T) {
@@ -209,13 +245,10 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := &mocks.MockLockManager{
-		AllowLock: true,
-	}
-
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs(), lockMgr)
+	se, err = New(dir, uint64(200), afero.NewOsFs())
+	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
@@ -223,12 +256,25 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 		"name": storage.Column{Type: "string"},
 	}
 
-	err = se.CreateVertexTable(1, tableName, schema)
+	lockMgr := txns.NewHierarchyLocker()
+	firstTxnID := common.TxnID(1)
+	defer lockMgr.UnlockByTxnID(firstTxnID)
+
+	_, err = se.CreateVertexTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
 	require.NoError(t, err)
 
 	indexName := "idx_user_name"
 
-	err = se.CreateIndex(1, indexName, tableName, "vertex", []string{"name"}, 8)
+	_, err = se.CreateIndex(
+		firstTxnID,
+		indexName,
+		tableName,
+		"vertex",
+		[]string{"name"},
+		8,
+		lockMgr,
+		common.NoLogs(),
+	)
 	require.NoError(t, err)
 
 	tablePath := GetIndexFilePath(dir, indexName)
@@ -245,13 +291,10 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := &mocks.MockLockManager{
-		AllowLock: true,
-	}
-
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs(), lockMgr)
+	se, err = New(dir, uint64(200), afero.NewOsFs())
+	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
@@ -259,12 +302,25 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 		"name": storage.Column{Type: "string"},
 	}
 
-	err = se.CreateVertexTable(1, tableName, schema)
+	lockMgr := txns.NewHierarchyLocker()
+	firstTxnID := common.TxnID(1)
+	defer lockMgr.UnlockByTxnID(firstTxnID)
+
+	_, err = se.CreateVertexTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
 	require.NoError(t, err)
 
 	indexName := "idx_user_name"
 
-	err = se.CreateIndex(1, indexName, tableName, "vertex", []string{"name"}, 8)
+	_, err = se.CreateIndex(
+		firstTxnID,
+		indexName,
+		tableName,
+		"vertex",
+		[]string{"name"},
+		8,
+		lockMgr,
+		common.NoLogs(),
+	)
 	require.NoError(t, err)
 
 	indexPath := GetIndexFilePath(dir, indexName)
@@ -274,13 +330,22 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	_, err = se.catalog.GetIndexMeta(indexName)
 	require.NoError(t, err)
 
-	err = se.DropIndex(1, indexName)
+	_, err = se.DropIndex(firstTxnID, indexName, lockMgr, common.NoLogs())
 	require.NoError(t, err)
 
 	_, err = os.Stat(indexPath)
 	require.NoError(t, err)
 
-	err = se.CreateIndex(1, indexName, tableName, "vertex", []string{"name"}, 8)
+	_, err = se.CreateIndex(
+		firstTxnID,
+		indexName,
+		tableName,
+		"vertex",
+		[]string{"name"},
+		8,
+		lockMgr,
+		common.NoLogs(),
+	)
 	require.NoError(t, err)
 
 	_, err = os.Stat(indexPath)

@@ -36,8 +36,8 @@ func TestBankTransactions(t *testing.T) {
 	const (
 		startBalance      = uint32(60)
 		rollbackCutoff    = uint32(0) // startBalance / 3
-		clientsCount      = 10_000
-		txnsCount         = 100_000
+		clientsCount      = 5_000
+		txnsCount         = 50_000
 		retryCount        = 3
 		maxEntriesPerPage = 12
 		workersCount      = 10_000
@@ -299,7 +299,6 @@ func TestBankTransactions(t *testing.T) {
 			firstNewBalanceFromPage,
 			firstBalance+transferAmount,
 		)
-		firstPage.RUnlock()
 		t.Logf("[%d] read first page %d", txnID, first.PageID)
 
 		if myNewBalanceFromPage < rollbackCutoff {

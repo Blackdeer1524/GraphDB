@@ -239,6 +239,7 @@ func (m *Manager) updateSystemCatalogData() error {
 		m.mu.RUnlock()
 		return nil
 	}
+	m.mu.RUnlock()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -333,6 +334,7 @@ func (m *Manager) Save(logger common.ITxnLoggerWithContext) (err error) {
 			if err != nil {
 				return common.NewNilLogRecordLocation(), err
 			}
+			m.currentVersion++
 			return loc, nil
 		},
 	)
