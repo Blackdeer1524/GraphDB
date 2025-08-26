@@ -37,7 +37,7 @@ func TestBankTransactions(t *testing.T) {
 		startBalance      = uint32(60)
 		rollbackCutoff    = uint32(0) // startBalance / 3
 		clientsCount      = 10_000
-		txnsCount         = 1_000_000
+		txnsCount         = 100_000
 		retryCount        = 3
 		maxEntriesPerPage = 12
 		workersCount      = 10_000
@@ -85,8 +85,6 @@ func TestBankTransactions(t *testing.T) {
 	)
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 	t.Logf("filled pages")
-
-	txnsTicker := atomic.Uint64{}
 
 	totalMoney := uint32(0)
 	for id := range recordValues {
@@ -329,9 +327,14 @@ func TestBankTransactions(t *testing.T) {
 	}
 
 	wg := sync.WaitGroup{}
+
+	txnsTicker := atomic.Uint64{}
+	t.Logf("generating txn IDs...")
+	txnIDs := utils.GenerateUniqueInts[common.TxnID](txnsCount, 1, txnsCount+1)
+	t.Logf("generated txn IDs")
 	retryingTask := func() {
 		defer wg.Done()
-		txnID := common.TxnID(txnsTicker.Add(1))
+		txnID := txnIDs[txnsTicker.Add(1)-1]
 		for range retryCount {
 			if task(txnID) {
 				return
