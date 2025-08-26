@@ -195,7 +195,7 @@ func (p *SlottedPage) InsertWithLogs(
 		PageID:  pageIdent.PageID,
 		SlotNum: slot,
 	}
-	logRecordLoc, err := lockedLogger.AssumeLockedAppendInsert(recordID, data)
+	logRecordLoc, err := lockedLogger.AppendInsert(recordID, data)
 	if err != nil {
 		return 0, common.NewNilLogRecordLocation(), err
 	}
@@ -240,7 +240,13 @@ func (p *SlottedPage) assertSlotInserted(slotID uint16) slotPointer {
 	return ptr
 }
 
-func (p *SlottedPage) Read(slotID uint16) []byte {
+func (p *SlottedPage) LockedRead(slotID uint16) []byte {
+	p.RLock()
+	defer p.RUnlock()
+	return p.UnsafeRead(slotID)
+}
+
+func (p *SlottedPage) UnsafeRead(slotID uint16) []byte {
 	ptr := p.assertSlotInserted(slotID)
 	return p.getBytesBySlotPtr(ptr)
 }
@@ -259,7 +265,7 @@ func (p *SlottedPage) DeleteWithLogs(
 ) (common.LogRecordLocInfo, error) {
 	ptr := p.assertSlotInserted(recordID.SlotNum)
 
-	logRecordLoc, err := lockedLogger.AssumeLockedAppendDelete(recordID)
+	logRecordLoc, err := lockedLogger.AppendDelete(recordID)
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err
 	}
@@ -286,7 +292,7 @@ func (p *SlottedPage) UndoDelete(slotID uint16) {
 }
 
 func (p *SlottedPage) UnsafeUpdateNoLogs(slotID uint16, newData []byte) {
-	data := p.Read(slotID)
+	data := p.UnsafeRead(slotID)
 	assert.Assert(len(data) == len(newData))
 
 	clear(data)
@@ -298,7 +304,7 @@ func (p *SlottedPage) UpdateWithLogs(
 	recordID common.RecordID,
 	logger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
-	data := p.Read(recordID.SlotNum)
+	data := p.UnsafeRead(recordID.SlotNum)
 	assert.Assert(
 		len(data) == len(newData),
 		"data and newData have different lengths. data: %d, newData: %d",
@@ -308,7 +314,7 @@ func (p *SlottedPage) UpdateWithLogs(
 
 	before := make([]byte, len(data))
 	copy(before, data)
-	logRecordLoc, err := logger.AssumeLockedAppendUpdate(
+	logRecordLoc, err := logger.AppendUpdate(
 		recordID,
 		before,
 		newData,
@@ -361,15 +367,6 @@ func (p *SlottedPage) UnsafeOverrideSlotStatus(
 	slot := header.getSlots()[slotNumber]
 
 	header.getSlots()[slotNumber] = newSlotPtr(newStatus, slot.RecordOffset())
-}
-
-func Get[T encoding.BinaryUnmarshaler](
-	p *SlottedPage,
-	slotID uint16,
-	dst T,
-) error {
-	data := p.Read(slotID)
-	return dst.UnmarshalBinary(data)
 }
 
 func InsertSerializable[T encoding.BinaryMarshaler](

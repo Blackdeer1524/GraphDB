@@ -77,9 +77,7 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 }
 
 func (iter *LogRecordsIter) ReadRecord() (LogRecordTypeTag, any, error) {
-	iter.currentPage.RLock()
-	d := iter.currentPage.Read(iter.curLoc.SlotNum)
-	iter.currentPage.RUnlock()
+	d := iter.currentPage.LockedRead(iter.curLoc.SlotNum)
 	return readLogRecord(d)
 }
 

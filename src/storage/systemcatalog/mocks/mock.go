@@ -31,14 +31,6 @@ type MockLockManager struct {
 	AllowLock bool
 }
 
-func (m *MockLockManager) GetSystemCatalogLock(req txns.SystemCatalogLockRequest) bool {
-	return m.AllowLock
-}
+var _ engine.Locker = &MockLockManager{}
 
-func (m *MockLockManager) GetPageLock(req txns.PageLockRequest) bool {
-	return true
-}
 
-func (m *MockLockManager) UpgradePageLock(req txns.PageLockRequest) bool {
-	return true
-}

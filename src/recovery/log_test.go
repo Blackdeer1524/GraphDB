@@ -105,14 +105,11 @@ func TestValidRecovery(t *testing.T) {
 		dataPageID,
 	)
 
-	p.RLock()
-	defer p.RUnlock()
-
 	if err != nil {
 		t.Fatalf("GetPage failed: %v", err)
 	}
 
-	data := p.Read(uint16(slotNum))
+	data := p.UnsafeRead(uint16(slotNum))
 
 	if !bytes.Equal(data[:len(after)], after) {
 		t.Errorf(
@@ -371,7 +368,7 @@ func TestMassiveRecovery(t *testing.T) {
 						p.Lock()
 						defer p.Unlock()
 
-						data := p.Read(recordLoc.SlotNum)
+						data := p.UnsafeRead(recordLoc.SlotNum)
 
 						clear(data)
 
@@ -415,7 +412,7 @@ func TestMassiveRecovery(t *testing.T) {
 			p.RLock()
 			defer p.RUnlock()
 
-			data := p.Read(location.SlotNum)
+			data := p.UnsafeRead(location.SlotNum)
 			require.Equal(t, len(INIT), len(data))
 
 			for i := range len(INIT) {
@@ -483,7 +480,7 @@ func assertLogRecordWithRetrieval(
 	require.NoError(t, err)
 	page.RLock()
 
-	data := page.Read(recordID.SlotNum)
+	data := page.UnsafeRead(recordID.SlotNum)
 
 	tag, untypedRecord, err := readLogRecord(data)
 	require.NoError(t, err)
@@ -918,7 +915,7 @@ func TestLoggerRollback(t *testing.T) {
 			assert.NoError(t, err)
 			defer func() { pool.Unpin(pageID) }()
 
-			data := page.Read(k.SlotNum)
+			data := page.LockedRead(k.SlotNum)
 			assert.Equal(t, data, utils.ToBytes[uint32](v))
 		}()
 	}

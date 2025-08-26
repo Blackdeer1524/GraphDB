@@ -196,9 +196,7 @@ func TestBankTransactions(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { pool.Unpin(me.PageIdentity()) }()
 
-		myPage.RLock()
-		myBalance := utils.FromBytes[uint32](myPage.Read(me.SlotNum))
-		myPage.RUnlock()
+		myBalance := utils.FromBytes[uint32](myPage.LockedRead(me.SlotNum))
 
 		if myBalance == 0 {
 			t.Logf("[%d] balance is 0", txnID)
@@ -231,9 +229,7 @@ func TestBankTransactions(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { pool.Unpin(first.PageIdentity()) }()
 
-		firstPage.RLock()
-		firstBalance := utils.FromBytes[uint32](firstPage.Read(first.SlotNum))
-		firstPage.RUnlock()
+		firstBalance := utils.FromBytes[uint32](firstPage.LockedRead(first.SlotNum))
 
 		// transfering
 		t.Logf("[%d] upgrading page lock %d", txnID, me.PageID)
@@ -290,16 +286,13 @@ func TestBankTransactions(t *testing.T) {
 		t.Logf("[%d] updated first page %d", txnID, first.PageID)
 
 		t.Logf("[%d] reading my page %d", txnID, me.PageID)
-		myPage.RLock()
-		myNewBalanceFromPage := utils.FromBytes[uint32](myPage.Read(me.SlotNum))
-		myPage.RUnlock()
+		myNewBalanceFromPage := utils.FromBytes[uint32](myPage.LockedRead(me.SlotNum))
 		require.Equal(t, myNewBalanceFromPage, myBalance-transferAmount)
 		t.Logf("[%d] read my page %d", txnID, me.PageID)
 
 		t.Logf("[%d] reading first page %d", txnID, first.PageID)
-		firstPage.RLock()
 		firstNewBalanceFromPage := utils.FromBytes[uint32](
-			firstPage.Read(first.SlotNum),
+			firstPage.LockedRead(first.SlotNum),
 		)
 		require.Equal(
 			t,
@@ -391,10 +384,8 @@ func TestBankTransactions(t *testing.T) {
 	for id := range recordValues {
 		page, err := pool.GetPageNoCreate(id.PageIdentity())
 		require.NoError(t, err)
-		page.RLock()
-		curMoney := utils.FromBytes[uint32](page.Read(id.SlotNum))
+		curMoney := utils.FromBytes[uint32](page.LockedRead(id.SlotNum))
 		finalTotalMoney += curMoney
-		page.RUnlock()
 		pool.Unpin(id.PageIdentity())
 	}
 	require.Equal(t, finalTotalMoney, totalMoney)

@@ -72,7 +72,7 @@ func (m *engineSimulator) apply(op Operation, res OpResult) {
 	}
 }
 
-func (m *engineSimulator) compareWithEngineFS(t *testing.T, baseDir string, se *engine.StorageEngine, l *MockRWMutexLockManager) {
+func (m *engineSimulator) compareWithEngineFS(t *testing.T, baseDir string, se *engine.StorageEngine) {
 	for tbl := range m.VertexTables {
 		_, err := os.Stat(engine.GetVertexTableFilePath(baseDir, tbl))
 		require.NoError(t, err, "vertex table file is missing: %s", tbl)
@@ -87,6 +87,7 @@ func (m *engineSimulator) compareWithEngineFS(t *testing.T, baseDir string, se *
 		_, err := os.Stat(engine.GetIndexFilePath(baseDir, idx))
 		require.NoError(t, err, "index file is missing: %s", idx)
 	}
+
 
 	for tbl, sch := range m.VertexTables {
 		err := se.CreateVertexTable(0, tbl, sch)

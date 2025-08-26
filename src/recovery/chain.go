@@ -62,7 +62,7 @@ func (c *TxnLogChain) Insert(
 
 	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
 		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AssumeLockedAppendInsert(
+			return c.logger.AppendInsert(
 				c.txnID,
 				c.lastLocations[c.txnID],
 				recordID,
@@ -89,7 +89,7 @@ func (c *TxnLogChain) Update(
 
 	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
 		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AssumeLockedAppendUpdate(
+			return c.logger.AppendUpdate(
 				c.txnID,
 				c.lastLocations[c.txnID],
 				recordID,
@@ -116,7 +116,7 @@ func (c *TxnLogChain) Delete(
 
 	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
 		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AssumeLockedAppendDelete(
+			return c.logger.AppendDelete(
 				c.txnID,
 				c.lastLocations[c.txnID],
 				recordID,

@@ -3,9 +3,11 @@ package engine
 import (
 	"os"
 
+	"github.com/stretchr/testify/mock"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
-	"github.com/stretchr/testify/mock"
 )
 
 // --- Mocks ---
@@ -14,20 +16,55 @@ type mockLocker struct {
 	mock.Mock
 }
 
-func (m *mockLocker) GetPageLock(req txns.PageLockRequest) bool {
-	args := m.Called(req)
+func (m *mockLocker) LockCatalog(
+	txnID common.TxnID,
+	lockMode txns.GranularLockMode,
+) *txns.CatalogLockToken {
+	args := m.Called(txnID, lockMode)
+	return args.Get(0).(*txns.CatalogLockToken)
+}
+
+func (m *mockLocker) LockFile(
+	t *txns.CatalogLockToken,
+	fileID common.FileID,
+	lockMode txns.GranularLockMode,
+) *txns.FileLockToken {
+	args := m.Called(t, fileID, lockMode)
+	return args.Get(0).(*txns.FileLockToken)
+}
+
+func (m *mockLocker) LockPage(
+	ft *txns.FileLockToken,
+	pageID common.PageID,
+	lockMode txns.PageLockMode,
+) *txns.PageLockToken {
+	args := m.Called(ft, pageID, lockMode)
+	return args.Get(0).(*txns.PageLockToken)
+}
+
+func (m *mockLocker) Unlock(t *txns.CatalogLockToken) {
+	m.Called(t)
+}
+
+func (m *mockLocker) UpgradeCatalogLock(
+	t *txns.CatalogLockToken,
+	lockMode txns.GranularLockMode,
+) bool {
+	args := m.Called(t, lockMode)
 	return args.Bool(0)
 }
 
-func (m *mockLocker) UpgradePageLock(req txns.PageLockRequest) bool {
-	args := m.Called(req)
+func (m *mockLocker) UpgradeFileLock(ft *txns.FileLockToken, lockMode txns.GranularLockMode) bool {
+	args := m.Called(ft, lockMode)
 	return args.Bool(0)
 }
 
-func (m *mockLocker) GetSystemCatalogLock(req txns.SystemCatalogLockRequest) bool {
-	args := m.Called(req)
+func (m *mockLocker) UpgradePageLock(pt *txns.PageLockToken) bool {
+	args := m.Called(pt)
 	return args.Bool(0)
 }
+
+var _ Locker = &mockLocker{}
 
 type mockCatalog struct {
 	mock.Mock

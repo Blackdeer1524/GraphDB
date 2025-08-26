@@ -9,14 +9,11 @@ type ITxnLogger interface {
 }
 
 type ITxnLoggerWithContext interface {
+	GetTxnID() TxnID
 	AppendBegin() error
-	AssumeLockedAppendInsert(recordID RecordID, value []byte) (LogRecordLocInfo, error)
-	AssumeLockedAppendUpdate(
-		recordID RecordID,
-		before []byte,
-		after []byte,
-	) (LogRecordLocInfo, error)
-	AssumeLockedAppendDelete(recordID RecordID) (LogRecordLocInfo, error)
+	AppendInsert(recordID RecordID, value []byte) (LogRecordLocInfo, error)
+	AppendUpdate(recordID RecordID, before []byte, after []byte) (LogRecordLocInfo, error)
+	AppendDelete(recordID RecordID) (LogRecordLocInfo, error)
 	AppendCommit() error
 	AppendAbort() error
 	AppendTxnEnd() error

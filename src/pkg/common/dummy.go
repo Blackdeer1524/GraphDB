@@ -8,25 +8,20 @@ func DummyLogger() *dummyLogger {
 	return &dummyLogger{}
 }
 
-// GetFlushInfo implements ITxnLogger.
 func (d *dummyLogger) GetFlushInfo() (FileID, PageID, PageID, LSN) {
 	return 0, 0, 0, 0
 }
 
-// GetFlushLSN implements ITxnLogger.
 func (d *dummyLogger) GetFlushLSN() LSN {
 	return 0
 }
 
-// UpdateFirstUnflushedPage implements ITxnLogger.
 func (d *dummyLogger) UpdateFirstUnflushedPage(pageID PageID) {
 }
 
-// UpdateFlushLSN implements ITxnLogger.
 func (d *dummyLogger) UpdateFlushLSN(lsn LSN) {
 }
 
-// WithContext implements ITxnLogger.
 func (d *dummyLogger) WithContext(txnID TxnID) ITxnLoggerWithContext {
 	return &DummyLoggerWithContext{}
 }
@@ -39,24 +34,28 @@ func NoLogs() *DummyLoggerWithContext {
 	return &DummyLoggerWithContext{}
 }
 
+func (l *DummyLoggerWithContext) GetTxnID() TxnID {
+	return NilTxnID
+}
+
 func (l *DummyLoggerWithContext) AppendBegin() error {
 	return nil
 }
 
-func (l *DummyLoggerWithContext) AssumeLockedAppendDelete(
+func (l *DummyLoggerWithContext) AppendDelete(
 	recordID RecordID,
 ) (LogRecordLocInfo, error) {
 	return NewNilLogRecordLocation(), nil
 }
 
-func (l *DummyLoggerWithContext) AssumeLockedAppendInsert(
+func (l *DummyLoggerWithContext) AppendInsert(
 	recordID RecordID,
 	value []byte,
 ) (LogRecordLocInfo, error) {
 	return NewNilLogRecordLocation(), nil
 }
 
-func (l *DummyLoggerWithContext) AssumeLockedAppendUpdate(
+func (l *DummyLoggerWithContext) AppendUpdate(
 	recordID RecordID,
 	before []byte,
 	after []byte,

@@ -322,7 +322,7 @@ func TestManager_Replacement(t *testing.T) {
 
 			assert.Equal(t, uint16(1), pg.NumSlots())
 
-			data := pg.Read(0)
+			data := pg.UnsafeRead(0)
 			assert.Equal(t, utils.ToBytes[uint64](i), data)
 		}(i)
 	}
