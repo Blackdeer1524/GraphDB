@@ -14,29 +14,12 @@ import (
 
 var ErrNoSuchPage = errors.New("no such page")
 
-type logger interface {
-	GetMasterRecord() common.LSN
-	Flush() error
-}
-
-type noOpLogger struct{}
-
-func (noOpLogger) GetMasterRecord() common.LSN { return 0 }
-func (noOpLogger) Flush() error                { return nil }
-
-var (
-	_ logger = (common.ITxnLogger)(nil)
-	_ logger = noOpLogger{}
-)
-
 const PageSize = 4096
 
 type Manager struct {
-	mu sync.Mutex
-
+	mu           sync.Mutex
 	fileIDToPath map[common.FileID]string
 	newPageFunc  func(fileID common.FileID, pageID common.PageID) *page.SlottedPage
-	logger       logger
 }
 
 var (
@@ -50,8 +33,7 @@ func New(
 	return &Manager{
 		fileIDToPath: fileIDToPath,
 		newPageFunc:  newPageFunc,
-		logger:       noOpLogger{},
-		mu:           sync.RWMutex{},
+		mu:           sync.Mutex{},
 	}
 }
 func (m *Manager) Lock() {
@@ -147,13 +129,6 @@ func (m *Manager) WritePageAssumeLocked(
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	masterLSN := m.logger.GetMasterRecord()
-	if lockedPage.PageLSN() > masterLSN {
-		if err := m.logger.Flush(); err != nil {
-			return err
-		}
-	}
-
 	data := lockedPage.GetData()
 	if len(data) == 0 {
 		return errors.New("page data is empty")
@@ -183,7 +158,6 @@ func (m *Manager) WritePageAssumeLocked(
 type InMemoryManager struct {
 	mu    sync.Mutex
 	pages map[common.PageIdentity]*page.SlottedPage
-	logger logger
 }
 
 var (
@@ -250,7 +224,6 @@ func (m *InMemoryManager) ReadPageAssumeLocked(
 	pg.UnsafeInitLatch()
 	return nil
 }
-
 
 func (m *InMemoryManager) WritePageAssumeLocked(
 	pg *page.SlottedPage,

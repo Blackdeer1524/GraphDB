@@ -11,7 +11,7 @@ type MockDataBufferPool struct {
 	dirties []common.PageIdentity
 	pages   map[common.PageIdentity]*page.SlottedPage
 
-	Disk *disk.Manager[*page.SlottedPage]
+	Disk *disk.Manager
 }
 
 func (bp *MockDataBufferPool) MarkDirty(id common.PageIdentity) {

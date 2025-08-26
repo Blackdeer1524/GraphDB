@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/afero"
+
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
@@ -13,7 +15,6 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
-	"github.com/spf13/afero"
 )
 
 type Locker interface {
@@ -47,14 +48,14 @@ type SystemCatalog interface {
 }
 
 type StorageEngine struct {
-	lock    Locker
+	lock    *txns.HierarchyLocker
 	catalog SystemCatalog
-	diskMgr *disk.Manager[*page.SlottedPage]
+	diskMgr *disk.Manager
 
 	fs afero.Fs
 }
 
-func New(catalogBasePath string, poolSize uint64, fs afero.Fs, l Locker) (*StorageEngine, error) {
+func New(catalogBasePath string, poolSize uint64, fs afero.Fs, l *txns.HierarchyLocker) (*StorageEngine, error) {
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to : %w", err)
@@ -64,9 +65,15 @@ func New(catalogBasePath string, poolSize uint64, fs afero.Fs, l Locker) (*Stora
 		common.FileID(0): systemcatalog.GetSystemCatalogVersionFileName(catalogBasePath),
 	}
 
-	diskMgr := disk.New[*page.SlottedPage](fileIDToFilePath, page.NewSlottedPage)
+	diskMgr := disk.New(
+		fileIDToFilePath,
+		func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
+			// TODO: implement this
+			return page.NewSlottedPage()
+		},
+	)
 
-	bpManager, err := bufferpool.New(poolSize, &bufferpool.LRUReplacer{}, diskMgr)
+	bpManager := bufferpool.New(poolSize, &bufferpool.LRUReplacer{}, diskMgr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bufferpool: %w", err)
 	}
@@ -98,7 +105,11 @@ func GetIndexFilePath(basePath, name string) string {
 	return filepath.Join(basePath, "indexes", name+".idx")
 }
 
-func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schema storage.Schema) error {
+func (s *StorageEngine) CreateVertexTable(
+	txnID common.TxnID,
+	name string,
+	schema storage.Schema,
+) error {
 	needToRollback := true
 
 	systemCatalogLockRequest := txns.SystemCatalogLockRequest{
@@ -115,7 +126,8 @@ func (s *StorageEngine) CreateVertexTable(txnID common.TxnID, name string, schem
 
 	tableFilePath := GetVertexTableFilePath(basePath, name)
 
-	// Existence of the file is not the proof of existence of the table (we don't remove file on drop),
+	// Existence of the file is not the proof of existence of the table (we don't remove file on
+	// drop),
 	// and it is why we do not check if the table exists in file system.
 	ok, err := s.catalog.VertexTableExists(name)
 	if err != nil {
@@ -224,7 +236,11 @@ func (s *StorageEngine) DropVertexTable(txnID common.TxnID, name string) error {
 	return nil
 }
 
-func (s *StorageEngine) CreateEdgesTable(txnID common.TxnID, name string, schema storage.Schema) error {
+func (s *StorageEngine) CreateEdgesTable(
+	txnID common.TxnID,
+	name string,
+	schema storage.Schema,
+) error {
 	needToRollback := true
 
 	systemCatalogLockRequest := txns.SystemCatalogLockRequest{
@@ -241,7 +257,8 @@ func (s *StorageEngine) CreateEdgesTable(txnID common.TxnID, name string, schema
 
 	tableFilePath := GetEdgeTableFilePath(basePath, name)
 
-	// Existence of the file is not the proof of existence of the table (we don't remove file on drop),
+	// Existence of the file is not the proof of existence of the table (we don't remove file on
+	// drop),
 	// and it is why we do not check if the table exists in file system.
 	ok, err := s.catalog.EdgeTableExists(name)
 	if err != nil {
@@ -368,7 +385,8 @@ func (s *StorageEngine) CreateIndex(
 
 	tableFilePath := GetIndexFilePath(basePath, name)
 
-	// Existence of the file is not the proof of existence of the index (we don't remove file on drop),
+	// Existence of the file is not the proof of existence of the index (we don't remove file on
+	// drop),
 	// and it is why we do not check if the table exists in file system.
 	ok, err := s.catalog.IndexExists(name)
 	if err != nil {
