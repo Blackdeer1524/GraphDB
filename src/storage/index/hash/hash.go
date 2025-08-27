@@ -27,6 +27,7 @@ type StorageEngine interface {
 	GetPage(pageID uint64, fileID uint64) (*page.SlottedPage, error)
 	UnpinPage(pageID uint64, fileID uint64) error
 	WritePage(pageID uint64, fileID uint64, p *page.SlottedPage) error
+	Unpin(pageID common.PageIdentity)
 }
 
 type Index struct {

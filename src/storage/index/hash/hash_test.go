@@ -86,6 +86,10 @@ func (m *mockStorageEngine) WritePage(pageID uint64, fileID uint64, p *page.Slot
 	return nil
 }
 
+func (m *mockStorageEngine) Unpin(pageID common.PageIdentity) {
+	return
+}
+
 func TestIndex_Get_KeySizeMismatch(t *testing.T) {
 	se := &mockStorageEngine{}
 	idx, _ := New(1, se, 4)
