@@ -565,33 +565,51 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 		case TypeInsert:
 			record := assert.Cast[InsertLogRecord](record)
 			func() {
-				modifiedPage, err := l.pool.GetPageNoCreate(
-					record.modifiedRecordID.PageIdentity(),
-				)
+				modifiedPage, err := l.pool.GetPage(record.modifiedRecordID.PageIdentity())
 				assert.NoError(err)
-				defer func() { l.pool.Unpin(record.modifiedRecordID.PageIdentity()) }()
+				defer l.pool.Unpin(record.modifiedRecordID.PageIdentity())
 
-				assert.NoError(l.pool.WithMarkDirty(
-					common.NilTxnID,
-					record.modifiedRecordID.PageIdentity(),
-					modifiedPage,
-					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-						lockedPage.UnsafeOverrideSlotStatus(
-							record.modifiedRecordID.SlotNum,
-							page.SlotStatusInserted,
-						)
+				if record.modifiedRecordID.SlotNum >= modifiedPage.NumSlots() {
+					assert.Assert(
+						record.modifiedRecordID.SlotNum == modifiedPage.NumSlots(),
+						"don't know how to recover when slotNum > numSlots. SlotNum: %d, NumSlots: %d",
+						record.modifiedRecordID.SlotNum,
+						modifiedPage.NumSlots(),
+					)
 
-						slotData := lockedPage.UnsafeRead(record.modifiedRecordID.SlotNum)
+					assert.NoError(l.pool.WithMarkDirty(
+						common.NilTxnID,
+						record.modifiedRecordID.PageIdentity(),
+						modifiedPage,
+						func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+							slotOpt := lockedPage.UnsafeInsertNoLogs(record.value)
+							assert.Assert(slotOpt.IsSome())
+							assert.Assert(slotOpt.Unwrap() == record.modifiedRecordID.SlotNum)
+							return common.NewNilLogRecordLocation(), nil
+						},
+					))
+				} else {
+					assert.NoError(l.pool.WithMarkDirty(
+						common.NilTxnID,
+						record.modifiedRecordID.PageIdentity(),
+						modifiedPage,
+						func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+							lockedPage.UnsafeOverrideSlotStatus(
+								record.modifiedRecordID.SlotNum,
+								page.SlotStatusInserted,
+							)
+							slotData := lockedPage.UnsafeRead(record.modifiedRecordID.SlotNum)
 
-						assert.Assert(
-							len(record.value) <= len(slotData),
-							"new item len should be at most len of the old one",
-						)
-						clear(slotData)
-						copy(slotData, record.value)
-						return common.NewNilLogRecordLocation(), nil
-					},
-				))
+							assert.Assert(
+								len(record.value) <= len(slotData),
+								"new item len should be at most len of the old one",
+							)
+							clear(slotData)
+							copy(slotData, record.value)
+							return common.NewNilLogRecordLocation(), nil
+						},
+					))
+				}
 			}()
 		case TypeUpdate:
 			record := assert.Cast[UpdateLogRecord](record)
