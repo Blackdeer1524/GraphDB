@@ -1,2 +1,17 @@
 packages:
-  github.com/Blackdeer1524/GraphDB/src/query:
+  github.com/Blackdeer1524/GraphDB/src/pkg/common:
+    config:
+      dir: "{{.InterfaceDir}}"
+      outpkg: "{{.PackageName}}"
+      inpackage: true
+    interfaces:
+      ITxnLoggerWithContext:
+      ITxnLogger:
+
+  github.com/Blackdeer1524/GraphDB/src/txns:
+    config:
+      dir: "{{.InterfaceDir}}"
+      outpkg: "{{.PackageName}}"
+      inpackage: true
+    interfaces:
+      ILockManager:

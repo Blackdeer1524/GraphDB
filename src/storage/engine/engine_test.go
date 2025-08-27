@@ -38,7 +38,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 
 	var se *StorageEngine
 
@@ -47,13 +47,13 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 
 	tableName := "User"
 	schema := storage.Schema{
-		"id":   storage.Column{Type: "int"},
-		"name": storage.Column{Type: "string"},
+		{First: "id", Second: storage.Column{Type: "int"}},
+		{First: "name", Second: storage.Column{Type: "string"}},
 	}
 
 	func() {
 		firstTxnID := common.TxnID(1)
-		defer lockMgr.UnlockByTxnID(firstTxnID)
+		defer lockMgr.Unlock(firstTxnID)
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
@@ -72,7 +72,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 
 	func() {
 		secondTxnID := common.TxnID(2)
-		defer lockMgr.UnlockByTxnID(secondTxnID)
+		defer lockMgr.Unlock(secondTxnID)
 
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.Error(t, err)
@@ -87,19 +87,19 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
-		"id":   storage.Column{Type: "int"},
-		"name": storage.Column{Type: "string"},
+		{First: "id", Second: storage.Column{Type: "int"}},
+		{First: "name", Second: storage.Column{Type: "string"}},
 	}
 
 	func() {
 		firstTxnID := common.TxnID(1)
-		defer lockMgr.UnlockByTxnID(firstTxnID)
+		defer lockMgr.Unlock(firstTxnID)
 
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 
 	func() {
 		secondTxnID := common.TxnID(2)
-		defer lockMgr.UnlockByTxnID(secondTxnID)
+		defer lockMgr.Unlock(secondTxnID)
 
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -143,19 +143,19 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "IsFriendWith"
 	schema := storage.Schema{
-		"from": storage.Column{Type: "int"},
-		"to":   storage.Column{Type: "int"},
+		{First: "from", Second: storage.Column{Type: "int"}},
+		{First: "to", Second: storage.Column{Type: "int"}},
 	}
 
 	func() {
 		firstTxnID := common.TxnID(1)
-		defer lockMgr.UnlockByTxnID(firstTxnID)
+		defer lockMgr.Unlock(firstTxnID)
 
 		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 
 	func() {
 		secondTxnID := common.TxnID(2)
-		defer lockMgr.UnlockByTxnID(secondTxnID)
+		defer lockMgr.Unlock(secondTxnID)
 
 		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.Error(t, err)
@@ -190,19 +190,19 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "IsFriendWith"
 	schema := storage.Schema{
-		"from": storage.Column{Type: "int"},
-		"to":   storage.Column{Type: "int"},
+		{First: "from", Second: storage.Column{Type: "int"}},
+		{First: "to", Second: storage.Column{Type: "int"}},
 	}
 
 	func() {
 		firstTxnID := common.TxnID(1)
-		defer lockMgr.UnlockByTxnID(firstTxnID)
+		defer lockMgr.Unlock(firstTxnID)
 
 		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -227,7 +227,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 
 	func() {
 		secondTxnID := common.TxnID(2)
-		defer lockMgr.UnlockByTxnID(secondTxnID)
+		defer lockMgr.Unlock(secondTxnID)
 
 		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -246,18 +246,18 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
-		"id":   storage.Column{Type: "int"},
-		"name": storage.Column{Type: "string"},
+		{First: "id", Second: storage.Column{Type: "int"}},
+		{First: "name", Second: storage.Column{Type: "string"}},
 	}
 
 	firstTxnID := common.TxnID(1)
-	defer lockMgr.UnlockByTxnID(firstTxnID)
+	defer lockMgr.Unlock(firstTxnID)
 
 	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 	require.NoError(t, err)
@@ -291,18 +291,18 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
-		"id":   storage.Column{Type: "int"},
-		"name": storage.Column{Type: "string"},
+		{First: "id", Second: storage.Column{Type: "int"}},
+		{First: "name", Second: storage.Column{Type: "string"}},
 	}
 
 	firstTxnID := common.TxnID(1)
-	defer lockMgr.UnlockByTxnID(firstTxnID)
+	defer lockMgr.Unlock(firstTxnID)
 
 	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 	require.NoError(t, err)

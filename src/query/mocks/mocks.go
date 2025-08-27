@@ -127,48 +127,6 @@ func (m *mockNeighborsIterator) Close() error {
 }
 
 // MockTransactionManager
-type MockTransactionManager struct {
-	BeginErr    error
-	CommitErr   error
-	rollbackErr error
-	NextTxnID   common.TxnID
-}
-
-func (m *MockTransactionManager) Begin() (common.TxnID, error) {
-	if m.BeginErr != nil {
-		return 0, m.BeginErr
-	}
-	m.NextTxnID++
-	return m.NextTxnID, nil
-}
-
-func (m *MockTransactionManager) CommitTx(_ common.TxnID) error {
-	return m.CommitErr
-}
-
-func (m *MockTransactionManager) RollbackTx(_ common.TxnID) error {
-	return m.rollbackErr
-}
-
-type MockTxnManager struct {
-	mock.Mock
-}
-
-func (m *MockTxnManager) Begin() (common.TxnID, error) {
-	args := m.Called()
-
-	return args.Get(0).(common.TxnID), args.Error(1)
-}
-func (m *MockTxnManager) CommitTx(tx common.TxnID) error {
-	args := m.Called(tx)
-
-	return args.Error(0)
-}
-func (m *MockTxnManager) RollbackTx(tx common.TxnID) error {
-	args := m.Called(tx)
-	return args.Error(0)
-}
-
 type DataMockStorageEngine struct {
 	vertices     map[storage.VertexID]common.RecordID
 	neighbors    map[storage.VertexID][]storage.VertexIDWithRID

@@ -801,7 +801,7 @@ func TestLoggerRollback(t *testing.T) {
 	updatedValues := make(map[common.RecordID]uint32, len(recordValues))
 	maps.Copy(updatedValues, recordValues)
 
-	locker := txns.NewHierarchyLocker()
+	locker := txns.NewLockManager()
 	defer func() {
 		stillLockedTxns := locker.GetActiveTransactions()
 		assert.Equal(
@@ -852,7 +852,7 @@ func TestLoggerRollback(t *testing.T) {
 				logger.Rollback()
 				return
 			}
-			defer locker.Unlock(cToken)
+			defer locker.Unlock(txnID)
 
 			for j := range len(batch) * 3 / 2 {
 				info := batch[j%len(batch)]
