@@ -94,7 +94,7 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(baseDir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
@@ -109,7 +109,7 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 		res := applyOp(se, op, baseDir, common.NoLogs())
 
 		model.apply(op, res)
-		lockMgr.UnlockByTxnID(op.TxnID)
+		lockMgr.Unlock(op.TxnID)
 
 		if i%25 == 0 {
 			t.Logf("validate invariants at step=%d", i)
@@ -134,7 +134,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(baseDir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
@@ -172,7 +172,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 
 				res := applyOp(se, op, baseDir, common.NoLogs())
 
-				lockMgr.UnlockByTxnID(op.TxnID)
+				lockMgr.Unlock(op.TxnID)
 				if res.Success {
 					mu.Lock()
 					sequence++

@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"strconv"
 
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 )
 
@@ -47,14 +48,17 @@ func randomTableName(r *rand.Rand, existing map[string]storage.Schema, exist int
 }
 
 func randomSchema(r *rand.Rand) storage.Schema {
-	schema := make(storage.Schema)
+	schema := make(storage.Schema, 0)
 
 	numCols := 1 + r.Intn(5)
 
 	for i := 0; i < numCols; i++ {
 		colName := "col" + strconv.Itoa(i)
 		types := []string{"int", "string", "float", "bool"} // add your supported types
-		schema[colName] = storage.Column{Type: types[r.Intn(len(types))]}
+		schema = append(schema, utils.Pair[string, storage.Column]{
+			First:  colName,
+			Second: storage.Column{Type: types[r.Intn(len(types))]},
+		})
 	}
 
 	return schema

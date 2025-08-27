@@ -6,10 +6,30 @@ import (
 	"fmt"
 	"iter"
 
+	"github.com/google/uuid"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
-type VertexID uint64
+type VertexID uuid.UUID
+type EdgeID uuid.UUID
+type DirItemID uuid.UUID
+
+var NilVertexID = VertexID(uuid.Nil)
+var NilEdgeID = EdgeID(uuid.Nil)
+var NilDirItemID = DirItemID(uuid.Nil)
+
+func (v VertexID) IsNil() bool {
+	return v == NilVertexID
+}
+
+func (e EdgeID) IsNil() bool {
+	return e == NilEdgeID
+}
+
+func (d DirItemID) IsNil() bool {
+	return d == NilDirItemID
+}
 
 type VertexWithDepthAndRID struct {
 	V VertexID
@@ -19,6 +39,16 @@ type VertexWithDepthAndRID struct {
 
 type VertexIDWithRID struct {
 	V VertexID
+	R common.RecordID
+}
+
+type EdgeIDWithRID struct {
+	E EdgeID
+	R common.RecordID
+}
+
+type DirectoryIDWithRID struct {
+	D DirItemID
 	R common.RecordID
 }
 
@@ -54,13 +84,6 @@ type BitMap interface {
 	Get(v VertexID) (bool, error)
 	Set(v VertexID, b bool) error
 	Close() error
-}
-
-type TransactionManager interface {
-	Begin() (common.TxnID, error)
-
-	RollbackTx(common.TxnID) error
-	CommitTx(common.TxnID) error
 }
 
 type TypedQueue[T interface {
