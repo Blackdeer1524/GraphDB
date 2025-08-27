@@ -43,14 +43,14 @@ type SystemCatalog interface {
 type StorageEngine struct {
 	catalog SystemCatalog
 	diskMgr *disk.Manager
-	locker  *txns.HierarchyLocker
+	locker  *txns.LockManager
 	fs      afero.Fs
 }
 
 func New(
 	catalogBasePath string,
 	poolSize uint64,
-	locker *txns.HierarchyLocker,
+	locker *txns.LockManager,
 	fs afero.Fs,
 ) (*StorageEngine, error) {
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
@@ -71,9 +71,6 @@ func New(
 	)
 
 	bpManager := bufferpool.New(poolSize, &bufferpool.LRUReplacer{}, diskMgr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bufferpool: %w", err)
-	}
 
 	sysCat, err := systemcatalog.New(catalogBasePath, fs, bpManager)
 	if err != nil {

@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/datastructures/inmemory"
 )
+
+func (e *Executor) newTxnID() common.TxnID {
+	return common.TxnID(e.txnTicker.Add(1))
+}
 
 // traverseNeighborsWithDepth enqueues unvisited neighbors at next depth if <= targetDepth.
 func (e *Executor) traverseNeighborsWithDepth(t common.TxnID, v storage.VertexWithDepthAndRID,
@@ -27,34 +30,41 @@ func (e *Executor) traverseNeighborsWithDepth(t common.TxnID, v storage.VertexWi
 		}
 	}()
 
-	for u := range it.Seq() {
-		var ok bool
-
-		ok, err = seen.Get(u.V)
+	for uBatchErr := range it.Seq() {
+		uBatch, err := uBatchErr.Destruct()
 		if err != nil {
-			return fmt.Errorf("failed to get vertex visited status: %w", err)
+			return fmt.Errorf("failed to get another batch of neighbors: %w", err)
 		}
 
-		// if visited
-		if ok {
-			continue
-		}
+		for _, u := range uBatch {
+			var ok bool
 
-		err = seen.Set(u.V, true)
-		if err != nil {
-			return fmt.Errorf("failed to set vertex visited status: %w", err)
-		}
-
-		if curDepth == ^uint32(0) {
-			return errors.New("depth overflow")
-		}
-
-		nd := curDepth + 1
-
-		if nd <= targetDepth {
-			err = q.Enqueue(storage.VertexWithDepthAndRID{V: u.V, D: nd, R: u.R})
+			ok, err = seen.Get(u.V)
 			if err != nil {
-				return fmt.Errorf("failed to enqueue vertex: %w", err)
+				return fmt.Errorf("failed to get vertex visited status: %w", err)
+			}
+
+			// if visited
+			if ok {
+				continue
+			}
+
+			err = seen.Set(u.V, true)
+			if err != nil {
+				return fmt.Errorf("failed to set vertex visited status: %w", err)
+			}
+
+			if curDepth == ^uint32(0) {
+				return errors.New("depth overflow")
+			}
+
+			nd := curDepth + 1
+
+			if nd <= targetDepth {
+				err = q.Enqueue(storage.VertexWithDepthAndRID{V: u.V, D: nd, R: u.R})
+				if err != nil {
+					return fmt.Errorf("failed to enqueue vertex: %w", err)
+				}
 			}
 		}
 	}
@@ -135,17 +145,23 @@ func (e *Executor) GetVertexesOnDepth(
 		return nil, errors.New("storage engine is nil")
 	}
 
-	var tx common.TxnID
+	tx := e.newTxnID()
+	defer e.locker.Unlock(tx)
 
-	tx, err = e.tm.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	logger := e.logger.WithContext(tx)
+
+	if err := logger.AppendBegin(); err != nil {
+		return nil, fmt.Errorf("failed to append begin: %w", err)
 	}
 	defer func() {
 		if err != nil {
-			err1 := e.tm.RollbackTx(tx)
-
-			assert.NoError(err1)
+			err1 := logger.AppendAbort()
+			if err1 != nil {
+				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
+			} else {
+				logger.Rollback()
+				err = errors.Join(err, logger.AppendTxnEnd())
+			}
 		}
 	}()
 
@@ -163,9 +179,11 @@ func (e *Executor) GetVertexesOnDepth(
 		return nil, fmt.Errorf("failed to bfsWithDepth: %w", err)
 	}
 
-	err = e.tm.CommitTx(tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	if err := logger.AppendCommit(); err != nil {
+		return nil, fmt.Errorf("failed to append commit: %w", err)
+	}
+	if err := logger.AppendTxnEnd(); err != nil {
+		return nil, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return res, nil
@@ -181,17 +199,24 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 		return nil, errors.New("storage engine is nil")
 	}
 
-	var tx common.TxnID
+	tx := e.newTxnID()
+	defer e.locker.Unlock(tx)
 
-	tx, err = e.tm.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	logger := e.logger.WithContext(tx)
+
+	if err := logger.AppendBegin(); err != nil {
+		return nil, fmt.Errorf("failed to append begin: %w", err)
 	}
+
 	defer func() {
 		if err != nil {
-			err1 := e.tm.RollbackTx(tx)
-
-			err = errors.Join(err, fmt.Errorf("rollback failed: %w", err1))
+			err1 := logger.AppendAbort()
+			if err1 != nil {
+				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
+			} else {
+				logger.Rollback()
+				err = errors.Join(err, logger.AppendTxnEnd())
+			}
 		}
 	}()
 
@@ -211,9 +236,11 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 		res = append(res, v)
 	}
 
-	err = e.tm.CommitTx(tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	if err := logger.AppendCommit(); err != nil {
+		return nil, fmt.Errorf("failed to append commit: %w", err)
+	}
+	if err := logger.AppendTxnEnd(); err != nil {
+		return nil, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return res, nil
@@ -228,18 +255,23 @@ func (e *Executor) GetAllVertexesWithFieldValue2(field string, value []byte,
 		return nil, errors.New("storage engine is nil")
 	}
 
-	var tx common.TxnID
+	tx := e.newTxnID()
+	defer e.locker.Unlock(tx)
 
-	tx, err = e.tm.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	logger := e.logger.WithContext(tx)
+
+	if err := logger.AppendBegin(); err != nil {
+		return nil, fmt.Errorf("failed to append begin: %w", err)
 	}
+
 	defer func() {
 		if err != nil {
-			err1 := e.tm.RollbackTx(tx)
-
+			err1 := logger.AppendAbort()
 			if err1 != nil {
-				err = errors.Join(err, fmt.Errorf("rollback failed: %w", err1))
+				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
+			} else {
+				logger.Rollback()
+				err = errors.Join(err, logger.AppendTxnEnd())
 			}
 		}
 	}()
@@ -274,9 +306,12 @@ func (e *Executor) GetAllVertexesWithFieldValue2(field string, value []byte,
 		res = append(res, v)
 	}
 
-	err = e.tm.CommitTx(tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	if err := logger.AppendCommit(); err != nil {
+		return nil, fmt.Errorf("failed to append commit: %w", err)
+	}
+
+	if err := logger.AppendTxnEnd(); err != nil {
+		return nil, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return res, nil
@@ -332,17 +367,23 @@ func (e *Executor) SumNeighborAttributes(
 		return nil, errors.New("storage engine is nil")
 	}
 
-	var tx common.TxnID
+	tx := e.newTxnID()
+	defer e.locker.Unlock(tx)
 
-	tx, err = e.tm.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	logger := e.logger.WithContext(tx)
+
+	if err := logger.AppendBegin(); err != nil {
+		return nil, fmt.Errorf("failed to append begin: %w", err)
 	}
+
 	defer func() {
 		if err != nil {
-			err1 := e.tm.RollbackTx(tx)
+			err1 := logger.AppendAbort()
 			if err1 != nil {
-				err = errors.Join(err, fmt.Errorf("rollback failed: %w", err1))
+				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
+			} else {
+				logger.Rollback()
+				err = errors.Join(err, logger.AppendTxnEnd())
 			}
 		}
 	}()
@@ -387,9 +428,12 @@ func (e *Executor) SumNeighborAttributes(
 		}
 	}
 
-	err = e.tm.CommitTx(tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	if err := logger.AppendCommit(); err != nil {
+		return nil, fmt.Errorf("failed to append commit: %w", err)
+	}
+
+	if err := logger.AppendTxnEnd(); err != nil {
+		return nil, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return r, nil
@@ -410,13 +454,20 @@ func (e *Executor) countCommonNeighbors(tx common.TxnID, left storage.VertexID,
 		}
 	}()
 
-	for right := range rightNeighborsIter.Seq() {
-		if left >= right.V {
-			continue
+	for rightBatchErr := range rightNeighborsIter.Seq() {
+		rightBatch, err := rightBatchErr.Destruct()
+		if err != nil {
+			return 0, fmt.Errorf("failed to get another batch of neighbors: %w", err)
 		}
 
-		if _, ok := leftNeighbors.Get(right.V); ok {
-			r++
+		for _, right := range rightBatch {
+			if left >= right.V {
+				continue
+			}
+
+			if _, ok := leftNeighbors.Get(right.V); ok {
+				r++
+			}
 		}
 	}
 
@@ -444,10 +495,20 @@ func (e *Executor) getVertexTriangleCount(
 
 	leftNeighbors := inmemory.NewInMemoryAssociativeArray[storage.VertexID, struct{}]()
 
-	for l := range leftNeighborsIter.Seq() {
-		err = leftNeighbors.Set(l.V, struct{}{})
+	for lBatchErr := range leftNeighborsIter.Seq() {
+		lBatch, err := lBatchErr.Destruct()
 		if err != nil {
-			return 0, fmt.Errorf("failed to set value in left neighbors associative array: %w", err)
+			return 0, fmt.Errorf("failed to get another batch of neighbors: %w", err)
+		}
+
+		for _, l := range lBatch {
+			err = leftNeighbors.Set(l.V, struct{}{})
+			if err != nil {
+				return 0, fmt.Errorf(
+					"failed to set value in left neighbors associative array: %w",
+					err,
+				)
+			}
 		}
 	}
 
@@ -480,25 +541,26 @@ func (e *Executor) GetAllTriangles() (r uint64, err error) {
 		return 0, errors.New("storage engine is nil")
 	}
 
-	var tx common.TxnID
+	txnID := e.newTxnID()
+	defer e.locker.Unlock(txnID)
 
-	tx, err = e.tm.Begin()
-	if err != nil {
-		return 0, fmt.Errorf("failed to begin transaction: %w", err)
-	}
+	logger := e.logger.WithContext(txnID)
+
 	defer func() {
 		if err != nil {
-			err1 := e.tm.RollbackTx(tx)
-
+			err1 := logger.AppendAbort()
 			if err1 != nil {
-				err = errors.Join(err, fmt.Errorf("rollback failed: %w", err1))
+				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
+			} else {
+				logger.Rollback()
+				err = errors.Join(err, logger.AppendTxnEnd())
 			}
 		}
 	}()
 
 	var verticesIter storage.VerticesIter
 
-	verticesIter, err = e.se.GetAllVertices(tx)
+	verticesIter, err = e.se.GetAllVertices(txnID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get vertices iterator: %w", err)
 	}
@@ -514,7 +576,7 @@ func (e *Executor) GetAllTriangles() (r uint64, err error) {
 	for v := range verticesIter.Seq() {
 		var add uint64
 
-		add, err = e.getVertexTriangleCount(tx, v)
+		add, err = e.getVertexTriangleCount(txnID, v)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get triangle count of vertex %v: %w", v.ID, err)
 		}
@@ -526,9 +588,12 @@ func (e *Executor) GetAllTriangles() (r uint64, err error) {
 		r += add
 	}
 
-	err = e.tm.CommitTx(tx)
-	if err != nil {
+	if err := logger.AppendCommit(); err != nil {
 		return 0, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	if err := logger.AppendTxnEnd(); err != nil {
+		return 0, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return r / 3, nil

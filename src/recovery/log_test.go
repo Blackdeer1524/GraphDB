@@ -852,7 +852,7 @@ func TestLoggerRollback(t *testing.T) {
 				logger.Rollback()
 				return
 			}
-			defer locker.Unlock(cToken)
+			defer locker.Unlock(txnID)
 
 			for j := range len(batch) * 3 / 2 {
 				info := batch[j%len(batch)]

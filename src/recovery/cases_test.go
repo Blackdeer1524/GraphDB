@@ -157,7 +157,7 @@ func TestBankTransactions(t *testing.T) {
 			txns.GRANULAR_LOCK_INTENTION_SHARED,
 		)
 		require.NotNil(t, ctoken)
-		defer locker.Unlock(ctoken)
+		defer locker.Unlock(txnID)
 
 		t.Logf("[%d] locking file %d", txnID, me.FileID)
 		ttoken := locker.LockFile(

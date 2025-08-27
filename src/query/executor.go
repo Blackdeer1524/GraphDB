@@ -1,8 +1,11 @@
 package query
 
 import (
+	"sync/atomic"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 type StorageEngine interface {
@@ -24,12 +27,20 @@ type StorageEngine interface {
 }
 
 type Executor struct {
-	se StorageEngine
-	tm storage.TransactionManager
+	se        StorageEngine
+	txnTicker atomic.Uint64
+	locker    *txns.LockManager
+	logger    common.ITxnLogger
 }
 
-func New(se StorageEngine) *Executor {
+func New(
+	se StorageEngine,
+	locker *txns.LockManager,
+	logger common.ITxnLogger,
+) *Executor {
 	return &Executor{
-		se: se,
+		se:     se,
+		locker: locker,
+		logger: logger,
 	}
 }

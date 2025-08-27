@@ -13,29 +13,29 @@ type Locker interface {
 	LockCatalog(txnID common.TxnID, lockMode GranularLockMode) *CatalogLockToken
 	LockFile(t *CatalogLockToken, fileID common.FileID, lockMode GranularLockMode) *FileLockToken
 	LockPage(ft *FileLockToken, pageID common.PageID, lockMode PageLockMode) *PageLockToken
-	Unlock(t *CatalogLockToken)
+	Unlock(txnID common.TxnID)
 	UpgradeCatalogLock(t *CatalogLockToken, lockMode GranularLockMode) bool
 	UpgradeFileLock(ft *FileLockToken, lockMode GranularLockMode) bool
 	UpgradePageLock(pt *PageLockToken) bool
 }
 
-type HierarchyLocker struct {
+type LockManager struct {
 	catalogLockManager *lockManager[GranularLockMode, struct{}]
 	fileLockManager    *lockManager[GranularLockMode, common.FileID] // for indexes and tables
 	pageLockManager    *lockManager[PageLockMode, common.PageIdentity]
 }
 
-var _ Locker = &HierarchyLocker{}
+var _ Locker = &LockManager{}
 
-func NewHierarchyLocker() *HierarchyLocker {
-	return &HierarchyLocker{
+func NewHierarchyLocker() *LockManager {
+	return &LockManager{
 		catalogLockManager: NewManager[GranularLockMode, struct{}](),
 		fileLockManager:    NewManager[GranularLockMode, common.FileID](),
 		pageLockManager:    NewManager[PageLockMode, common.PageIdentity](),
 	}
 }
 
-func (l *HierarchyLocker) DumpDependencyGraph() string {
+func (l *LockManager) DumpDependencyGraph() string {
 	sb := strings.Builder{}
 
 	plGraph := l.pageLockManager.GetGraphSnaphot()
@@ -112,7 +112,7 @@ func newPageLockToken(
 	}
 }
 
-func (l *HierarchyLocker) LockCatalog(
+func (l *LockManager) LockCatalog(
 	txnID common.TxnID,
 	lockMode GranularLockMode,
 ) *CatalogLockToken {
@@ -131,7 +131,7 @@ func (l *HierarchyLocker) LockCatalog(
 	return newCatalogLockToken(r.txnID, lockMode)
 }
 
-func (l *HierarchyLocker) LockFile(
+func (l *LockManager) LockFile(
 	t *CatalogLockToken,
 	fileID common.FileID,
 	lockMode GranularLockMode,
@@ -168,7 +168,7 @@ func (l *HierarchyLocker) LockFile(
 	return newFileLockToken(t.txnID, fileID, lockMode, t)
 }
 
-func (l *HierarchyLocker) LockPage(
+func (l *LockManager) LockPage(
 	ft *FileLockToken,
 	pageID common.PageID,
 	lockMode PageLockMode,
@@ -204,19 +204,13 @@ func (l *HierarchyLocker) LockPage(
 	return newPageLockToken(ft.txnID, pageIdent, lockMode, ft)
 }
 
-func (l *HierarchyLocker) UnlockByTxnID(txnID common.TxnID) {
+func (l *LockManager) Unlock(txnID common.TxnID) {
 	l.catalogLockManager.UnlockAll(txnID)
 	l.fileLockManager.UnlockAll(txnID)
 	l.pageLockManager.UnlockAll(txnID)
 }
 
-func (l *HierarchyLocker) Unlock(t *CatalogLockToken) {
-	l.catalogLockManager.UnlockAll(t.txnID)
-	l.fileLockManager.UnlockAll(t.txnID)
-	l.pageLockManager.UnlockAll(t.txnID)
-}
-
-func (l *HierarchyLocker) UpgradeCatalogLock(
+func (l *LockManager) UpgradeCatalogLock(
 	t *CatalogLockToken,
 	lockMode GranularLockMode,
 ) bool {
@@ -239,7 +233,7 @@ func (l *HierarchyLocker) UpgradeCatalogLock(
 	return true
 }
 
-func (l *HierarchyLocker) UpgradeFileLock(
+func (l *LockManager) UpgradeFileLock(
 	ft *FileLockToken,
 	lockMode GranularLockMode,
 ) bool {
@@ -281,7 +275,7 @@ func (l *HierarchyLocker) UpgradeFileLock(
 	return true
 }
 
-func (l *HierarchyLocker) UpgradePageLock(pt *PageLockToken) bool {
+func (l *LockManager) UpgradePageLock(pt *PageLockToken) bool {
 	if pt.lockMode.Equal(PAGE_LOCK_EXCLUSIVE) {
 		return true
 	}
@@ -304,7 +298,7 @@ func (l *HierarchyLocker) UpgradePageLock(pt *PageLockToken) bool {
 	return true
 }
 
-func (l *HierarchyLocker) GetActiveTransactions() []common.TxnID {
+func (l *LockManager) GetActiveTransactions() []common.TxnID {
 	catalogLockingTxns := l.catalogLockManager.GetActiveTransactions()
 	fileLockingTxns := l.fileLockManager.GetActiveTransactions()
 	pageLockingTxns := l.pageLockManager.GetActiveTransactions()
@@ -322,7 +316,7 @@ func (l *HierarchyLocker) GetActiveTransactions() []common.TxnID {
 	return res
 }
 
-func (l *HierarchyLocker) AreAllQueuesEmpty() bool {
+func (l *LockManager) AreAllQueuesEmpty() bool {
 	return l.catalogLockManager.AreAllQueuesEmpty() &&
 		l.fileLockManager.AreAllQueuesEmpty() &&
 		l.pageLockManager.AreAllQueuesEmpty()

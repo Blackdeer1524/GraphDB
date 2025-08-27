@@ -7,6 +7,7 @@ import (
 	"iter"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
 
 type VertexID uint64
@@ -33,7 +34,7 @@ func (v *VertexIDWithRID) UnmarshalBinary(data []byte) error {
 var ErrQueueEmpty = errors.New("queue is empty")
 
 type NeighborIter interface {
-	Seq() iter.Seq[*VertexIDWithRID]
+	Seq() iter.Seq[utils.Pair[[]VertexIDWithRID, error]]
 	Close() error
 }
 

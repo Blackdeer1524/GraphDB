@@ -53,7 +53,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 
 	func() {
 		firstTxnID := common.TxnID(1)
-		defer lockMgr.UnlockByTxnID(firstTxnID)
+		defer lockMgr.Unlock(firstTxnID)
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
@@ -72,7 +72,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 
 	func() {
 		secondTxnID := common.TxnID(2)
-		defer lockMgr.UnlockByTxnID(secondTxnID)
+		defer lockMgr.Unlock(secondTxnID)
 
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.Error(t, err)
@@ -99,7 +99,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 
 	func() {
 		firstTxnID := common.TxnID(1)
-		defer lockMgr.UnlockByTxnID(firstTxnID)
+		defer lockMgr.Unlock(firstTxnID)
 
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 
 	func() {
 		secondTxnID := common.TxnID(2)
-		defer lockMgr.UnlockByTxnID(secondTxnID)
+		defer lockMgr.Unlock(secondTxnID)
 
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 
 	func() {
 		firstTxnID := common.TxnID(1)
-		defer lockMgr.UnlockByTxnID(firstTxnID)
+		defer lockMgr.Unlock(firstTxnID)
 
 		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 
 	func() {
 		secondTxnID := common.TxnID(2)
-		defer lockMgr.UnlockByTxnID(secondTxnID)
+		defer lockMgr.Unlock(secondTxnID)
 
 		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.Error(t, err)
@@ -202,7 +202,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 
 	func() {
 		firstTxnID := common.TxnID(1)
-		defer lockMgr.UnlockByTxnID(firstTxnID)
+		defer lockMgr.Unlock(firstTxnID)
 
 		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -227,7 +227,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 
 	func() {
 		secondTxnID := common.TxnID(2)
-		defer lockMgr.UnlockByTxnID(secondTxnID)
+		defer lockMgr.Unlock(secondTxnID)
 
 		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
@@ -257,7 +257,7 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 	}
 
 	firstTxnID := common.TxnID(1)
-	defer lockMgr.UnlockByTxnID(firstTxnID)
+	defer lockMgr.Unlock(firstTxnID)
 
 	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 	require.NoError(t, err)
@@ -302,7 +302,7 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	}
 
 	firstTxnID := common.TxnID(1)
-	defer lockMgr.UnlockByTxnID(firstTxnID)
+	defer lockMgr.Unlock(firstTxnID)
 
 	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 	require.NoError(t, err)
