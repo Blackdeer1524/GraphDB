@@ -42,7 +42,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs())
+	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "User"
@@ -54,7 +54,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	func() {
 		firstTxnID := common.TxnID(1)
 		defer lockMgr.UnlockByTxnID(firstTxnID)
-		_, err = se.CreateVertexTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetVertexTableFilePath(dir, tableName)
@@ -74,7 +74,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 		secondTxnID := common.TxnID(2)
 		defer lockMgr.UnlockByTxnID(secondTxnID)
 
-		_, err = se.CreateVertexTable(secondTxnID, tableName, schema, lockMgr, common.NoLogs())
+		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.Error(t, err)
 	}()
 }
@@ -87,7 +87,8 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs())
+	lockMgr := txns.NewHierarchyLocker()
+	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "User"
@@ -96,12 +97,11 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		"name": storage.Column{Type: "string"},
 	}
 
-	lockMgr := txns.NewHierarchyLocker()
 	func() {
 		firstTxnID := common.TxnID(1)
 		defer lockMgr.UnlockByTxnID(firstTxnID)
 
-		_, err = se.CreateVertexTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetVertexTableFilePath(dir, tableName)
@@ -110,13 +110,13 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 
 		require.False(t, info.IsDir())
 
-		_, err = se.DropVertexTable(1, tableName, lockMgr, common.NoLogs())
+		err = se.DropVertexTable(1, tableName, common.NoLogs())
 		require.NoError(t, err)
 
 		_, err = os.Stat(tablePath)
 		require.NoError(t, err)
 
-		_, err = se.DropVertexTable(1, tableName, lockMgr, common.NoLogs())
+		err = se.DropVertexTable(1, tableName, common.NoLogs())
 		require.Error(t, err)
 
 		require.Equal(t, uint64(2), se.catalog.CurrentVersion())
@@ -126,7 +126,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		secondTxnID := common.TxnID(2)
 		defer lockMgr.UnlockByTxnID(secondTxnID)
 
-		_, err = se.CreateVertexTable(secondTxnID, tableName, schema, lockMgr, common.NoLogs())
+		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetVertexTableFilePath(dir, tableName)
@@ -143,7 +143,8 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs())
+	lockMgr := txns.NewHierarchyLocker()
+	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "IsFriendWith"
@@ -152,13 +153,11 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		"to":   storage.Column{Type: "int"},
 	}
 
-	lockMgr := txns.NewHierarchyLocker()
-
 	func() {
 		firstTxnID := common.TxnID(1)
 		defer lockMgr.UnlockByTxnID(firstTxnID)
 
-		_, err = se.CreateEdgesTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetEdgeTableFilePath(dir, tableName)
@@ -178,7 +177,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		secondTxnID := common.TxnID(2)
 		defer lockMgr.UnlockByTxnID(secondTxnID)
 
-		_, err = se.CreateEdgesTable(secondTxnID, tableName, schema, lockMgr, common.NoLogs())
+		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.Error(t, err)
 	}()
 }
@@ -191,7 +190,8 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs())
+	lockMgr := txns.NewHierarchyLocker()
+	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "IsFriendWith"
@@ -200,12 +200,11 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		"to":   storage.Column{Type: "int"},
 	}
 
-	lockMgr := txns.NewHierarchyLocker()
 	func() {
 		firstTxnID := common.TxnID(1)
 		defer lockMgr.UnlockByTxnID(firstTxnID)
 
-		_, err = se.CreateEdgesTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetEdgeTableFilePath(dir, tableName)
@@ -214,13 +213,13 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 
 		require.False(t, info.IsDir())
 
-		_, err = se.DropEdgesTable(firstTxnID, tableName, lockMgr, common.NoLogs())
+		err = se.DropEdgesTable(firstTxnID, tableName, common.NoLogs())
 		require.NoError(t, err)
 
 		_, err = os.Stat(tablePath)
 		require.NoError(t, err)
 
-		_, err = se.DropEdgesTable(firstTxnID, tableName, lockMgr, common.NoLogs())
+		err = se.DropEdgesTable(firstTxnID, tableName, common.NoLogs())
 		require.Error(t, err)
 
 		require.Equal(t, uint64(2), se.catalog.CurrentVersion())
@@ -230,7 +229,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		secondTxnID := common.TxnID(2)
 		defer lockMgr.UnlockByTxnID(secondTxnID)
 
-		_, err = se.CreateEdgesTable(secondTxnID, tableName, schema, lockMgr, common.NoLogs())
+		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetEdgeTableFilePath(dir, tableName)
@@ -247,7 +246,8 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs())
+	lockMgr := txns.NewHierarchyLocker()
+	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "User"
@@ -256,23 +256,21 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 		"name": storage.Column{Type: "string"},
 	}
 
-	lockMgr := txns.NewHierarchyLocker()
 	firstTxnID := common.TxnID(1)
 	defer lockMgr.UnlockByTxnID(firstTxnID)
 
-	_, err = se.CreateVertexTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 	require.NoError(t, err)
 
 	indexName := "idx_user_name"
 
-	_, err = se.CreateIndex(
+	err = se.CreateIndex(
 		firstTxnID,
 		indexName,
 		tableName,
 		"vertex",
 		[]string{"name"},
 		8,
-		lockMgr,
 		common.NoLogs(),
 	)
 	require.NoError(t, err)
@@ -293,7 +291,8 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), afero.NewOsFs())
+	lockMgr := txns.NewHierarchyLocker()
+	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	tableName := "User"
@@ -302,23 +301,21 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 		"name": storage.Column{Type: "string"},
 	}
 
-	lockMgr := txns.NewHierarchyLocker()
 	firstTxnID := common.TxnID(1)
 	defer lockMgr.UnlockByTxnID(firstTxnID)
 
-	_, err = se.CreateVertexTable(firstTxnID, tableName, schema, lockMgr, common.NoLogs())
+	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 	require.NoError(t, err)
 
 	indexName := "idx_user_name"
 
-	_, err = se.CreateIndex(
+	err = se.CreateIndex(
 		firstTxnID,
 		indexName,
 		tableName,
 		"vertex",
 		[]string{"name"},
 		8,
-		lockMgr,
 		common.NoLogs(),
 	)
 	require.NoError(t, err)
@@ -330,20 +327,19 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	_, err = se.catalog.GetIndexMeta(indexName)
 	require.NoError(t, err)
 
-	_, err = se.DropIndex(firstTxnID, indexName, lockMgr, common.NoLogs())
+	err = se.DropIndex(firstTxnID, indexName, common.NoLogs())
 	require.NoError(t, err)
 
 	_, err = os.Stat(indexPath)
 	require.NoError(t, err)
 
-	_, err = se.CreateIndex(
+	err = se.CreateIndex(
 		firstTxnID,
 		indexName,
 		tableName,
 		"vertex",
 		[]string{"name"},
 		8,
-		lockMgr,
 		common.NoLogs(),
 	)
 	require.NoError(t, err)

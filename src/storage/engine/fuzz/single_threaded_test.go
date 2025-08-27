@@ -24,7 +24,6 @@ func applyOp(
 	se *engine.StorageEngine,
 	op Operation,
 	baseDir string,
-	locker *txns.HierarchyLocker,
 	logger common.ITxnLoggerWithContext,
 ) OpResult {
 	res := OpResult{Op: op}
@@ -32,9 +31,9 @@ func applyOp(
 
 	switch op.Type {
 	case OpCreateVertexTable:
-		_, err = se.CreateVertexTable(op.TxnID, op.Name, nil, locker, logger)
+		err = se.CreateVertexTable(op.TxnID, op.Name, nil, logger)
 	case OpDropVertexTable:
-		_, err = se.DropVertexTable(op.TxnID, op.Name, locker, logger)
+		err = se.DropVertexTable(op.TxnID, op.Name, logger)
 		if err == nil {
 			filePath := engine.GetVertexTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
@@ -43,9 +42,9 @@ func applyOp(
 			}
 		}
 	case OpCreateEdgeTable:
-		_, err = se.CreateEdgesTable(op.TxnID, op.Name, nil, locker, logger)
+		err = se.CreateEdgesTable(op.TxnID, op.Name, nil, logger)
 	case OpDropEdgeTable:
-		_, err = se.DropEdgesTable(op.TxnID, op.Name, locker, logger)
+		err = se.DropEdgesTable(op.TxnID, op.Name, logger)
 		if err == nil {
 			filePath := engine.GetEdgeTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
@@ -54,18 +53,17 @@ func applyOp(
 			}
 		}
 	case OpCreateIndex:
-		_, err = se.CreateIndex(
+		err = se.CreateIndex(
 			op.TxnID,
 			op.Name,
 			op.Table,
 			op.TableKind,
 			op.Columns,
 			8,
-			locker,
 			logger,
 		)
 	case OpDropIndex:
-		_, err = se.DropIndex(op.TxnID, op.Name, locker, logger)
+		err = se.DropIndex(op.TxnID, op.Name, logger)
 		if err == nil {
 			filePath := engine.GetIndexFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
@@ -97,7 +95,7 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	require.NoError(t, err)
 
 	lockMgr := txns.NewHierarchyLocker()
-	se, err := engine.New(baseDir, uint64(200), afero.NewOsFs())
+	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	model := newEngineSimulator()
@@ -108,20 +106,20 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 
 	i := 0
 	for op := range operations {
-		res := applyOp(se, op, baseDir, lockMgr, common.NoLogs())
+		res := applyOp(se, op, baseDir, common.NoLogs())
 
 		model.apply(op, res)
 		lockMgr.UnlockByTxnID(op.TxnID)
 
 		if i%25 == 0 {
 			t.Logf("validate invariants at step=%d", i)
-			model.compareWithEngineFS(t, baseDir, se, lockMgr, common.NoLogs())
+			model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
 		}
 
 		i += 1
 	}
 
-	model.compareWithEngineFS(t, baseDir, se, lockMgr, common.NoLogs())
+	model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
 
 	t.Logf("fuzz ok: seed=%d, ops=%d", seed, opsCount)
 }
@@ -137,7 +135,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 	require.NoError(t, err)
 
 	lockMgr := txns.NewHierarchyLocker()
-	se, err := engine.New(baseDir, uint64(200), afero.NewOsFs())
+	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	model := newEngineSimulator()
@@ -172,7 +170,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 					return
 				}
 
-				res := applyOp(se, op, baseDir, lockMgr, common.NoLogs())
+				res := applyOp(se, op, baseDir, common.NoLogs())
 
 				lockMgr.UnlockByTxnID(op.TxnID)
 				if res.Success {
@@ -199,7 +197,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 		model.apply(a.op, a.res)
 	}
 
-	model.compareWithEngineFS(t, baseDir, se, lockMgr, common.NoLogs())
+	model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
 
 	t.Logf("fuzz ok: seed=%d, threads=%d, ops=%d", seed, numThreads, totalOps)
 }

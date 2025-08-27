@@ -22,12 +22,12 @@ const (
 	loggerCheckpointLocationSlot = iota
 )
 
-func (p *loggerInfoPage) GetCheckpointLocation() common.FileLocation {
+func (p *loggerInfoPage) GetCheckpointLocation() common.LogRecordLocInfo {
 	o := (*page.SlottedPage)(p)
-	return utils.FromBytes[common.FileLocation](o.LockedRead(loggerCheckpointLocationSlot))
+	return utils.FromBytes[common.LogRecordLocInfo](o.LockedRead(loggerCheckpointLocationSlot))
 }
 
-func (p *loggerInfoPage) setCheckpointLocation(loc common.FileLocation) {
+func (p *loggerInfoPage) setCheckpointLocation(loc common.LogRecordLocInfo) {
 	o := (*page.SlottedPage)(p)
 
 	data, err := loc.MarshalBinary()
@@ -39,11 +39,14 @@ func (p *loggerInfoPage) Setup() {
 	o := (*page.SlottedPage)(p)
 	o.UnsafeClear()
 
-	dummyRecord := common.FileLocation{
-		PageID:  common.CheckpointInfoPageID + 1,
-		SlotNum: 0,
+	dummyRecord := common.LogRecordLocInfo{
+		Lsn: common.NilLSN,
+		Location: common.FileLocation{
+			PageID:  common.CheckpointInfoPageID + 1,
+			SlotNum: 0,
+		},
 	}
-	slotOpt := page.InsertSerializable(o, &dummyRecord)
+	slotOpt := page.InsertSerializable[*common.LogRecordLocInfo](o, &dummyRecord)
 	assert.Assert(slotOpt.IsSome())
 	assert.Assert(slotOpt.Unwrap() == loggerCheckpointLocationSlot)
 }
@@ -111,19 +114,23 @@ func NewTxnLogger(
 	}
 
 	checkpointLocation := l.masterPage.GetCheckpointLocation()
-	l.firstDirtyPage = checkpointLocation.PageID
-	l.curPage = checkpointLocation.PageID
+	l.firstDirtyPage = checkpointLocation.Location.PageID
+	l.curPage = checkpointLocation.Location.PageID
 
 	checkpointPageIdent := common.PageIdentity{
 		FileID: l.logfileID,
-		PageID: checkpointLocation.PageID,
+		PageID: checkpointLocation.Location.PageID,
 	}
-	_, err = pool.GetPageNoCreate(checkpointPageIdent)
+	checkpointPage, err := pool.GetPageNoCreate(checkpointPageIdent)
 	if errors.Is(err, disk.ErrNoSuchPage) {
 		return l
 	}
+	if checkpointPage.NumSlots() == 0 {
+		pool.Unpin(checkpointPageIdent)
+		return l
+	}
 	pool.Unpin(checkpointPageIdent)
-	l.Recover(checkpointLocation)
+	l.Recover()
 	return l
 }
 
@@ -263,18 +270,23 @@ func (l *txnLogger) UpdateFlushLSN(lsn common.LSN) {
 	atomic.StoreUint64((*uint64)(&l.flushLSN), uint64(lsn))
 }
 
-func (l *txnLogger) Recover(checkpointLocation common.FileLocation) {
-	ATT, DPT := l.recoverAnalyze(checkpointLocation)
+func (l *txnLogger) Recover() {
+	checkpointLocation := l.masterPage.GetCheckpointLocation()
+
+	lastRecordLSN, ATT, DPT := l.recoverAnalyze(checkpointLocation)
+	l.logRecordsCount = uint64(lastRecordLSN)
+
 	earliestLog := l.recoverPrepareCLRs(ATT, DPT)
 	l.recoverRedo(earliestLog.Location)
 }
 
 func (l *txnLogger) recoverAnalyze(
-	checkpointLocation common.FileLocation,
-) (ActiveTransactionsTable, map[common.PageIdentity]common.LogRecordLocInfo) {
-	iter, err := l.iter(checkpointLocation)
+	checkpointLocation common.LogRecordLocInfo,
+) (common.LSN, ActiveTransactionsTable, map[common.PageIdentity]common.LogRecordLocInfo) {
+	iter, err := l.iter(checkpointLocation.Location)
 	assert.Assert(err == nil, "couldn't recover. reason: %+v", err)
 
+	lastRecordLSN := common.LSN(0)
 	ATT := NewActiveTransactionsTable()
 	DPT := map[common.PageIdentity]common.LogRecordLocInfo{}
 
@@ -285,40 +297,19 @@ func (l *txnLogger) recoverAnalyze(
 		switch tag {
 		case TypeBegin:
 			record := assert.Cast[BeginLogRecord](untypedRecord)
+			lastRecordLSN = record.lsn
+			recordLocation := common.LogRecordLocInfo{
+				Lsn:      record.lsn,
+				Location: iter.Location(),
+			}
 			assert.Assert(ATT.Insert(
 				record.txnID,
 				tag,
-				NewATTEntry(
-					TxnStatusUndo,
-					common.LogRecordLocInfo{
-						Lsn:      record.lsn,
-						Location: iter.Location(),
-					}),
+				NewATTEntry(TxnStatusUndo, recordLocation),
 			), "Found a `begin` record for already running transaction. TransactionID: %d", record.txnID)
 		case TypeInsert:
 			record := assert.Cast[InsertLogRecord](untypedRecord)
-
-			ATT.Insert(
-				record.txnID,
-				tag,
-				NewATTEntry(
-					TxnStatusUndo,
-					common.LogRecordLocInfo{
-						Lsn:      record.lsn,
-						Location: iter.Location(),
-					}),
-			)
-
-			pageID := record.modifiedRecordID.PageIdentity()
-			_, alreadyExists := DPT[pageID]
-			if !alreadyExists {
-				DPT[pageID] = common.LogRecordLocInfo{
-					Lsn:      record.lsn,
-					Location: iter.Location(),
-				}
-			}
-		case TypeUpdate:
-			record := assert.Cast[UpdateLogRecord](untypedRecord)
+			lastRecordLSN = record.lsn
 			recordLocation := common.LogRecordLocInfo{
 				Lsn:      record.lsn,
 				Location: iter.Location(),
@@ -327,10 +318,26 @@ func (l *txnLogger) recoverAnalyze(
 			ATT.Insert(
 				record.txnID,
 				tag,
-				NewATTEntry(
-					TxnStatusUndo,
-					recordLocation,
-				),
+				NewATTEntry(TxnStatusUndo, recordLocation),
+			)
+
+			pageID := record.modifiedRecordID.PageIdentity()
+			_, alreadyExists := DPT[pageID]
+			if !alreadyExists {
+				DPT[pageID] = recordLocation
+			}
+		case TypeUpdate:
+			record := assert.Cast[UpdateLogRecord](untypedRecord)
+			lastRecordLSN = record.lsn
+			recordLocation := common.LogRecordLocInfo{
+				Lsn:      record.lsn,
+				Location: iter.Location(),
+			}
+
+			ATT.Insert(
+				record.txnID,
+				tag,
+				NewATTEntry(TxnStatusUndo, recordLocation),
 			)
 
 			pageID := record.modifiedRecordID.PageIdentity()
@@ -340,6 +347,7 @@ func (l *txnLogger) recoverAnalyze(
 			}
 		case TypeDelete:
 			record := assert.Cast[DeleteLogRecord](untypedRecord)
+			lastRecordLSN = record.lsn
 			recordLocation := common.LogRecordLocInfo{
 				Lsn:      record.lsn,
 				Location: iter.Location(),
@@ -348,10 +356,7 @@ func (l *txnLogger) recoverAnalyze(
 			ATT.Insert(
 				record.txnID,
 				tag,
-				NewATTEntry(
-					TxnStatusUndo,
-					recordLocation,
-				),
+				NewATTEntry(TxnStatusUndo, recordLocation),
 			)
 
 			pageID := record.modifiedRecordID.PageIdentity()
@@ -361,41 +366,43 @@ func (l *txnLogger) recoverAnalyze(
 			}
 		case TypeCommit:
 			record := assert.Cast[CommitLogRecord](untypedRecord)
+			lastRecordLSN = record.lsn
+			recordLocation := common.LogRecordLocInfo{
+				Lsn:      record.lsn,
+				Location: iter.Location(),
+			}
 			ATT.Insert(
 				record.txnID,
 				tag,
-				NewATTEntry(
-					TxnStatusCommit,
-					common.LogRecordLocInfo{
-						Lsn:      record.lsn,
-						Location: iter.Location(),
-					}),
+				NewATTEntry(TxnStatusCommit, recordLocation),
 			)
 		case TypeAbort:
 			record := assert.Cast[AbortLogRecord](untypedRecord)
-
+			lastRecordLSN = record.lsn
+			recordLocation := common.LogRecordLocInfo{
+				Lsn:      record.lsn,
+				Location: iter.Location(),
+			}
 			ATT.Insert(
 				record.txnID,
 				tag,
-				NewATTEntry(
-					TxnStatusUndo,
-					common.LogRecordLocInfo{
-						Lsn:      record.lsn,
-						Location: iter.Location(),
-					}),
+				NewATTEntry(TxnStatusUndo, recordLocation),
 			)
 		case TypeTxnEnd:
 			record := assert.Cast[TxnEndLogRecord](untypedRecord)
+			lastRecordLSN = record.lsn
 			delete(ATT.table, record.txnID)
 		case TypeCheckpointBegin:
-			_ = assert.Cast[CheckpointBeginLogRecord](untypedRecord)
+			record := assert.Cast[CheckpointBeginLogRecord](untypedRecord)
+			lastRecordLSN = record.lsn
 		case TypeCheckpointEnd:
 			record := assert.Cast[CheckpointEndLogRecord](
 				untypedRecord,
 			)
+			lastRecordLSN = record.lsn
 
-			for TransactionID, logInfo := range record.activeTransactions {
-				ATT.Insert(TransactionID, TypeBegin, NewATTEntry(
+			for txnID, logInfo := range record.activeTransactions {
+				ATT.Insert(txnID, TypeBegin, NewATTEntry(
 					TxnStatusUndo,
 					logInfo,
 				))
@@ -418,16 +425,16 @@ func (l *txnLogger) recoverAnalyze(
 			}
 		case TypeCompensation:
 			record := assert.Cast[CompensationLogRecord](untypedRecord)
+			lastRecordLSN = record.lsn
+			recordLocation := common.LogRecordLocInfo{
+				Lsn:      record.lsn,
+				Location: iter.Location(),
+			}
 
 			ATT.Insert(
 				record.txnID,
 				tag,
-				NewATTEntry(
-					TxnStatusUndo,
-					common.LogRecordLocInfo{
-						Lsn:      record.lsn,
-						Location: iter.Location(),
-					}),
+				NewATTEntry(TxnStatusUndo, recordLocation),
 			)
 		default:
 			assert.Assert(
@@ -446,16 +453,16 @@ func (l *txnLogger) recoverAnalyze(
 		}
 	}
 
-	return ATT, DPT
+	return lastRecordLSN, ATT, DPT
 }
 
 func (l *txnLogger) recoverPrepareCLRs(
 	ATT ActiveTransactionsTable,
 	DPT map[common.PageIdentity]common.LogRecordLocInfo,
 ) common.LogRecordLocInfo {
-	earliestLogLocation := common.LogRecordLocInfo{
-		Lsn:      common.LSN(math.MaxUint64),
-		Location: common.FileLocation{},
+	earliestLogLocation := l.masterPage.GetCheckpointLocation()
+	if earliestLogLocation.Lsn == common.NilLSN {
+		earliestLogLocation.Lsn = common.LSN(math.MaxUint64)
 	}
 
 	for _, entry := range ATT.table {
@@ -674,7 +681,7 @@ func (l *txnLogger) readLogRecord(
 
 	record := page.LockedRead(recordLocation.SlotNum)
 
-	tag, r, err = readLogRecord(record)
+	tag, r, err = parseLogRecord(record)
 	return tag, r, err
 }
 

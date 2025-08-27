@@ -15,7 +15,7 @@ func setupLoggerMasterPage(
 	t *testing.T,
 	pool bufferpool.BufferPool,
 	logFileID common.FileID,
-	checkpointLocation common.FileLocation,
+	checkpointInfo common.LogRecordLocInfo,
 ) {
 	pg, err := pool.GetPage(
 		common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID},
@@ -28,7 +28,7 @@ func setupLoggerMasterPage(
 	)
 	masterPage := (*loggerInfoPage)(pg)
 	masterPage.Setup()
-	masterPage.setCheckpointLocation(checkpointLocation)
+	masterPage.setCheckpointLocation(checkpointInfo)
 	require.NoError(t, err)
 }
 
@@ -56,9 +56,12 @@ func TestChainSanity(t *testing.T) {
 		t,
 		pool,
 		logPageId.FileID,
-		common.FileLocation{
-			PageID:  logPageId.PageID,
-			SlotNum: 0,
+		common.LogRecordLocInfo{
+			Lsn: common.NilLSN,
+			Location: common.FileLocation{
+				PageID:  logPageId.PageID,
+				SlotNum: 0,
+			},
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
@@ -135,7 +138,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(0)
 
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 		require.NoError(t, err)
 		require.Equal(t, TypeBegin, tag)
 
@@ -147,7 +150,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(1)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeInsert, tag)
@@ -165,7 +168,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(2)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeUpdate, tag)
@@ -184,7 +187,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(3)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeDelete, tag)
@@ -201,7 +204,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(4)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeAbort, tag)
@@ -216,7 +219,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(5)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeCommit, tag)
@@ -231,7 +234,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(6)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeCheckpointBegin, tag)
@@ -244,7 +247,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(7)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeCheckpointEnd, tag)
@@ -260,7 +263,7 @@ func TestChainSanity(t *testing.T) {
 	{
 		data := page.UnsafeRead(8)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeTxnEnd, tag)
@@ -272,6 +275,12 @@ func TestChainSanity(t *testing.T) {
 
 func TestChain(t *testing.T) {
 	logFileID := common.FileID(42)
+	logPageId := common.PageID(23)
+	logPageIdent := common.PageIdentity{
+		FileID: logFileID,
+		PageID: logPageId,
+	}
+
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
 		PageID: common.CheckpointInfoPageID,
@@ -284,21 +293,19 @@ func TestChain(t *testing.T) {
 			masterRecordPageIdent: {},
 		},
 	)
-	logPageId := common.PageIdentity{
-		FileID: logFileID,
-		PageID: 23,
-	}
 	setupLoggerMasterPage(
 		t,
 		pool,
 		logFileID,
-		common.FileLocation{
-			PageID:  logPageId.PageID,
-			SlotNum: 0,
+		common.LogRecordLocInfo{
+			Lsn: common.NilLSN,
+			Location: common.FileLocation{
+				PageID:  logPageId,
+				SlotNum: 0,
+			},
 		},
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
-	pool.SetLogger(logger)
+	logger := NewTxnLogger(pool, logFileID)
 
 	dataPageId := common.PageIdentity{
 		FileID: 1,
@@ -323,10 +330,10 @@ func TestChain(t *testing.T) {
 	require.NoError(t, chain.Err())
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
-	page, err := pool.GetPage(logPageId)
+	page, err := pool.GetPage(logPageIdent)
 	require.NoError(t, err)
 
-	defer func() { pool.Unpin(logPageId) }()
+	defer func() { pool.Unpin(logPageIdent) }()
 
 	page.RLock()
 	defer page.RUnlock()
@@ -334,7 +341,7 @@ func TestChain(t *testing.T) {
 	{
 		data := page.UnsafeRead(0)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeBegin, tag)
@@ -346,7 +353,7 @@ func TestChain(t *testing.T) {
 	{
 		data := page.UnsafeRead(1)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeInsert, tag)
@@ -355,11 +362,10 @@ func TestChain(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, TransactionID_1, r.txnID)
 	}
-
 	{
 		data := page.UnsafeRead(2)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeBegin, tag)
@@ -371,7 +377,7 @@ func TestChain(t *testing.T) {
 	{
 		data := page.UnsafeRead(3)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeInsert, tag)
@@ -383,7 +389,7 @@ func TestChain(t *testing.T) {
 	{
 		data := page.UnsafeRead(4)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeUpdate, tag)
@@ -392,11 +398,10 @@ func TestChain(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, TransactionID_2, r.txnID)
 	}
-
 	{
 		data := page.UnsafeRead(5)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeUpdate, tag)

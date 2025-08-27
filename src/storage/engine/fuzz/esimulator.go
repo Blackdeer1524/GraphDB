@@ -10,7 +10,6 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
-	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 type engineSimulator struct {
@@ -80,7 +79,6 @@ func (m *engineSimulator) compareWithEngineFS(
 	t *testing.T,
 	baseDir string,
 	se *engine.StorageEngine,
-	lockMgr *txns.HierarchyLocker,
 	l common.ITxnLoggerWithContext,
 ) {
 	for tbl := range m.VertexTables {
@@ -99,24 +97,23 @@ func (m *engineSimulator) compareWithEngineFS(
 	}
 
 	for tbl, sch := range m.VertexTables {
-		_, err := se.CreateVertexTable(0, tbl, sch, lockMgr, l)
+		err := se.CreateVertexTable(0, tbl, sch, l)
 		require.Error(t, err, "expected error on duplicate CreateVertexTable(%s)", tbl)
 	}
 
 	for tbl, sch := range m.EdgeTables {
-		_, err := se.CreateEdgesTable(0, tbl, sch, lockMgr, l)
+		err := se.CreateEdgesTable(0, tbl, sch, l)
 		require.Error(t, err, "expected error on duplicate CreateEdgesTable(%s)", tbl)
 	}
 
 	for idx, meta := range m.Indexes {
-		_, err := se.CreateIndex(
+		err := se.CreateIndex(
 			0,
 			idx,
 			meta.TableName,
 			meta.TableKind,
 			meta.Columns,
 			8,
-			lockMgr,
 			l,
 		)
 		require.Error(t, err, "expected error on duplicate CreateIndex(%s)", idx)

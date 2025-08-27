@@ -633,7 +633,7 @@ func (c *CheckpointEndLogRecord) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-func readLogRecord(data []byte) (LogRecordTypeTag, any, error) {
+func parseLogRecord(data []byte) (LogRecordTypeTag, any, error) {
 	switch LogRecordTypeTag(data[0]) {
 	case TypeBegin:
 		r := BeginLogRecord{}

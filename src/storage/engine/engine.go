@@ -43,12 +43,14 @@ type SystemCatalog interface {
 type StorageEngine struct {
 	catalog SystemCatalog
 	diskMgr *disk.Manager
+	locker  *txns.HierarchyLocker
 	fs      afero.Fs
 }
 
 func New(
 	catalogBasePath string,
 	poolSize uint64,
+	locker *txns.HierarchyLocker,
 	fs afero.Fs,
 ) (*StorageEngine, error) {
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
@@ -82,8 +84,9 @@ func New(
 
 	return &StorageEngine{
 		catalog: sysCat,
-		fs:      fs,
 		diskMgr: diskMgr,
+		locker:  locker,
+		fs:      fs,
 	}, nil
 }
 
@@ -103,13 +106,11 @@ func (s *StorageEngine) CreateVertexTable(
 	txnID common.TxnID,
 	name string,
 	schema storage.Schema,
-	locker *txns.HierarchyLocker,
 	logger common.ITxnLoggerWithContext,
-) (*txns.CatalogLockToken, error) {
+) error {
 	needToRollback := true
-	ctoken := locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
-	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+	if s.locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE) == nil {
+		return errors.New("unable to get system catalog lock")
 	}
 
 	basePath := s.catalog.GetBasePath()
@@ -121,11 +122,11 @@ func (s *StorageEngine) CreateVertexTable(
 	// and it is why we do not check if the table exists in file system.
 	ok, err := s.catalog.VertexTableExists(name)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to check if vertex table exists: %w", err)
+		return fmt.Errorf("unable to check if vertex table exists: %w", err)
 	}
 
 	if ok {
-		return ctoken, fmt.Errorf("vertex table %s already exists", name)
+		return fmt.Errorf("vertex table %s already exists", name)
 	}
 
 	fileExists := true
@@ -135,14 +136,14 @@ func (s *StorageEngine) CreateVertexTable(
 		fileExists = false
 
 		if !os.IsNotExist(err) {
-			return ctoken, fmt.Errorf("unable to check if file exists: %w", err)
+			return fmt.Errorf("unable to check if file exists: %w", err)
 		}
 	}
 
 	if fileExists {
 		err = s.fs.Remove(tableFilePath)
 		if err != nil {
-			return ctoken, fmt.Errorf("unable to remove file: %w", err)
+			return fmt.Errorf("unable to remove file: %w", err)
 		}
 	}
 
@@ -150,17 +151,17 @@ func (s *StorageEngine) CreateVertexTable(
 
 	err = s.fs.MkdirAll(dir, 0o755)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to create directory %s: %w", dir, err)
+		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
 	file, err := s.fs.Create(tableFilePath)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to create directory: %w", err)
+		return fmt.Errorf("unable to create directory: %w", err)
 	}
 
 	err = file.Sync()
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to sync file: %w", err)
+		return fmt.Errorf("unable to sync file: %w", err)
 	}
 
 	_ = file.Close()
@@ -180,7 +181,7 @@ func (s *StorageEngine) CreateVertexTable(
 
 	err = s.catalog.AddVertexTable(tblCreateReq)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to add vertex table to catalog: %w", err)
+		return fmt.Errorf("unable to add vertex table to catalog: %w", err)
 	}
 	defer func() {
 		if needToRollback {
@@ -190,50 +191,48 @@ func (s *StorageEngine) CreateVertexTable(
 
 	err = s.catalog.Save(logger)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to save catalog: %w", err)
+		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
 	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
 	needToRollback = false
-	return ctoken, nil
+	return nil
 }
 
 func (s *StorageEngine) DropVertexTable(
 	txnID common.TxnID,
 	name string,
-	locker *txns.HierarchyLocker,
 	logger common.ITxnLoggerWithContext,
-) (*txns.CatalogLockToken, error) {
-	ctoken := locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
+) error {
+	ctoken := s.locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
 	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+		return errors.New("unable to get system catalog lock")
 	}
 
 	// do not delete file, just remove from catalog
 
 	err := s.catalog.DropVertexTable(name)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to drop vertex table: %w", err)
+		return fmt.Errorf("unable to drop vertex table: %w", err)
 	}
 
 	err = s.catalog.Save(logger)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to save catalog: %w", err)
+		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	return ctoken, nil
+	return nil
 }
 
 func (s *StorageEngine) CreateEdgesTable(
 	txnID common.TxnID,
 	name string,
 	schema storage.Schema,
-	locker *txns.HierarchyLocker,
 	logger common.ITxnLoggerWithContext,
-) (*txns.CatalogLockToken, error) {
+) error {
 	needToRollback := true
-	ctoken := locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
+	ctoken := s.locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
 	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+		return errors.New("unable to get system catalog lock")
 	}
 
 	basePath := s.catalog.GetBasePath()
@@ -246,11 +245,11 @@ func (s *StorageEngine) CreateEdgesTable(
 	// and it is why we do not check if the table exists in file system.
 	ok, err := s.catalog.EdgeTableExists(name)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to check if vertex table exists: %w", err)
+		return fmt.Errorf("unable to check if vertex table exists: %w", err)
 	}
 
 	if ok {
-		return ctoken, fmt.Errorf("vertex table %s already exists", name)
+		return fmt.Errorf("vertex table %s already exists", name)
 	}
 
 	fileExists := true
@@ -260,14 +259,14 @@ func (s *StorageEngine) CreateEdgesTable(
 		fileExists = false
 
 		if !os.IsNotExist(err) {
-			return ctoken, fmt.Errorf("unable to check if file exists: %w", err)
+			return fmt.Errorf("unable to check if file exists: %w", err)
 		}
 	}
 
 	if fileExists {
 		err = s.fs.Remove(tableFilePath)
 		if err != nil {
-			return ctoken, fmt.Errorf("unable to remove file: %w", err)
+			return fmt.Errorf("unable to remove file: %w", err)
 		}
 	}
 
@@ -275,12 +274,12 @@ func (s *StorageEngine) CreateEdgesTable(
 
 	err = s.fs.MkdirAll(dir, 0o755)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to create directory %s: %w", dir, err)
+		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
 	file, err := s.fs.Create(tableFilePath)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to create directory: %w", err)
+		return fmt.Errorf("unable to create directory: %w", err)
 	}
 	_ = file.Close()
 	defer func() {
@@ -300,7 +299,7 @@ func (s *StorageEngine) CreateEdgesTable(
 
 	err = s.catalog.AddEdgeTable(tblCreateReq)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to add vertex table to catalog: %w", err)
+		return fmt.Errorf("unable to add vertex table to catalog: %w", err)
 	}
 	defer func() {
 		if needToRollback {
@@ -310,38 +309,37 @@ func (s *StorageEngine) CreateEdgesTable(
 
 	err = s.catalog.Save(logger)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to save catalog: %w", err)
+		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
 	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
 	needToRollback = false
-	return ctoken, nil
+	return nil
 }
 
 func (s *StorageEngine) DropEdgesTable(
 	txnID common.TxnID,
 	name string,
-	locker *txns.HierarchyLocker,
 	logger common.ITxnLoggerWithContext,
-) (*txns.CatalogLockToken, error) {
-	ctoken := locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
+) error {
+	ctoken := s.locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
 	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+		return errors.New("unable to get system catalog lock")
 	}
 
 	// do not delete file, just remove from catalog
 
 	err := s.catalog.DropEdgeTable(name)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to drop vertex table: %w", err)
+		return fmt.Errorf("unable to drop vertex table: %w", err)
 	}
 
 	err = s.catalog.Save(logger)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to save catalog: %w", err)
+		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
-	return ctoken, nil
+	return nil
 }
 
 func (s *StorageEngine) CreateIndex(
@@ -351,13 +349,12 @@ func (s *StorageEngine) CreateIndex(
 	tableKind string,
 	columns []string,
 	keyBytesCnt uint32,
-	locker *txns.HierarchyLocker,
 	logger common.ITxnLoggerWithContext,
-) (*txns.CatalogLockToken, error) {
+) error {
 	needToRollback := true
-	ctoken := locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
+	ctoken := s.locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
 	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+		return errors.New("unable to get system catalog lock")
 	}
 
 	basePath := s.catalog.GetBasePath()
@@ -369,11 +366,11 @@ func (s *StorageEngine) CreateIndex(
 	// and it is why we do not check if the table exists in file system.
 	ok, err := s.catalog.IndexExists(name)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to check if in table exists: %w", err)
+		return fmt.Errorf("unable to check if in table exists: %w", err)
 	}
 
 	if ok {
-		return ctoken, fmt.Errorf("vertex table %s already exists", name)
+		return fmt.Errorf("vertex table %s already exists", name)
 	}
 
 	fileExists := true
@@ -383,14 +380,14 @@ func (s *StorageEngine) CreateIndex(
 		fileExists = false
 
 		if !os.IsNotExist(err) {
-			return ctoken, fmt.Errorf("unable to check if file exists: %w", err)
+			return fmt.Errorf("unable to check if file exists: %w", err)
 		}
 	}
 
 	if fileExists {
 		err = s.fs.Remove(tableFilePath)
 		if err != nil {
-			return ctoken, fmt.Errorf("unable to remove file: %w", err)
+			return fmt.Errorf("unable to remove file: %w", err)
 		}
 	}
 
@@ -398,12 +395,12 @@ func (s *StorageEngine) CreateIndex(
 
 	err = s.fs.MkdirAll(dir, 0o755)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to create directory %s: %w", dir, err)
+		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
 	file, err := s.fs.Create(tableFilePath)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to create file: %w", err)
+		return fmt.Errorf("unable to create file: %w", err)
 	}
 	_ = file.Close()
 	defer func() {
@@ -426,7 +423,7 @@ func (s *StorageEngine) CreateIndex(
 
 	err = s.catalog.AddIndex(idxCreateReq)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to add index to catalog: %w", err)
+		return fmt.Errorf("unable to add index to catalog: %w", err)
 	}
 	defer func() {
 		if needToRollback {
@@ -436,36 +433,35 @@ func (s *StorageEngine) CreateIndex(
 
 	err = s.catalog.Save(logger)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to save catalog: %w", err)
+		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
 	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
 	needToRollback = false
-	return ctoken, nil
+	return nil
 }
 
 func (s *StorageEngine) DropIndex(
 	txnID common.TxnID,
 	name string,
-	locker *txns.HierarchyLocker,
 	logger common.ITxnLoggerWithContext,
-) (*txns.CatalogLockToken, error) {
-	ctoken := locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
+) error {
+	ctoken := s.locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
 	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+		return errors.New("unable to get system catalog lock")
 	}
 
 	// do not delete file, just remove from catalog
 
 	err := s.catalog.DropIndex(name)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to drop vertex table: %w", err)
+		return fmt.Errorf("unable to drop vertex table: %w", err)
 	}
 
 	err = s.catalog.Save(logger)
 	if err != nil {
-		return ctoken, fmt.Errorf("unable to save catalog: %w", err)
+		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
-	return ctoken, nil
+	return nil
 }

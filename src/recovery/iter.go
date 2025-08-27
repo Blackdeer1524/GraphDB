@@ -78,7 +78,7 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 
 func (iter *LogRecordsIter) ReadRecord() (LogRecordTypeTag, any, error) {
 	d := iter.currentPage.LockedRead(iter.curLoc.SlotNum)
-	return readLogRecord(d)
+	return parseLogRecord(d)
 }
 
 func (iter *LogRecordsIter) Location() common.FileLocation {

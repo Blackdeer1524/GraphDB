@@ -62,13 +62,12 @@ func TestBankTransactions(t *testing.T) {
 		t,
 		pool,
 		masterRecordPageIdent.FileID,
-		common.FileLocation{
-			PageID:  common.CheckpointInfoPageID + 1,
-			SlotNum: 0,
+		common.LogRecordLocInfo{
+			Lsn:      common.NilLSN,
+			Location: common.FileLocation{PageID: common.CheckpointInfoPageID + 1, SlotNum: 0},
 		},
 	)
 	logger := NewTxnLogger(pool, generatedFileIDs[0])
-	pool.SetLogger(logger)
 
 	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)

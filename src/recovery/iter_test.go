@@ -123,9 +123,9 @@ func TestIterSanity(t *testing.T) {
 		t,
 		pool,
 		masterRecordPageIdent.FileID,
-		common.FileLocation{
-			PageID:  logPageId.PageID,
-			SlotNum: 0,
+		common.LogRecordLocInfo{
+			Lsn:      common.NilLSN,
+			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)

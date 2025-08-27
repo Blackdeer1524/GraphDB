@@ -24,6 +24,58 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
+func TestUndoInsertOnNonExistingPage(t *testing.T) {
+	logPageId := common.PageIdentity{
+		FileID: 42,
+		PageID: 321,
+	}
+
+	diskManager := disk.NewInMemoryManager()
+	masterRecordPageIdent := common.PageIdentity{
+		FileID: logPageId.FileID,
+		PageID: common.CheckpointInfoPageID,
+	}
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
+	setupLoggerMasterPage(
+		t,
+		pool,
+		masterRecordPageIdent.FileID,
+		common.LogRecordLocInfo{
+			Lsn:      common.NilLSN,
+			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
+		},
+	)
+	logger := NewTxnLogger(pool, logPageId.FileID)
+
+	ctxLogger := logger.WithContext(common.TxnID(100))
+
+	dataRecordID := common.RecordID{
+		FileID:  32,
+		PageID:  156,
+		SlotNum: 0,
+	}
+
+	require.NoError(t, ctxLogger.AppendBegin())
+	_, err := ctxLogger.AppendInsert(dataRecordID, []byte("bef000"))
+	require.NoError(t, err)
+	require.NoError(t, ctxLogger.AppendCommit())
+
+	_, err = pool.GetPageNoCreate(dataRecordID.PageIdentity())
+	require.ErrorIs(t, err, disk.ErrNoSuchPage)
+	logger.Recover()
+	page, err := pool.GetPageNoCreate(dataRecordID.PageIdentity())
+	require.NoError(t, err)
+	defer pool.Unpin(dataRecordID.PageIdentity())
+
+	data := page.LockedRead(dataRecordID.SlotNum)
+	require.Equal(t, []byte("bef000"), data)
+}
+
 func TestValidRecovery(t *testing.T) {
 	logPageId := common.PageIdentity{
 		FileID: 42,
@@ -42,17 +94,16 @@ func TestValidRecovery(t *testing.T) {
 		},
 	)
 	loggerStart := common.LogRecordLocInfo{
-		Lsn:      1,
+		Lsn:      common.NilLSN,
 		Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 	}
 	setupLoggerMasterPage(
 		t,
 		pool,
 		masterRecordPageIdent.FileID,
-		loggerStart.Location,
+		loggerStart,
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	pool.SetLogger(logger)
 
 	defer func() {
 		if recover() != nil {
@@ -96,8 +147,7 @@ func TestValidRecovery(t *testing.T) {
 
 	// Simulate a crash and recovery
 	logger2 := NewTxnLogger(pool, logger.logfileID)
-	checkpoint := common.FileLocation{PageID: 1, SlotNum: 0}
-	logger2.Recover(checkpoint)
+	logger2.Recover()
 
 	// Check that the page contains the "after" value
 	p, err := pool.GetPage(dataPageID)
@@ -138,18 +188,17 @@ func TestFailedTxn(t *testing.T) {
 		},
 	)
 
-	logStart := common.LogRecordLocInfo{
-		Lsn:      1,
+	checkpointLocation := common.LogRecordLocInfo{
+		Lsn:      common.NilLSN,
 		Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 	}
 	setupLoggerMasterPage(
 		t,
 		pool,
 		masterRecordPageIdent.FileID,
-		logStart.Location,
+		checkpointLocation,
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	pool.SetLogger(logger)
 
 	pageIdent := common.PageIdentity{FileID: 13, PageID: 7}
 
@@ -172,11 +221,10 @@ func TestFailedTxn(t *testing.T) {
 	require.Nil(t, chain.Err(), "log record append failed")
 
 	// Simulate a crash and recovery
-	checkpoint := logStart.Location
-	logger.Recover(checkpoint)
+	logger.Recover()
 
 	// BEGIN
-	iter, err := logger.iter(logStart.Location)
+	iter, err := logger.iter(checkpointLocation.Location)
 	require.NoError(t, err, "couldn't create an iterator")
 	{
 		tag, untypedRecord, err := iter.ReadRecord()
@@ -266,13 +314,12 @@ func TestMassiveRecovery(t *testing.T) {
 		t,
 		pool,
 		masterRecordPageIdent.FileID,
-		common.FileLocation{
-			PageID:  logPageId.PageID,
-			SlotNum: 0,
+		common.LogRecordLocInfo{
+			Lsn:      common.NilLSN,
+			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 		},
 	)
 	logger := NewTxnLogger(pool, logPageId.FileID)
-	pool.SetLogger(logger)
 
 	INIT := []byte("init")
 	NEW := []byte("new1")
@@ -393,10 +440,7 @@ func TestMassiveRecovery(t *testing.T) {
 
 	wg.Wait()
 
-	logger.Recover(common.FileLocation{
-		PageID:  logPageId.PageID,
-		SlotNum: 0,
-	})
+	logger.Recover()
 
 	for i := range N {
 		func() {
@@ -427,7 +471,7 @@ func assertLogRecord(
 	actualTag LogRecordTypeTag,
 	untypedRecord any,
 	expectedRecordType LogRecordTypeTag,
-	expectedTransactionID common.TxnID,
+	expectedTxnID common.TxnID,
 ) {
 	require.Equal(t, actualTag, expectedRecordType)
 
@@ -435,35 +479,35 @@ func assertLogRecord(
 	case TypeBegin:
 		r, ok := untypedRecord.(BeginLogRecord)
 		require.True(t, ok)
-		require.Equal(t, expectedTransactionID, r.txnID)
+		require.Equal(t, expectedTxnID, r.txnID)
 	case TypeUpdate:
 		r, ok := untypedRecord.(UpdateLogRecord)
 		require.True(t, ok)
-		require.Equal(t, expectedTransactionID, r.txnID)
+		require.Equal(t, expectedTxnID, r.txnID)
 	case TypeInsert:
 		r, ok := untypedRecord.(InsertLogRecord)
 		require.True(t, ok)
-		require.Equal(t, expectedTransactionID, r.txnID)
+		require.Equal(t, expectedTxnID, r.txnID)
 	case TypeDelete:
 		r, ok := untypedRecord.(DeleteLogRecord)
 		require.True(t, ok)
-		require.Equal(t, expectedTransactionID, r.txnID)
+		require.Equal(t, expectedTxnID, r.txnID)
 	case TypeCommit:
 		r, ok := untypedRecord.(CommitLogRecord)
 		require.True(t, ok)
-		require.Equal(t, expectedTransactionID, r.txnID)
+		require.Equal(t, expectedTxnID, r.txnID)
 	case TypeAbort:
 		r, ok := untypedRecord.(AbortLogRecord)
 		require.True(t, ok)
-		require.Equal(t, expectedTransactionID, r.txnID)
+		require.Equal(t, expectedTxnID, r.txnID)
 	case TypeTxnEnd:
 		r, ok := untypedRecord.(TxnEndLogRecord)
 		require.True(t, ok)
-		require.Equal(t, expectedTransactionID, r.txnID)
+		require.Equal(t, expectedTxnID, r.txnID)
 	case TypeCompensation:
 		r, ok := untypedRecord.(CompensationLogRecord)
 		require.True(t, ok)
-		require.Equal(t, expectedTransactionID, r.txnID)
+		require.Equal(t, expectedTxnID, r.txnID)
 	default:
 		require.Less(t, actualTag, TypeUnknown)
 	}
@@ -474,7 +518,7 @@ func assertLogRecordWithRetrieval(
 	pool bufferpool.BufferPool,
 	recordID common.RecordID,
 	expectedRecordType LogRecordTypeTag,
-	expectedTransactionID common.TxnID,
+	expectedTxnID common.TxnID,
 ) {
 	page, err := pool.GetPage(recordID.PageIdentity())
 	require.NoError(t, err)
@@ -482,7 +526,7 @@ func assertLogRecordWithRetrieval(
 
 	data := page.UnsafeRead(recordID.SlotNum)
 
-	tag, untypedRecord, err := readLogRecord(data)
+	tag, untypedRecord, err := parseLogRecord(data)
 	require.NoError(t, err)
 
 	assertLogRecord(
@@ -490,7 +534,7 @@ func assertLogRecordWithRetrieval(
 		tag,
 		untypedRecord,
 		expectedRecordType,
-		expectedTransactionID,
+		expectedTxnID,
 	)
 
 	page.RUnlock()
@@ -516,13 +560,12 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 		t,
 		pool,
 		masterRecordPageIdent.FileID,
-		common.FileLocation{
-			PageID:  53,
-			SlotNum: 0,
+		common.LogRecordLocInfo{
+			Lsn:      common.NilLSN,
+			Location: common.FileLocation{PageID: 53, SlotNum: 0},
 		},
 	)
 	logger := NewTxnLogger(pool, logFileID)
-	pool.SetLogger(logger)
 
 	dataPageId := common.PageIdentity{
 		FileID: 33,
@@ -729,7 +772,10 @@ func TestLoggerRollback(t *testing.T) {
 		t,
 		pool,
 		masterRecordPageIdent.FileID,
-		logStartLocation,
+		common.LogRecordLocInfo{
+			Lsn:      common.NilLSN,
+			Location: logStartLocation,
+		},
 	)
 	logger := NewTxnLogger(pool, logFileID)
 
