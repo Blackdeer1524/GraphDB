@@ -4,13 +4,14 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/query/mocks"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/datastructures/inmemory"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 // Tests for GetVertexesOnDepth
@@ -226,7 +227,14 @@ func TestBFS_WithCycle(t *testing.T) {
 func TestBFS_TraverseNeighborsError(t *testing.T) {
 	vertices := []storage.VertexID{1}
 	edges := [][]storage.VertexID{}
-	se := mocks.NewDataMockStorageEngine(vertices, edges, errors.New("neighbors error"), nil, nil, nil)
+	se := mocks.NewDataMockStorageEngine(
+		vertices,
+		edges,
+		errors.New("neighbors error"),
+		nil,
+		nil,
+		nil,
+	)
 	e := &Executor{se: se}
 	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
@@ -310,7 +318,8 @@ func TestGetAllVertexesWithFieldValue(t *testing.T) {
 		tm.On("Begin").Return(common.TxnID(1), nil)
 		tm.On("RollbackTx", mock.Anything).Return(nil)
 		tm.On("CommitTx", common.TxnID(1)).Return(nil)
-		se.On("AllVerticesWithValue", common.TxnID(1), mock.Anything, mock.Anything).Return(iter, nil)
+		se.On("AllVerticesWithValue", common.TxnID(1), mock.Anything, mock.Anything).
+			Return(iter, nil)
 
 		exec := &Executor{tm: tm, se: se}
 
@@ -508,14 +517,23 @@ func TestGetAllVertexesWithFieldValue2_MultipleResults(t *testing.T) {
 	tm.On("CommitTx", common.TxnID(1)).Return(nil)
 	se.On("AllVerticesWithValue", common.TxnID(1), "f", []byte("v")).Return(iter, nil)
 
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(1), mock.Anything).Return(uint64(5), nil)
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(2), mock.Anything).Return(uint64(2), nil)
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(3), mock.Anything).Return(uint64(10), nil)
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(4), mock.Anything).Return(uint64(3), nil)
+	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(1), mock.Anything).
+		Return(uint64(5), nil)
+	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(2), mock.Anything).
+		Return(uint64(2), nil)
+	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(3), mock.Anything).
+		Return(uint64(10), nil)
+	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(4), mock.Anything).
+		Return(uint64(3), nil)
 
 	exec := &Executor{tm: tm, se: se}
 
-	res, err := exec.GetAllVertexesWithFieldValue2("f", []byte("v"), func(e *storage.Edge) bool { return true }, 3)
+	res, err := exec.GetAllVertexesWithFieldValue2(
+		"f",
+		[]byte("v"),
+		func(e *storage.Edge) bool { return true },
+		3,
+	)
 	require.NoError(t, err)
 	require.Len(t, res, 3)
 	assert.Contains(t, res, v1)
@@ -542,9 +560,15 @@ func TestSumAttributeOverProperNeighbors_SumCorrectly(t *testing.T) {
 		yield(neighbors[1])
 	}
 
-	se.On("GetNeighborsWithEdgeFilter", mock.Anything, storage.VertexID(1), mock.Anything).Return(iter, nil)
+	se.On("GetNeighborsWithEdgeFilter", mock.Anything, storage.VertexID(1), mock.Anything).
+		Return(iter, nil)
 
-	res, err := ex.sumAttributeOverProperNeighbors(common.TxnID(1), &storage.Vertex{ID: storage.VertexID(1)}, "val", nil)
+	res, err := ex.sumAttributeOverProperNeighbors(
+		common.TxnID(1),
+		&storage.Vertex{ID: storage.VertexID(1)},
+		"val",
+		nil,
+	)
 	assert.NoError(t, err)
 	assert.Equal(t, 5.5, res)
 }
@@ -564,9 +588,15 @@ func TestSumAttributeOverProperNeighbors_FieldMissing(t *testing.T) {
 		yield(neighbors[0])
 	}
 
-	se.On("GetNeighborsWithEdgeFilter", mock.Anything, storage.VertexID(1), mock.Anything).Return(iter, nil)
+	se.On("GetNeighborsWithEdgeFilter", mock.Anything, storage.VertexID(1), mock.Anything).
+		Return(iter, nil)
 
-	res, err := ex.sumAttributeOverProperNeighbors(common.TxnID(1), &storage.Vertex{ID: storage.VertexID(1)}, "val", nil)
+	res, err := ex.sumAttributeOverProperNeighbors(
+		common.TxnID(1),
+		&storage.Vertex{ID: storage.VertexID(1)},
+		"val",
+		nil,
+	)
 	assert.NoError(t, err)
 	assert.Equal(t, 0.0, res)
 }
@@ -585,9 +615,15 @@ func TestSumAttributeOverProperNeighbors_TypeMismatch(t *testing.T) {
 		yield(neighbors[0])
 	}
 
-	se.On("GetNeighborsWithEdgeFilter", mock.Anything, storage.VertexID(1), mock.Anything).Return(iter, nil)
+	se.On("GetNeighborsWithEdgeFilter", mock.Anything, storage.VertexID(1), mock.Anything).
+		Return(iter, nil)
 
-	res, err := ex.sumAttributeOverProperNeighbors(common.TxnID(1), &storage.Vertex{ID: storage.VertexID(1)}, "val", nil)
+	res, err := ex.sumAttributeOverProperNeighbors(
+		common.TxnID(1),
+		&storage.Vertex{ID: storage.VertexID(1)},
+		"val",
+		nil,
+	)
 	assert.Error(t, err)
 	assert.Equal(t, 0.0, res)
 }
@@ -636,9 +672,12 @@ func TestSumNeighborAttributes_SumAllVertices(t *testing.T) {
 		}
 	}
 
-	se.On("GetNeighborsWithEdgeFilter", common.TxnID(1), storage.VertexID(1), mock.Anything).Return(iterV1, nil)
-	se.On("GetNeighborsWithEdgeFilter", common.TxnID(1), storage.VertexID(2), mock.Anything).Return(iterV2, nil)
-	se.On("NewAggregationAssociativeArray", common.TxnID(1)).Return(inmemory.NewInMemoryAssociativeArray[storage.VertexID, float64](), nil)
+	se.On("GetNeighborsWithEdgeFilter", common.TxnID(1), storage.VertexID(1), mock.Anything).
+		Return(iterV1, nil)
+	se.On("GetNeighborsWithEdgeFilter", common.TxnID(1), storage.VertexID(2), mock.Anything).
+		Return(iterV2, nil)
+	se.On("NewAggregationAssociativeArray", common.TxnID(1)).
+		Return(inmemory.NewInMemoryAssociativeArray[storage.VertexID, float64](), nil)
 
 	resAA, err := ex.SumNeighborAttributes("val", nil, func(f float64) bool {
 		return true
@@ -744,7 +783,14 @@ func TestGetAllTriangles_CommitError(t *testing.T) {
 func TestGetAllTriangles_NeighborsError(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3}
 	edges := [][]storage.VertexID{{1, 2}, {2, 3}, {1, 3}}
-	se := mocks.NewDataMockStorageEngine(vertices, edges, errors.New("failed to get neighbors"), nil, nil, nil)
+	se := mocks.NewDataMockStorageEngine(
+		vertices,
+		edges,
+		errors.New("failed to get neighbors"),
+		nil,
+		nil,
+		nil,
+	)
 	tm := &mocks.MockTransactionManager{NextTxnID: 1}
 	e := &Executor{se: se, tm: tm}
 
