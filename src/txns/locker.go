@@ -9,7 +9,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
 
-type Locker interface {
+type ILockManager interface {
 	LockCatalog(txnID common.TxnID, lockMode GranularLockMode) *CatalogLockToken
 	LockFile(t *CatalogLockToken, fileID common.FileID, lockMode GranularLockMode) *FileLockToken
 	LockPage(ft *FileLockToken, pageID common.PageID, lockMode PageLockMode) *PageLockToken
@@ -25,7 +25,7 @@ type LockManager struct {
 	pageLockManager    *lockManager[PageLockMode, common.PageIdentity]
 }
 
-var _ Locker = &LockManager{}
+var _ ILockManager = &LockManager{}
 
 func NewHierarchyLocker() *LockManager {
 	return &LockManager{
@@ -59,7 +59,7 @@ type CatalogLockToken struct {
 	lockMode GranularLockMode
 }
 
-func newCatalogLockToken(
+func NewCatalogLockToken(
 	txnID common.TxnID,
 	mode GranularLockMode,
 ) *CatalogLockToken {
@@ -98,7 +98,7 @@ type PageLockToken struct {
 	pageID   common.PageIdentity
 }
 
-func newPageLockToken(
+func NewPageLockToken(
 	txnID common.TxnID,
 	pageID common.PageIdentity,
 	lockMode PageLockMode,
@@ -128,7 +128,7 @@ func (l *LockManager) LockCatalog(
 	}
 	<-n
 
-	return newCatalogLockToken(r.txnID, lockMode)
+	return NewCatalogLockToken(r.txnID, lockMode)
 }
 
 func (l *LockManager) LockFile(
@@ -201,7 +201,7 @@ func (l *LockManager) LockPage(
 	}
 	<-n
 
-	return newPageLockToken(ft.txnID, pageIdent, lockMode, ft)
+	return NewPageLockToken(ft.txnID, pageIdent, lockMode, ft)
 }
 
 func (l *LockManager) Unlock(txnID common.TxnID) {

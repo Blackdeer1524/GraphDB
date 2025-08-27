@@ -30,41 +30,34 @@ func (e *Executor) traverseNeighborsWithDepth(t common.TxnID, v storage.VertexWi
 		}
 	}()
 
-	for uBatchErr := range it.Seq() {
-		uBatch, err := uBatchErr.Destruct()
+	for u := range it.Seq() {
+		var ok bool
+
+		ok, err = seen.Get(u.V)
 		if err != nil {
-			return fmt.Errorf("failed to get another batch of neighbors: %w", err)
+			return fmt.Errorf("failed to get vertex visited status: %w", err)
 		}
 
-		for _, u := range uBatch {
-			var ok bool
+		// if visited
+		if ok {
+			continue
+		}
 
-			ok, err = seen.Get(u.V)
+		err = seen.Set(u.V, true)
+		if err != nil {
+			return fmt.Errorf("failed to set vertex visited status: %w", err)
+		}
+
+		if curDepth == ^uint32(0) {
+			return errors.New("depth overflow")
+		}
+
+		nd := curDepth + 1
+
+		if nd <= targetDepth {
+			err = q.Enqueue(storage.VertexWithDepthAndRID{V: u.V, D: nd, R: u.R})
 			if err != nil {
-				return fmt.Errorf("failed to get vertex visited status: %w", err)
-			}
-
-			// if visited
-			if ok {
-				continue
-			}
-
-			err = seen.Set(u.V, true)
-			if err != nil {
-				return fmt.Errorf("failed to set vertex visited status: %w", err)
-			}
-
-			if curDepth == ^uint32(0) {
-				return errors.New("depth overflow")
-			}
-
-			nd := curDepth + 1
-
-			if nd <= targetDepth {
-				err = q.Enqueue(storage.VertexWithDepthAndRID{V: u.V, D: nd, R: u.R})
-				if err != nil {
-					return fmt.Errorf("failed to enqueue vertex: %w", err)
-				}
+				return fmt.Errorf("failed to enqueue vertex: %w", err)
 			}
 		}
 	}
@@ -454,20 +447,13 @@ func (e *Executor) countCommonNeighbors(tx common.TxnID, left storage.VertexID,
 		}
 	}()
 
-	for rightBatchErr := range rightNeighborsIter.Seq() {
-		rightBatch, err := rightBatchErr.Destruct()
-		if err != nil {
-			return 0, fmt.Errorf("failed to get another batch of neighbors: %w", err)
+	for right := range rightNeighborsIter.Seq() {
+		if left >= right.V {
+			continue
 		}
 
-		for _, right := range rightBatch {
-			if left >= right.V {
-				continue
-			}
-
-			if _, ok := leftNeighbors.Get(right.V); ok {
-				r++
-			}
+		if _, ok := leftNeighbors.Get(right.V); ok {
+			r++
 		}
 	}
 
@@ -495,20 +481,13 @@ func (e *Executor) getVertexTriangleCount(
 
 	leftNeighbors := inmemory.NewInMemoryAssociativeArray[storage.VertexID, struct{}]()
 
-	for lBatchErr := range leftNeighborsIter.Seq() {
-		lBatch, err := lBatchErr.Destruct()
+	for l := range leftNeighborsIter.Seq() {
+		err = leftNeighbors.Set(l.V, struct{}{})
 		if err != nil {
-			return 0, fmt.Errorf("failed to get another batch of neighbors: %w", err)
-		}
-
-		for _, l := range lBatch {
-			err = leftNeighbors.Set(l.V, struct{}{})
-			if err != nil {
-				return 0, fmt.Errorf(
-					"failed to set value in left neighbors associative array: %w",
-					err,
-				)
-			}
+			return 0, fmt.Errorf(
+				"failed to set value in left neighbors associative array: %w",
+				err,
+			)
 		}
 	}
 

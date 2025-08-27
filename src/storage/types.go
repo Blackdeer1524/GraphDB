@@ -7,7 +7,6 @@ import (
 	"iter"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
-	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
 
 type VertexID uint64
@@ -34,7 +33,7 @@ func (v *VertexIDWithRID) UnmarshalBinary(data []byte) error {
 var ErrQueueEmpty = errors.New("queue is empty")
 
 type NeighborIter interface {
-	Seq() iter.Seq[utils.Pair[[]VertexIDWithRID, error]]
+	Seq() iter.Seq[*VertexIDWithRID]
 	Close() error
 }
 
@@ -55,13 +54,6 @@ type BitMap interface {
 	Get(v VertexID) (bool, error)
 	Set(v VertexID, b bool) error
 	Close() error
-}
-
-type TransactionManager interface {
-	Begin() (common.TxnID, error)
-
-	RollbackTx(common.TxnID) error
-	CommitTx(common.TxnID) error
 }
 
 type TypedQueue[T interface {
