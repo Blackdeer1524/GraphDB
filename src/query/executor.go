@@ -29,13 +29,13 @@ type StorageEngine interface {
 type Executor struct {
 	se        StorageEngine
 	txnTicker atomic.Uint64
-	locker    *txns.LockManager
+	locker    txns.ILockManager
 	logger    common.ITxnLogger
 }
 
 func New(
 	se StorageEngine,
-	locker *txns.LockManager,
+	locker txns.ILockManager,
 	logger common.ITxnLogger,
 ) *Executor {
 	return &Executor{

@@ -38,7 +38,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 
 	var se *StorageEngine
 
@@ -87,7 +87,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
@@ -143,7 +143,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
@@ -190,7 +190,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
@@ -246,7 +246,7 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
@@ -291,7 +291,7 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 
 	var se *StorageEngine
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 

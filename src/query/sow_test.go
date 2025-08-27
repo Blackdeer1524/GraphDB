@@ -12,11 +12,13 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/query/mocks"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/datastructures/inmemory"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 // Tests for GetVertexesOnDepth
 func TestGetVertexesOnDepth_NilStorageEngine(t *testing.T) {
-	e := &Executor{se: nil, tm: &mocks.MockTransactionManager{}}
+	locker := txns.NewLockManager()
+	e := New(nil, locker, common.DummyLogger())
 
 	_, err := e.GetVertexesOnDepth(1, 0)
 	require.Error(t, err)
@@ -24,31 +26,73 @@ func TestGetVertexesOnDepth_NilStorageEngine(t *testing.T) {
 }
 
 func TestGetVertexesOnDepth_TransactionBeginError(t *testing.T) {
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(errors.New("begin error"))
+
+	txnID := common.TxnID(1)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLocker := txns.MockILockManager{}
+	mockLocker.EXPECT().Unlock(txnID).Return()
+	mockLocker.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
 	se := mocks.NewDataMockStorageEngine(nil, nil, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{BeginErr: errors.New("begin error")}
-	e := &Executor{se: se, tm: tm}
+	e := New(se, &mockLocker, &mockLogger)
 
 	_, err := e.GetVertexesOnDepth(1, 0)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to begin transaction: begin error")
+	assert.Contains(t, err.Error(), "begin error")
 }
 
 func TestGetVertexesOnDepth_GetVertexRIDError(t *testing.T) {
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+	ctxMockLogger.EXPECT().Rollback().Return()
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLocker := txns.MockILockManager{}
+	mockLocker.EXPECT().Unlock(txnID).Return()
+	mockLocker.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
 	se := mocks.NewDataMockStorageEngine(nil, nil, nil, nil, nil, errors.New("rid error"))
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+	e := New(se, &mockLocker, &mockLogger)
 
 	_, err := e.GetVertexesOnDepth(1, 0)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get start vertex: rid error")
+	assert.Contains(t, err.Error(), "rid error")
 }
 
 func TestGetVertexesOnDepth_Depth0(t *testing.T) {
 	vertices := []storage.VertexID{1}
 	edges := [][]storage.VertexID{}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	expected := []storage.VertexIDWithRID{{V: 1, R: common.RecordID{PageID: 100}}}
 	res, err := e.GetVertexesOnDepth(1, 0)
@@ -60,15 +104,30 @@ func TestGetVertexesOnDepth_Depth1(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3}
 	edges := [][]storage.VertexID{{1, 2}, {1, 3}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	res, err := e.GetVertexesOnDepth(1, 1)
+	require.NoError(t, err)
 
 	expected := []storage.VertexIDWithRID{
 		{V: 2, R: common.RecordID{PageID: 200}},
 		{V: 3, R: common.RecordID{PageID: 300}},
 	}
-	res, err := e.GetVertexesOnDepth(1, 1)
-	require.NoError(t, err)
 	assert.ElementsMatch(t, expected, res)
 }
 
@@ -76,8 +135,22 @@ func TestGetVertexesOnDepth_Depth2(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3, 4, 5}
 	edges := [][]storage.VertexID{{1, 2}, {1, 3}, {2, 4}, {3, 5}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	expected := []storage.VertexIDWithRID{
 		{V: 4, R: common.RecordID{PageID: 400}},
@@ -92,15 +165,30 @@ func TestGetVertexesOnDepth_WithCycle(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3}
 	edges := [][]storage.VertexID{{1, 2}, {2, 3}, {3, 1}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	res, err := e.GetVertexesOnDepth(1, 1)
+	require.NoError(t, err)
 
 	expected := []storage.VertexIDWithRID{
 		{V: 2, R: common.RecordID{PageID: 200}},
 		{V: 3, R: common.RecordID{PageID: 300}},
 	}
-	res, err := e.GetVertexesOnDepth(1, 1)
-	require.NoError(t, err)
 	assert.Equal(t, expected, res)
 }
 
@@ -108,20 +196,48 @@ func TestGetVertexesOnDepth_CommitError(t *testing.T) {
 	vertices := []storage.VertexID{1}
 	edges := [][]storage.VertexID{}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1, CommitErr: errors.New("commit error")}
-	e := &Executor{se: se, tm: tm}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(errors.New("commit error"))
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 	_, err := e.GetVertexesOnDepth(1, 0)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to commit transaction: commit error")
+	assert.Contains(t, err.Error(), "commit error")
 }
 
 func TestGetVertexesOnDepth_RollbackOnError(t *testing.T) {
 	vertices := []storage.VertexID{1}
 	edges := [][]storage.VertexID{}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, errors.New("rid error"))
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+	ctxMockLogger.EXPECT().Rollback().Return()
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	_, err := e.GetVertexesOnDepth(1, 0)
 	require.Error(t, err)
@@ -132,8 +248,22 @@ func TestGetVertexesOnDepth_DepthOverflow(t *testing.T) {
 	vertices := []storage.VertexID{1}
 	edges := [][]storage.VertexID{}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	res, err := e.GetVertexesOnDepth(1, ^uint32(0))
 	require.NoError(t, err)
@@ -144,9 +274,25 @@ func TestBFS_NewQueueError(t *testing.T) {
 	vertices := []storage.VertexID{1}
 	edges := [][]storage.VertexID{}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, errors.New("queue error"), nil, nil)
-	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+	ctxMockLogger.EXPECT().Rollback().Return()
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	_, err := e.bfsWithDepth(0, start, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "queue error")
@@ -168,9 +314,24 @@ func TestBFS_Depth0(t *testing.T) {
 	vertices := []storage.VertexID{1}
 	edges := [][]storage.VertexID{}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 0)
 	require.NoError(t, err)
 	assert.Equal(t, []storage.VertexIDWithRID{start}, res)
@@ -180,9 +341,24 @@ func TestBFS_Depth1(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3}
 	edges := [][]storage.VertexID{{1, 2}, {1, 3}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 1)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []storage.VertexIDWithRID{
@@ -195,9 +371,24 @@ func TestBFS_Depth2(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3, 4, 5}
 	edges := [][]storage.VertexID{{1, 2}, {1, 3}, {2, 4}, {3, 5}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 2)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []storage.VertexIDWithRID{
@@ -210,9 +401,24 @@ func TestBFS_WithCycle(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3}
 	edges := [][]storage.VertexID{{1, 2}, {2, 3}, {3, 1}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 1)
 	require.NoError(t, err)
 	assert.Equal(t,
@@ -235,9 +441,25 @@ func TestBFS_TraverseNeighborsError(t *testing.T) {
 		nil,
 		nil,
 	)
-	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+	ctxMockLogger.EXPECT().Rollback().Return()
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
+	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	_, err := e.bfsWithDepth(0, start, 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to traverse neighbors: neighbors error")
@@ -247,9 +469,24 @@ func TestBFS_NoVerticesAtTargetDepth(t *testing.T) {
 	vertices := []storage.VertexID{1}
 	edges := [][]storage.VertexID{}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 1)
 	require.NoError(t, err)
 	assert.Empty(t, res)
@@ -259,9 +496,24 @@ func TestBFS_MultiplePathsToSameVertex(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3, 4}
 	edges := [][]storage.VertexID{{1, 2}, {1, 3}, {2, 4}, {3, 4}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+	e := New(se, &mockLockMgr, &mockLogger)
+
+	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 2)
 	require.NoError(t, err)
 	assert.Equal(t, []storage.VertexIDWithRID{{V: 4, R: common.RecordID{PageID: 400}}}, res)
@@ -278,35 +530,72 @@ func TestGetAllVertexesWithFieldValue(t *testing.T) {
 	})
 
 	t.Run("begin tx fails", func(t *testing.T) {
-		tm := new(mocks.MockTxnManager)
-		tm.On("Begin").Return(common.TxnID(0), errors.New("begin failed"))
+		txnID := common.TxnID(1)
+		ctxMockLogger := common.MockITxnLoggerWithContext{}
+		ctxMockLogger.EXPECT().AppendBegin().Return(errors.New("begin failed"))
 
-		exec := &Executor{tm: tm, se: new(mocks.DataMockStorageEngine)}
+		mockLogger := common.MockITxnLogger{}
+		mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+		mockLockMgr := txns.MockILockManager{}
+		mockLockMgr.EXPECT().Unlock(txnID).Return()
+		mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+			txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+		)
+
+		exec := New(new(mocks.DataMockStorageEngine), &mockLockMgr, &mockLogger)
 
 		res, err := exec.GetAllVertexesWithFieldValue("f", []byte("v"))
 		assert.Nil(t, res)
-		assert.ErrorContains(t, err, "failed to begin transaction")
+		assert.ErrorContains(t, err, "begin failed")
 	})
 
 	t.Run("all vertices fails", func(t *testing.T) {
-		tm := new(mocks.MockTxnManager)
-		se := new(mocks.MockStorageEngine)
+		txnID := common.TxnID(1)
+		ctxMockLogger := common.MockITxnLoggerWithContext{}
+		ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+		ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+		ctxMockLogger.EXPECT().Rollback().Return()
+		ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
 
-		tm.On("Begin").Return(common.TxnID(1), nil)
-		tm.On("RollbackTx", common.TxnID(1)).Return(nil)
+		mockLogger := common.MockITxnLogger{}
+		mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+		mockLockMgr := txns.MockILockManager{}
+		mockLockMgr.EXPECT().Unlock(txnID).Return()
+		mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+			txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+		)
+
+		se := new(mocks.MockStorageEngine)
 		se.On("AllVerticesWithValue", common.TxnID(1), "f", []byte("v")).
 			Return(new(mocks.MockAllVerticesIter), errors.New("storage fail"))
 
-		exec := &Executor{tm: tm, se: se}
+		exec := New(se, &mockLockMgr, &mockLogger)
 
 		res, err := exec.GetAllVertexesWithFieldValue("f", []byte("v"))
 		assert.Nil(t, res)
 		assert.ErrorContains(t, err, "failed to get vertices iterator")
-		tm.AssertCalled(t, "RollbackTx", common.TxnID(1))
 	})
 
 	t.Run("iterator close fails", func(t *testing.T) {
-		tm := new(mocks.MockTxnManager)
+		txnID := common.TxnID(1)
+
+		ctxMockLogger := common.MockITxnLoggerWithContext{}
+		ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+		ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+		ctxMockLogger.EXPECT().Rollback().Return()
+		ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+		mockLogger := common.MockITxnLogger{}
+		mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+		mockLockMgr := txns.MockILockManager{}
+		mockLockMgr.EXPECT().Unlock(txnID).Return()
+		mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+			txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+		)
+
 		se := new(mocks.MockStorageEngine)
 		iter := new(mocks.MockAllVerticesIter)
 
@@ -315,48 +604,59 @@ func TestGetAllVertexesWithFieldValue(t *testing.T) {
 		}
 		iter.CloseF = errors.New("close fail")
 
-		tm.On("Begin").Return(common.TxnID(1), nil)
-		tm.On("RollbackTx", mock.Anything).Return(nil)
-		tm.On("CommitTx", common.TxnID(1)).Return(nil)
-		se.On("AllVerticesWithValue", common.TxnID(1), mock.Anything, mock.Anything).
+		se.On("AllVerticesWithValue", txnID, mock.Anything, mock.Anything).
 			Return(iter, nil)
 
-		exec := &Executor{tm: tm, se: se}
+		exec := New(se, &mockLockMgr, &mockLogger)
 
-		res, err := exec.GetAllVertexesWithFieldValue("f", []byte("v"))
-		assert.Len(t, res, 1)
+		_, err := exec.GetAllVertexesWithFieldValue("f", []byte("v"))
 		assert.ErrorContains(t, err, "close fail")
 	})
 
 	t.Run("commit fails", func(t *testing.T) {
-		tm := new(mocks.MockTxnManager)
+		txnID := common.TxnID(1)
+		ctxMockLogger := common.MockITxnLoggerWithContext{}
+		ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+		ctxMockLogger.EXPECT().AppendCommit().Return(errors.New("commit fail"))
+
+		mockLogger := common.MockITxnLogger{}
+		mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+		mockLockMgr := txns.MockILockManager{}
+		mockLockMgr.EXPECT().Unlock(txnID).Return()
+		mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+			txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+		)
+
 		se := new(mocks.MockStorageEngine)
 		iter := new(mocks.MockAllVerticesIter)
 
-		tm.On("Begin").Return(common.TxnID(2), nil)
-		tm.On("CommitTx", common.TxnID(2)).Return(errors.New("commit fail"))
-		tm.On("RollbackTx", common.TxnID(2)).Return(nil)
-		se.On("AllVerticesWithValue", common.TxnID(2), "f", []byte("v")).Return(iter, nil)
+		se.On("AllVerticesWithValue", txnID, "f", []byte("v")).Return(iter, nil)
 
 		iter.SeqF = func(yield func(*storage.Vertex) bool) {
 			yield(&storage.Vertex{ID: 2})
 		}
 		iter.CloseF = nil
 
-		exec := &Executor{tm: tm, se: se}
-		res, err := exec.GetAllVertexesWithFieldValue("f", []byte("v"))
-		assert.Len(t, res, 0)
-		assert.ErrorContains(t, err, "failed to commit transaction")
+		exec := New(se, &mockLockMgr, &mockLogger)
+		_, err := exec.GetAllVertexesWithFieldValue("f", []byte("v"))
+		assert.ErrorContains(t, err, "commit fail")
 	})
 
 	t.Run("success", func(t *testing.T) {
-		tm := new(mocks.MockTxnManager)
+		txnID := common.TxnID(1)
+		ctxMockLogger := common.MockITxnLoggerWithContext{}
+		ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+		ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+		ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+		mockLogger := common.MockITxnLogger{}
+		mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
 		se := new(mocks.MockStorageEngine)
 		iter := new(mocks.MockAllVerticesIter)
 
-		tm.On("Begin").Return(common.TxnID(3), nil)
-		tm.On("CommitTx", common.TxnID(3)).Return(nil)
-		se.On("AllVerticesWithValue", common.TxnID(3), "f", []byte("v")).Return(iter, nil)
+		se.On("AllVerticesWithValue", txnID, "f", []byte("v")).Return(iter, nil)
 
 		expected := []*storage.Vertex{
 			{ID: 1, Data: map[string]any{"f": "v"}},
@@ -365,11 +665,19 @@ func TestGetAllVertexesWithFieldValue(t *testing.T) {
 
 		iter.SeqF = func(yield func(*storage.Vertex) bool) {
 			for _, v := range expected {
-				yield(v)
+				if !yield(v) {
+					break
+				}
 			}
 		}
 
-		exec := &Executor{tm: tm, se: se}
+		mockLockMgr := txns.MockILockManager{}
+		mockLockMgr.EXPECT().Unlock(txnID).Return()
+		mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+			txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+		)
+
+		exec := New(se, &mockLockMgr, &mockLogger)
 		res, err := exec.GetAllVertexesWithFieldValue("f", []byte("v"))
 		assert.NoError(t, err)
 		assert.Equal(t, expected, res)
@@ -381,45 +689,82 @@ func TestGetAllVertexesWithFieldValue(t *testing.T) {
 func TestGetAllVertexesWithFieldValue2_StorageNil(t *testing.T) {
 	exec := &Executor{se: nil}
 
-	res, err := exec.GetAllVertexesWithFieldValue2("field", []byte("val"), nil, 1)
+	res, err := exec.GetAllVertexesWithFieldValue2(
+		"field",
+		[]byte("val"),
+		nil,
+		1,
+	)
 	assert.Nil(t, res)
 	assert.ErrorContains(t, err, "storage engine is nil")
 }
 
 func TestGetAllVertexesWithFieldValue2_BeginFails(t *testing.T) {
-	tm := new(mocks.MockTxnManager)
-	tm.On("Begin").Return(common.TxnID(0), errors.New("begin failed"))
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(errors.New("begin failed"))
 
-	exec := &Executor{tm: tm, se: new(mocks.MockStorageEngine)}
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	exec := New(new(mocks.MockStorageEngine), &mockLockMgr, &mockLogger)
 	res, err := exec.GetAllVertexesWithFieldValue2("f", []byte("v"), nil, 1)
 
 	assert.Nil(t, res)
-	assert.ErrorContains(t, err, "failed to begin transaction")
-	tm.AssertExpectations(t)
+	assert.ErrorContains(t, err, "begin failed")
 }
 
 func TestGetAllVertexesWithFieldValue2_AllVerticesFails(t *testing.T) {
-	tm := new(mocks.MockTxnManager)
-	tm.On("Begin").Return(common.TxnID(1), nil)
-	tm.On("RollbackTx", common.TxnID(1)).Return(nil)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+	ctxMockLogger.EXPECT().Rollback().Return()
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
 
 	se := new(mocks.MockStorageEngine)
-	se.On("AllVerticesWithValue", common.TxnID(1), "f", []byte("v")).
+	se.On("AllVerticesWithValue", txnID, "f", []byte("v")).
 		Return((*mocks.MockAllVerticesIter)(nil), errors.New("all vertices error"))
 
-	exec := &Executor{tm: tm, se: se}
+	exec := New(se, &mockLockMgr, &mockLogger)
 	res, err := exec.GetAllVertexesWithFieldValue2("f", []byte("v"), nil, 1)
 
 	assert.Nil(t, res)
 	assert.ErrorContains(t, err, "failed to get vertices iterator")
-	tm.AssertExpectations(t)
 	se.AssertExpectations(t)
 }
 
 func TestGetAllVertexesWithFieldValue2_CountEdgesFails(t *testing.T) {
-	tm := new(mocks.MockTxnManager)
-	tm.On("Begin").Return(common.TxnID(1), nil)
-	tm.On("RollbackTx", common.TxnID(1)).Return(nil)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+	ctxMockLogger.EXPECT().Rollback().Return()
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
 
 	iter := &mocks.MockAllVerticesIter{
 		SeqF: func(yield func(*storage.Vertex) bool) {
@@ -433,7 +778,7 @@ func TestGetAllVertexesWithFieldValue2_CountEdgesFails(t *testing.T) {
 	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(42), mock.Anything).
 		Return(uint64(0), errors.New("count failed"))
 
-	exec := &Executor{tm: tm, se: se}
+	exec := New(se, &mockLockMgr, &mockLogger)
 	res, err := exec.GetAllVertexesWithFieldValue2("f", []byte("v"), nil, 1)
 
 	assert.Nil(t, res)
@@ -442,9 +787,20 @@ func TestGetAllVertexesWithFieldValue2_CountEdgesFails(t *testing.T) {
 }
 
 func TestGetAllVertexesWithFieldValue2_SuccessPass(t *testing.T) {
-	tm := new(mocks.MockTxnManager)
-	tm.On("Begin").Return(common.TxnID(1), nil)
-	tm.On("CommitTx", common.TxnID(1)).Return(nil)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
 
 	iter := &mocks.MockAllVerticesIter{
 		SeqF: func(yield func(*storage.Vertex) bool) {
@@ -453,12 +809,12 @@ func TestGetAllVertexesWithFieldValue2_SuccessPass(t *testing.T) {
 	}
 
 	se := new(mocks.MockStorageEngine)
-	se.On("AllVerticesWithValue", common.TxnID(1), "f", []byte("v")).
+	se.On("AllVerticesWithValue", txnID, "f", []byte("v")).
 		Return(iter, nil)
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(1), mock.Anything).
+	se.On("CountOfFilteredEdges", txnID, storage.VertexID(1), mock.Anything).
 		Return(uint64(5), nil)
 
-	exec := &Executor{tm: tm, se: se}
+	exec := New(se, &mockLockMgr, &mockLogger)
 	res, err := exec.GetAllVertexesWithFieldValue2("f", []byte("v"), nil, 3)
 
 	assert.NoError(t, err)
@@ -466,13 +822,23 @@ func TestGetAllVertexesWithFieldValue2_SuccessPass(t *testing.T) {
 	assert.Equal(t, storage.VertexID(1), res[0].ID)
 
 	se.AssertExpectations(t)
-	tm.AssertExpectations(t)
 }
 
 func TestGetAllVertexesWithFieldValue2_SuccessFiltered(t *testing.T) {
-	tm := new(mocks.MockTxnManager)
-	tm.On("Begin").Return(common.TxnID(1), nil)
-	tm.On("CommitTx", common.TxnID(1)).Return(nil)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
 
 	iter := &mocks.MockAllVerticesIter{
 		SeqF: func(yield func(*storage.Vertex) bool) {
@@ -481,23 +847,36 @@ func TestGetAllVertexesWithFieldValue2_SuccessFiltered(t *testing.T) {
 	}
 
 	se := new(mocks.MockStorageEngine)
-	se.On("AllVerticesWithValue", common.TxnID(1), "f", []byte("v")).
+	se.On("AllVerticesWithValue", txnID, "f", []byte("v")).
 		Return(iter, nil)
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(2), mock.Anything).
+	se.On("CountOfFilteredEdges", txnID, storage.VertexID(2), mock.Anything).
 		Return(uint64(1), nil)
 
-	exec := &Executor{tm: tm, se: se}
+	exec := New(se, &mockLockMgr, &mockLogger)
 	res, err := exec.GetAllVertexesWithFieldValue2("f", []byte("v"), nil, 5)
 
 	assert.NoError(t, err)
 	assert.Len(t, res, 0)
 
 	se.AssertExpectations(t)
-	tm.AssertExpectations(t)
 }
 
 func TestGetAllVertexesWithFieldValue2_MultipleResults(t *testing.T) {
-	tm := new(mocks.MockTxnManager)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
 	se := new(mocks.MockStorageEngine)
 	iter := new(mocks.MockAllVerticesIter)
 
@@ -513,20 +892,18 @@ func TestGetAllVertexesWithFieldValue2_MultipleResults(t *testing.T) {
 		yield(v4)
 	}
 
-	tm.On("Begin").Return(common.TxnID(1), nil)
-	tm.On("CommitTx", common.TxnID(1)).Return(nil)
-	se.On("AllVerticesWithValue", common.TxnID(1), "f", []byte("v")).Return(iter, nil)
+	se.On("AllVerticesWithValue", txnID, "f", []byte("v")).Return(iter, nil)
 
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(1), mock.Anything).
+	se.On("CountOfFilteredEdges", txnID, storage.VertexID(1), mock.Anything).
 		Return(uint64(5), nil)
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(2), mock.Anything).
+	se.On("CountOfFilteredEdges", txnID, storage.VertexID(2), mock.Anything).
 		Return(uint64(2), nil)
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(3), mock.Anything).
+	se.On("CountOfFilteredEdges", txnID, storage.VertexID(3), mock.Anything).
 		Return(uint64(10), nil)
-	se.On("CountOfFilteredEdges", common.TxnID(1), storage.VertexID(4), mock.Anything).
+	se.On("CountOfFilteredEdges", txnID, storage.VertexID(4), mock.Anything).
 		Return(uint64(3), nil)
 
-	exec := &Executor{tm: tm, se: se}
+	exec := New(se, &mockLockMgr, &mockLogger)
 
 	res, err := exec.GetAllVertexesWithFieldValue2(
 		"f",
@@ -542,12 +919,24 @@ func TestGetAllVertexesWithFieldValue2_MultipleResults(t *testing.T) {
 }
 
 // SumNeighborAttributes
-
 func TestSumAttributeOverProperNeighbors_SumCorrectly(t *testing.T) {
 	se := new(mocks.MockStorageEngine)
-	tm := new(mocks.MockTransactionManager)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
 
-	ex := &Executor{se: se, tm: tm}
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	ex := New(se, &mockLockMgr, &mockLogger)
 
 	neighbors := []*storage.Vertex{
 		{ID: storage.VertexID(1), Data: map[string]interface{}{"val": 2.0}},
@@ -575,10 +964,22 @@ func TestSumAttributeOverProperNeighbors_SumCorrectly(t *testing.T) {
 
 func TestSumAttributeOverProperNeighbors_FieldMissing(t *testing.T) {
 	se := new(mocks.MockStorageEngine)
-	tm := new(mocks.MockTransactionManager)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
 
-	ex := &Executor{se: se, tm: tm}
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
 
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	ex := New(se, &mockLockMgr, &mockLogger)
 	neighbors := []*storage.Vertex{
 		{ID: storage.VertexID(1), Data: map[string]interface{}{}},
 	}
@@ -592,7 +993,7 @@ func TestSumAttributeOverProperNeighbors_FieldMissing(t *testing.T) {
 		Return(iter, nil)
 
 	res, err := ex.sumAttributeOverProperNeighbors(
-		common.TxnID(1),
+		txnID,
 		&storage.Vertex{ID: storage.VertexID(1)},
 		"val",
 		nil,
@@ -603,8 +1004,23 @@ func TestSumAttributeOverProperNeighbors_FieldMissing(t *testing.T) {
 
 func TestSumAttributeOverProperNeighbors_TypeMismatch(t *testing.T) {
 	se := new(mocks.MockStorageEngine)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+	ctxMockLogger.EXPECT().Rollback().Return()
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
 
-	ex := &Executor{se: se}
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	ex := New(se, &mockLockMgr, &mockLogger)
 
 	neighbors := []*storage.Vertex{
 		{ID: storage.VertexID(1), Data: map[string]interface{}{"val": "notfloat"}},
@@ -619,7 +1035,7 @@ func TestSumAttributeOverProperNeighbors_TypeMismatch(t *testing.T) {
 		Return(iter, nil)
 
 	res, err := ex.sumAttributeOverProperNeighbors(
-		common.TxnID(1),
+		txnID,
 		&storage.Vertex{ID: storage.VertexID(1)},
 		"val",
 		nil,
@@ -630,12 +1046,22 @@ func TestSumAttributeOverProperNeighbors_TypeMismatch(t *testing.T) {
 
 func TestSumNeighborAttributes_SumAllVertices(t *testing.T) {
 	se := new(mocks.MockStorageEngine)
-	tm := new(mocks.MockTxnManager)
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
 
-	ex := &Executor{se: se, tm: tm}
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
 
-	tm.On("Begin").Return(common.TxnID(1), nil)
-	tm.On("CommitTx", common.TxnID(1)).Return(nil)
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	ex := New(se, &mockLockMgr, &mockLogger)
 
 	vertices := []*storage.Vertex{
 		{ID: storage.VertexID(1)},
@@ -672,11 +1098,11 @@ func TestSumNeighborAttributes_SumAllVertices(t *testing.T) {
 		}
 	}
 
-	se.On("GetNeighborsWithEdgeFilter", common.TxnID(1), storage.VertexID(1), mock.Anything).
+	se.On("GetNeighborsWithEdgeFilter", txnID, storage.VertexID(1), mock.Anything).
 		Return(iterV1, nil)
-	se.On("GetNeighborsWithEdgeFilter", common.TxnID(1), storage.VertexID(2), mock.Anything).
+	se.On("GetNeighborsWithEdgeFilter", txnID, storage.VertexID(2), mock.Anything).
 		Return(iterV2, nil)
-	se.On("NewAggregationAssociativeArray", common.TxnID(1)).
+	se.On("NewAggregationAssociativeArray", txnID).
 		Return(inmemory.NewInMemoryAssociativeArray[storage.VertexID, float64](), nil)
 
 	resAA, err := ex.SumNeighborAttributes("val", nil, func(f float64) bool {
@@ -692,7 +1118,6 @@ func TestSumNeighborAttributes_SumAllVertices(t *testing.T) {
 	assert.Equal(t, 1.0, v1val)
 	assert.Equal(t, 1.0, v2val)
 
-	tm.AssertExpectations(t)
 	se.AssertExpectations(t)
 }
 
@@ -700,8 +1125,23 @@ func TestSumNeighborAttributes_SumAllVertices(t *testing.T) {
 
 func TestGetAllTriangles_EmptyGraph(t *testing.T) {
 	se := mocks.NewDataMockStorageEngine(nil, nil, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	count, err := e.GetAllTriangles()
 	require.NoError(t, err)
@@ -712,8 +1152,23 @@ func TestGetAllTriangles_K3(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3}
 	edges := [][]storage.VertexID{{1, 2}, {2, 3}, {1, 3}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	count, err := e.GetAllTriangles()
 	require.NoError(t, err)
@@ -724,8 +1179,23 @@ func TestGetAllTriangles_K4(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3, 4}
 	edges := [][]storage.VertexID{{1, 2}, {1, 3}, {1, 4}, {2, 3}, {2, 4}, {3, 4}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	count, err := e.GetAllTriangles()
 	require.NoError(t, err)
@@ -736,8 +1206,23 @@ func TestGetAllTriangles_DisconnectedWithTriangle(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3, 4}
 	edges := [][]storage.VertexID{{1, 2}, {2, 3}, {1, 3}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	count, err := e.GetAllTriangles()
 	require.NoError(t, err)
@@ -748,8 +1233,23 @@ func TestGetAllTriangles_SelfLoop(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3}
 	edges := [][]storage.VertexID{{1, 1}, {1, 2}, {2, 3}, {1, 3}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(nil)
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	count, err := e.GetAllTriangles()
 	require.NoError(t, err)
@@ -758,8 +1258,21 @@ func TestGetAllTriangles_SelfLoop(t *testing.T) {
 
 func TestGetAllTriangles_TransactionBeginError(t *testing.T) {
 	se := mocks.NewDataMockStorageEngine(nil, nil, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{BeginErr: errors.New("failed to begin tx")}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(errors.New("failed to begin tx"))
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	count, err := e.GetAllTriangles()
 	require.Error(t, err)
@@ -771,8 +1284,23 @@ func TestGetAllTriangles_CommitError(t *testing.T) {
 	vertices := []storage.VertexID{1, 2, 3}
 	edges := [][]storage.VertexID{{1, 2}, {2, 3}, {1, 3}}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, nil, nil)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1, CommitErr: errors.New("commit failed")}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendCommit().Return(errors.New("commit failed"))
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	count, err := e.GetAllTriangles()
 	require.Error(t, err)
@@ -791,8 +1319,24 @@ func TestGetAllTriangles_NeighborsError(t *testing.T) {
 		nil,
 		nil,
 	)
-	tm := &mocks.MockTransactionManager{NextTxnID: 1}
-	e := &Executor{se: se, tm: tm}
+
+	txnID := common.TxnID(1)
+	ctxMockLogger := common.MockITxnLoggerWithContext{}
+	ctxMockLogger.EXPECT().AppendBegin().Return(nil)
+	ctxMockLogger.EXPECT().AppendAbort().Return(nil)
+	ctxMockLogger.EXPECT().Rollback().Return()
+	ctxMockLogger.EXPECT().AppendTxnEnd().Return(nil)
+
+	mockLogger := common.MockITxnLogger{}
+	mockLogger.EXPECT().WithContext(txnID).Return(&ctxMockLogger)
+
+	mockLockMgr := txns.MockILockManager{}
+	mockLockMgr.EXPECT().Unlock(txnID).Return()
+	mockLockMgr.EXPECT().LockCatalog(txnID, txns.GRANULAR_LOCK_SHARED).Return(
+		txns.NewCatalogLockToken(txnID, txns.GRANULAR_LOCK_SHARED),
+	)
+
+	e := New(se, &mockLockMgr, &mockLogger)
 
 	count, err := e.GetAllTriangles()
 	require.Error(t, err)

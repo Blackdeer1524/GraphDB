@@ -108,7 +108,7 @@ func TestBankTransactions(t *testing.T) {
 		IDs = append(IDs, i)
 	}
 
-	locker := txns.NewHierarchyLocker()
+	locker := txns.NewLockManager()
 	defer func() {
 		stillLockedTxns := locker.GetActiveTransactions()
 		assert.Equal(

@@ -27,7 +27,7 @@ type LockManager struct {
 
 var _ ILockManager = &LockManager{}
 
-func NewHierarchyLocker() *LockManager {
+func NewLockManager() *LockManager {
 	return &LockManager{
 		catalogLockManager: NewManager[GranularLockMode, struct{}](),
 		fileLockManager:    NewManager[GranularLockMode, common.FileID](),

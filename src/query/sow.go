@@ -146,14 +146,20 @@ func (e *Executor) GetVertexesOnDepth(
 	if err := logger.AppendBegin(); err != nil {
 		return nil, fmt.Errorf("failed to append begin: %w", err)
 	}
+
 	defer func() {
 		if err != nil {
-			err1 := logger.AppendAbort()
-			if err1 != nil {
+			if err1 := logger.AppendAbort(); err1 != nil {
 				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
 			} else {
 				logger.Rollback()
 				err = errors.Join(err, logger.AppendTxnEnd())
+			}
+		} else {
+			if err = logger.AppendCommit(); err != nil {
+				err = fmt.Errorf("failed to append commit: %w", err)
+			} else if err = logger.AppendTxnEnd(); err != nil {
+				err = fmt.Errorf("failed to append txn end: %w", err)
 			}
 		}
 	}()
@@ -170,13 +176,6 @@ func (e *Executor) GetVertexesOnDepth(
 	res, err = e.bfsWithDepth(tx, st, targetDepth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bfsWithDepth: %w", err)
-	}
-
-	if err := logger.AppendCommit(); err != nil {
-		return nil, fmt.Errorf("failed to append commit: %w", err)
-	}
-	if err := logger.AppendTxnEnd(); err != nil {
-		return nil, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return res, nil
@@ -203,12 +202,17 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 
 	defer func() {
 		if err != nil {
-			err1 := logger.AppendAbort()
-			if err1 != nil {
+			if err1 := logger.AppendAbort(); err1 != nil {
 				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
 			} else {
 				logger.Rollback()
 				err = errors.Join(err, logger.AppendTxnEnd())
+			}
+		} else {
+			if err = logger.AppendCommit(); err != nil {
+				err = fmt.Errorf("failed to append commit: %w", err)
+			} else if err = logger.AppendTxnEnd(); err != nil {
+				err = fmt.Errorf("failed to append txn end: %w", err)
 			}
 		}
 	}()
@@ -227,13 +231,6 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 
 	for v := range verticesIter.Seq() {
 		res = append(res, v)
-	}
-
-	if err := logger.AppendCommit(); err != nil {
-		return nil, fmt.Errorf("failed to append commit: %w", err)
-	}
-	if err := logger.AppendTxnEnd(); err != nil {
-		return nil, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return res, nil
@@ -259,12 +256,21 @@ func (e *Executor) GetAllVertexesWithFieldValue2(field string, value []byte,
 
 	defer func() {
 		if err != nil {
-			err1 := logger.AppendAbort()
-			if err1 != nil {
+			if err1 := logger.AppendAbort(); err1 != nil {
 				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
+				res = nil
 			} else {
 				logger.Rollback()
 				err = errors.Join(err, logger.AppendTxnEnd())
+				res = nil
+			}
+		} else {
+			if err = logger.AppendCommit(); err != nil {
+				err = fmt.Errorf("failed to append commit: %w", err)
+				res = nil
+			} else if err = logger.AppendTxnEnd(); err != nil {
+				err = fmt.Errorf("failed to append txn end: %w", err)
+				res = nil
 			}
 		}
 	}()
@@ -297,14 +303,6 @@ func (e *Executor) GetAllVertexesWithFieldValue2(field string, value []byte,
 		}
 
 		res = append(res, v)
-	}
-
-	if err := logger.AppendCommit(); err != nil {
-		return nil, fmt.Errorf("failed to append commit: %w", err)
-	}
-
-	if err := logger.AppendTxnEnd(); err != nil {
-		return nil, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return res, nil
@@ -371,12 +369,17 @@ func (e *Executor) SumNeighborAttributes(
 
 	defer func() {
 		if err != nil {
-			err1 := logger.AppendAbort()
-			if err1 != nil {
+			if err1 := logger.AppendAbort(); err1 != nil {
 				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
 			} else {
 				logger.Rollback()
 				err = errors.Join(err, logger.AppendTxnEnd())
+			}
+		} else {
+			if err = logger.AppendCommit(); err != nil {
+				err = fmt.Errorf("failed to append commit: %w", err)
+			} else if err = logger.AppendTxnEnd(); err != nil {
+				err = fmt.Errorf("failed to append txn end: %w", err)
 			}
 		}
 	}()
@@ -419,14 +422,6 @@ func (e *Executor) SumNeighborAttributes(
 		if err != nil {
 			return nil, fmt.Errorf("failed to set value in aggregation associative array: %w", err)
 		}
-	}
-
-	if err := logger.AppendCommit(); err != nil {
-		return nil, fmt.Errorf("failed to append commit: %w", err)
-	}
-
-	if err := logger.AppendTxnEnd(); err != nil {
-		return nil, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return r, nil
@@ -524,15 +519,27 @@ func (e *Executor) GetAllTriangles() (r uint64, err error) {
 	defer e.locker.Unlock(txnID)
 
 	logger := e.logger.WithContext(txnID)
+	if err := logger.AppendBegin(); err != nil {
+		return 0, fmt.Errorf("failed to append begin: %w", err)
+	}
 
 	defer func() {
 		if err != nil {
-			err1 := logger.AppendAbort()
-			if err1 != nil {
+			if err1 := logger.AppendAbort(); err1 != nil {
 				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
+				r = 0
 			} else {
 				logger.Rollback()
 				err = errors.Join(err, logger.AppendTxnEnd())
+				r = 0
+			}
+		} else {
+			if err = logger.AppendCommit(); err != nil {
+				err = fmt.Errorf("failed to append commit: %w", err)
+				r = 0
+			} else if err = logger.AppendTxnEnd(); err != nil {
+				err = fmt.Errorf("failed to append txn end: %w", err)
+				r = 0
 			}
 		}
 	}()
@@ -565,14 +572,6 @@ func (e *Executor) GetAllTriangles() (r uint64, err error) {
 		}
 
 		r += add
-	}
-
-	if err := logger.AppendCommit(); err != nil {
-		return 0, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	if err := logger.AppendTxnEnd(); err != nil {
-		return 0, fmt.Errorf("failed to append txn end: %w", err)
 	}
 
 	return r / 3, nil

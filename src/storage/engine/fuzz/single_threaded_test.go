@@ -94,7 +94,7 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(baseDir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
@@ -134,7 +134,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(baseDir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := txns.NewHierarchyLocker()
+	lockMgr := txns.NewLockManager()
 	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
