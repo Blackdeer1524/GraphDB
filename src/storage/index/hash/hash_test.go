@@ -38,13 +38,13 @@ func TestBucketPage_Find(t *testing.T) {
 
 	p := page.NewSlottedPage()
 
-	p.Insert(utils.ToBytes(uint16(1)))
+	p.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
 
-	p.Insert(makeSlot(key1, rid1, 1, keySize))
+	p.UnsafeInsertNoLogs(makeSlot(key1, rid1, 1, keySize))
 
-	p.Insert([]byte{42})
+	p.UnsafeInsertNoLogs([]byte{42})
 
-	p.Insert(makeSlot(key2, rid1, 0, keySize))
+	p.UnsafeInsertNoLogs(makeSlot(key2, rid1, 0, keySize))
 
 	bp := &bucketPage{p: p}
 
@@ -80,18 +80,18 @@ func TestIndex_Get_Success(t *testing.T) {
 	rid := &common.RecordID{FileID: 5, PageID: 6, SlotNum: 7}
 
 	root := page.NewSlottedPage()
-	root.Insert(utils.ToBytes(overflowPageNotExist))
-	root.Insert(utils.ToBytes(uint16(1)))
-	root.Insert(utils.ToBytes(uint64(10)))
+	root.UnsafeInsertNoLogs(utils.ToBytes(overflowPageNotExist))
+	root.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
+	root.UnsafeInsertNoLogs(utils.ToBytes(uint64(10)))
 
 	dir := page.NewSlottedPage()
-	dir.Insert(utils.ToBytes(uint64(18)))
-	dir.Insert(utils.ToBytes(uint64(20)))
+	dir.UnsafeInsertNoLogs(utils.ToBytes(uint64(18)))
+	dir.UnsafeInsertNoLogs(utils.ToBytes(uint64(20)))
 
 	// bucket page
 	bucket := page.NewSlottedPage()
-	bucket.Insert(utils.ToBytes(uint16(1)))
-	bucket.Insert(makeSlot(key, rid, 1, keySize))
+	bucket.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
+	bucket.UnsafeInsertNoLogs(makeSlot(key, rid, 1, keySize))
 
 	se := &mocks.MockStorageEngine{
 		Pages: map[uint64]*page.SlottedPage{
@@ -114,16 +114,16 @@ func TestIndex_Get_KeyNotFound(t *testing.T) {
 	key := []byte{1, 2, 3, 4}
 
 	root := page.NewSlottedPage()
-	root.Insert(utils.ToBytes(overflowPageNotExist))
-	root.Insert(utils.ToBytes(uint16(1)))
-	root.Insert(utils.ToBytes(uint64(10)))
+	root.UnsafeInsertNoLogs(utils.ToBytes(overflowPageNotExist))
+	root.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
+	root.UnsafeInsertNoLogs(utils.ToBytes(uint64(10)))
 
 	dir := page.NewSlottedPage()
-	dir.Insert(utils.ToBytes(uint64(18)))
-	dir.Insert(utils.ToBytes(uint64(20)))
+	dir.UnsafeInsertNoLogs(utils.ToBytes(uint64(18)))
+	dir.UnsafeInsertNoLogs(utils.ToBytes(uint64(20)))
 
 	bucket := page.NewSlottedPage()
-	bucket.Insert(utils.ToBytes(uint16(1)))
+	bucket.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
 
 	se := &mocks.MockStorageEngine{
 		Pages: map[uint64]*page.SlottedPage{
@@ -156,13 +156,13 @@ func TestBucketPage_Delete(t *testing.T) {
 
 	p := page.NewSlottedPage()
 
-	p.Insert(utils.ToBytes(uint16(1)))
+	p.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
 
-	p.Insert(makeSlot(key1, &rid1, 1, keySize))
+	p.UnsafeInsertNoLogs(makeSlot(key1, &rid1, 1, keySize))
 
-	p.Insert([]byte{42})
+	p.UnsafeInsertNoLogs([]byte{42})
 
-	p.Insert(makeSlot(key2, &rid1, 0, keySize))
+	p.UnsafeInsertNoLogs(makeSlot(key2, &rid1, 0, keySize))
 
 	bp := &bucketPage{p: p}
 
@@ -172,7 +172,7 @@ func TestBucketPage_Delete(t *testing.T) {
 		require.Equal(t, rid1, got)
 
 		// check exist flag
-		slot := p.Read(1)
+		slot := p.UnsafeRead(1)
 		base := keySize
 		ext := utils.FromBytes[uint16](slot[base+18 : base+20])
 
@@ -205,18 +205,18 @@ func TestIndex_Delete_Success(t *testing.T) {
 	rid := common.RecordID{FileID: 5, PageID: 6, SlotNum: 7}
 
 	root := page.NewSlottedPage()
-	root.Insert(utils.ToBytes(overflowPageNotExist))
-	root.Insert(utils.ToBytes(uint16(1)))
-	root.Insert(utils.ToBytes(uint64(10)))
+	root.UnsafeInsertNoLogs(utils.ToBytes(overflowPageNotExist))
+	root.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
+	root.UnsafeInsertNoLogs(utils.ToBytes(uint64(10)))
 
 	dir := page.NewSlottedPage()
-	dir.Insert(utils.ToBytes(uint64(18)))
-	dir.Insert(utils.ToBytes(uint64(20)))
+	dir.UnsafeInsertNoLogs(utils.ToBytes(uint64(18)))
+	dir.UnsafeInsertNoLogs(utils.ToBytes(uint64(20)))
 
 	// bucket page
 	bucket := page.NewSlottedPage()
-	bucket.Insert(utils.ToBytes(uint16(1)))
-	bucket.Insert(makeSlot(key, &rid, 1, keySize))
+	bucket.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
+	bucket.UnsafeInsertNoLogs(makeSlot(key, &rid, 1, keySize))
 
 	se := &mocks.MockStorageEngine{
 		Pages: map[uint64]*page.SlottedPage{
@@ -234,7 +234,7 @@ func TestIndex_Delete_Success(t *testing.T) {
 	require.Equal(t, rid, got)
 
 	// check exist flag in bucket
-	slot := bucket.Read(1)
+	slot := bucket.UnsafeRead(1)
 	base := keySize
 	ext := utils.FromBytes[uint16](slot[base+18 : base+20])
 	require.Equal(t, uint16(0), ext)
@@ -245,16 +245,16 @@ func TestIndex_Delete_KeyNotFound(t *testing.T) {
 	key := []byte{1, 2, 3, 4}
 
 	root := page.NewSlottedPage()
-	root.Insert(utils.ToBytes(overflowPageNotExist))
-	root.Insert(utils.ToBytes(uint16(1)))
-	root.Insert(utils.ToBytes(uint64(10)))
+	root.UnsafeInsertNoLogs(utils.ToBytes(overflowPageNotExist))
+	root.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
+	root.UnsafeInsertNoLogs(utils.ToBytes(uint64(10)))
 
 	dir := page.NewSlottedPage()
-	dir.Insert(utils.ToBytes(uint64(18)))
-	dir.Insert(utils.ToBytes(uint64(20)))
+	dir.UnsafeInsertNoLogs(utils.ToBytes(uint64(18)))
+	dir.UnsafeInsertNoLogs(utils.ToBytes(uint64(20)))
 
 	bucket := page.NewSlottedPage()
-	bucket.Insert(utils.ToBytes(uint16(1)))
+	bucket.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
 
 	se := &mocks.MockStorageEngine{
 		Pages: map[uint64]*page.SlottedPage{
@@ -292,7 +292,7 @@ func TestBucketPage_insert(t *testing.T) {
 
 	t.Run("insert success", func(t *testing.T) {
 		p := page.NewSlottedPage()
-		p.Insert(utils.ToBytes(uint16(1))) // local depth
+		p.UnsafeInsertNoLogs(utils.ToBytes(uint16(1))) // local depth
 
 		bp := &bucketPage{p: p}
 		ok, err := bp.insert(key1, rid1, 10)
@@ -303,7 +303,7 @@ func TestBucketPage_insert(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, rid1, *d)
 
-		slot := p.Read(1)
+		slot := p.UnsafeRead(1)
 		require.Equal(t, key1, slot[:keySize])
 
 		gotRid := common.RecordID{
@@ -319,7 +319,7 @@ func TestBucketPage_insert(t *testing.T) {
 
 	t.Run("respect deleted slot (reuse)", func(t *testing.T) {
 		p := page.NewSlottedPage()
-		p.Insert(utils.ToBytes(uint16(1)))
+		p.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
 
 		bp := &bucketPage{p: p}
 		_, err := bp.insert(key1, rid1, 10)
@@ -343,7 +343,7 @@ func TestBucketPage_insert(t *testing.T) {
 
 	t.Run("bucket overflow", func(t *testing.T) {
 		p := page.NewSlottedPage()
-		p.Insert(utils.ToBytes(uint16(1)))
+		p.UnsafeInsertNoLogs(utils.ToBytes(uint16(1)))
 
 		bp := &bucketPage{p: p}
 

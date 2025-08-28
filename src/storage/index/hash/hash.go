@@ -91,7 +91,7 @@ func (bp *bucketPage) find(key []byte) (*common.RecordID, error) {
 
 	// skip slot with local depth
 	for i := uint16(1); i < ns; i++ {
-		slot := bp.p.Read(i)
+		slot := bp.p.LockedRead(i)
 		if uint16(len(slot)) != keyLen+ridBytes {
 			continue
 		}
@@ -127,7 +127,7 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 	keyLen := uint16(len(key))
 
 	for i := uint16(1); i < ns; i++ {
-		slot := bp.p.Read(i)
+		slot := bp.p.LockedRead(i)
 		if uint16(len(slot)) != keyLen+ridBytes {
 			continue
 		}
@@ -157,7 +157,7 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 		data = append(data, key...)
 		data = append(data, buf.Bytes()...)
 
-		bp.p.Update(i, data)
+		bp.p.UnsafeUpdateNoLogs(i, data)
 
 		rid := common.RecordID{
 			FileID:  suffix.FileID,
@@ -178,7 +178,7 @@ func (bp *bucketPage) insert(key []byte, rid common.RecordID, recordsCountInBuck
 
 	// try to reuse a previously deleted slot (exist == 0)
 	for i := uint16(1); i < ns; i++ {
-		slot := bp.p.Read(i)
+		slot := bp.p.LockedRead(i)
 		if uint16(len(slot)) != keyLen+ridBytes {
 			continue
 		}
@@ -209,7 +209,7 @@ func (bp *bucketPage) insert(key []byte, rid common.RecordID, recordsCountInBuck
 
 			data = append(data, buf.Bytes()...)
 
-			bp.p.Update(i, data)
+			bp.p.UnsafeUpdateNoLogs(i, data)
 
 			return true, nil
 		}
@@ -239,7 +239,7 @@ func (bp *bucketPage) insert(key []byte, rid common.RecordID, recordsCountInBuck
 	data = append(data, key...)
 	data = append(data, buf.Bytes()...)
 
-	sl := bp.p.Insert(data)
+	sl := bp.p.UnsafeInsertNoLogs(data)
 	if sl.IsNone() {
 		return false, errors.New("failed to insert to bucket")
 	}
@@ -257,8 +257,8 @@ func (h *Index) getRootPage() (*rootPage, error) {
 		return nil, errors.New("corrupted root page: not enough header slots")
 	}
 
-	overflowPageID := utils.FromBytes[uint64](rp.Read(0))
-	d := utils.FromBytes[uint16](rp.Read(1))
+	overflowPageID := utils.FromBytes[uint64](rp.LockedRead(0))
+	d := utils.FromBytes[uint16](rp.LockedRead(1))
 
 	return &rootPage{
 		p:              rp,
@@ -290,7 +290,7 @@ func (h *Index) getMetaPage(rp *rootPage, num uint64) (*rootPage, error) {
 			return nil, fmt.Errorf("failed to get meta page %d: %w", i, err)
 		}
 
-		overflow = utils.FromBytes[uint64](cur.Read(0))
+		overflow = utils.FromBytes[uint64](cur.LockedRead(0))
 
 		if i < num {
 			if overflow == overflowPageNotExist {
@@ -328,7 +328,7 @@ func (h *Index) getDirPage(rp *rootPage, num uint64) (*dirPage, error) {
 		return nil, errors.New("dir page not exist")
 	}
 
-	dirPageID := utils.FromBytes[uint64](rp.p.Read(uint16(num + 2)))
+	dirPageID := utils.FromBytes[uint64](rp.p.LockedRead(uint16(num + 2)))
 
 	dp, err := h.se.GetPage(dirPageID, uint64(h.indexFileID))
 	if err != nil {
@@ -348,7 +348,7 @@ func (h *Index) getBucketPage(dp *dirPage, num uint16) (*bucketPage, error) {
 		return nil, errors.New("bucket page not exist")
 	}
 
-	slot := dp.p.Read(num)
+	slot := dp.p.LockedRead(num)
 	if len(slot) < 8 {
 		return nil, errors.New("corrupted dir page slot: too small for pageID")
 	}
@@ -362,7 +362,7 @@ func (h *Index) getBucketPage(dp *dirPage, num uint16) (*bucketPage, error) {
 
 	return &bucketPage{
 		p:      bp,
-		l:      utils.FromBytes[uint16](bp.Read(0)),
+		l:      utils.FromBytes[uint16](bp.LockedRead(0)),
 		pageID: bucketPageID,
 	}, nil
 }
