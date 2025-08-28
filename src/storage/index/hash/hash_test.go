@@ -139,7 +139,7 @@ func TestIndex_Get_KeyNotFound(t *testing.T) {
 	key := []byte{1, 2, 3, 4}
 
 	root := page.NewSlottedPage()
-	root.Insert(utils.ToBytes(uint64(overflowPageNotExist)))
+	root.Insert(utils.ToBytes(overflowPageNotExist))
 	root.Insert(utils.ToBytes(uint16(1)))
 	root.Insert(utils.ToBytes(uint64(10)))
 
