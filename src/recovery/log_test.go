@@ -120,11 +120,11 @@ func TestValidRecovery(t *testing.T) {
 	slotNum := slotNumOpt.Unwrap()
 	require.NoError(t, err)
 
-	TransactionID := common.TxnID(100)
+	txnID := common.TxnID(100)
 	before := []byte("before")
-	after := []byte("after")
+	after := []byte("after!")
 
-	chain := NewTxnLogChain(logger, TransactionID)
+	chain := NewTxnLogChain(logger, txnID)
 	// Simulate a transaction: Begin -> Insert -> Update -> Commit -> TxnEnd
 	chain.Begin().
 		Insert(common.RecordID{

@@ -276,8 +276,8 @@ func (l *txnLogger) Recover() {
 	lastRecordLSN, ATT, DPT := l.recoverAnalyze(checkpointLocation)
 	l.logRecordsCount = uint64(lastRecordLSN)
 
-	earliestLog := l.recoverPrepareCLRs(ATT, DPT)
-	l.recoverRedo(earliestLog.Location)
+	earliestLogLocation := l.recoverPrepareCLRs(ATT, DPT)
+	l.recoverRedo(earliestLogLocation)
 }
 
 func (l *txnLogger) recoverAnalyze(
@@ -459,7 +459,7 @@ func (l *txnLogger) recoverAnalyze(
 func (l *txnLogger) recoverPrepareCLRs(
 	ATT ActiveTransactionsTable,
 	DPT map[common.PageIdentity]common.LogRecordLocInfo,
-) common.LogRecordLocInfo {
+) common.FileLocation {
 	earliestLogLocation := l.masterPage.GetCheckpointLocation()
 	if earliestLogLocation.Lsn == common.NilLSN {
 		earliestLogLocation.Lsn = common.LSN(math.MaxUint64)
@@ -550,7 +550,7 @@ func (l *txnLogger) recoverPrepareCLRs(
 		}
 	}
 
-	return earliestLogLocation
+	return earliestLogLocation.Location
 }
 
 func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
@@ -598,14 +598,7 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 								record.modifiedRecordID.SlotNum,
 								page.SlotStatusInserted,
 							)
-							slotData := lockedPage.UnsafeRead(record.modifiedRecordID.SlotNum)
-
-							assert.Assert(
-								len(record.value) <= len(slotData),
-								"new item len should be at most len of the old one",
-							)
-							clear(slotData)
-							copy(slotData, record.value)
+							lockedPage.UnsafeUpdateNoLogs(record.modifiedRecordID.SlotNum, record.value)
 							return common.NewNilLogRecordLocation(), nil
 						},
 					))
@@ -614,28 +607,20 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 		case TypeUpdate:
 			record := assert.Cast[UpdateLogRecord](record)
 			func() {
-				modifiedPage, err := l.pool.GetPageNoCreate(
-					record.modifiedRecordID.PageIdentity(),
-				)
-				defer func() { l.pool.Unpin(record.modifiedRecordID.PageIdentity()) }()
+				pageIdent := record.modifiedRecordID.PageIdentity()
+				modifiedPage, err := l.pool.GetPageNoCreate(pageIdent)
+				defer l.pool.Unpin(pageIdent)
 
 				assert.NoError(err)
 				assert.NoError(l.pool.WithMarkDirty(
 					common.NilTxnID,
-					record.modifiedRecordID.PageIdentity(),
+					pageIdent,
 					modifiedPage,
 					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-						slotData := modifiedPage.UnsafeRead(
+						lockedPage.UnsafeUpdateNoLogs(
 							record.modifiedRecordID.SlotNum,
+							record.afterValue,
 						)
-
-						assert.Assert(
-							len(record.afterValue) <= len(slotData),
-							"new item len should be at most len of the old one",
-						)
-
-						clear(slotData)
-						copy(slotData, record.afterValue)
 						return common.NewNilLogRecordLocation(), nil
 					},
 				))
@@ -643,15 +628,14 @@ func (l *txnLogger) recoverRedo(earliestLog common.FileLocation) {
 		case TypeDelete:
 			record := assert.Cast[DeleteLogRecord](record)
 			func() {
-				modifiedPage, err := l.pool.GetPageNoCreate(
-					record.modifiedRecordID.PageIdentity(),
-				)
+				pageIdent := record.modifiedRecordID.PageIdentity()
+				modifiedPage, err := l.pool.GetPageNoCreate(pageIdent)
 				assert.NoError(err)
-				defer l.pool.Unpin(record.modifiedRecordID.PageIdentity())
+				defer l.pool.Unpin(pageIdent)
 
 				assert.NoError(l.pool.WithMarkDirty(
 					common.NilTxnID,
-					record.modifiedRecordID.PageIdentity(),
+					pageIdent,
 					modifiedPage,
 					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 						lockedPage.UnsafeOverrideSlotStatus(

@@ -248,6 +248,14 @@ func (p *SlottedPage) LockedRead(slotID uint16) []byte {
 
 func (p *SlottedPage) UnsafeRead(slotID uint16) []byte {
 	ptr := p.assertSlotInserted(slotID)
+	slotData := p.getBytesBySlotPtr(ptr)
+	res := make([]byte, len(slotData))
+	copy(res, slotData)
+	return res
+}
+
+func (p *SlottedPage) slotDataView(slotID uint16) []byte {
+	ptr := p.assertSlotInserted(slotID)
 	return p.getBytesBySlotPtr(ptr)
 }
 
@@ -292,7 +300,7 @@ func (p *SlottedPage) UndoDelete(slotID uint16) {
 }
 
 func (p *SlottedPage) UnsafeUpdateNoLogs(slotID uint16, newData []byte) {
-	data := p.UnsafeRead(slotID)
+	data := p.slotDataView(slotID)
 	assert.Assert(len(data) == len(newData))
 
 	clear(data)
@@ -304,7 +312,7 @@ func (p *SlottedPage) UpdateWithLogs(
 	recordID common.RecordID,
 	logger common.ITxnLoggerWithContext,
 ) (common.LogRecordLocInfo, error) {
-	data := p.UnsafeRead(recordID.SlotNum)
+	data := p.slotDataView(recordID.SlotNum)
 	assert.Assert(
 		len(data) == len(newData),
 		"data and newData have different lengths. data: %d, newData: %d",

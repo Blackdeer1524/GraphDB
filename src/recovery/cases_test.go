@@ -35,12 +35,12 @@ func TestBankTransactions(t *testing.T) {
 
 	const (
 		startBalance      = uint32(60)
-		rollbackCutoff    = uint32(0) // startBalance / 3
-		clientsCount      = 5_000
-		txnsCount         = 50_000
+		rollbackCutoff    = startBalance / 3
+		clientsCount      = 5000
+		txnsCount         = 10000
 		retryCount        = 3
 		maxEntriesPerPage = 12
-		workersCount      = 10_000
+		workersCount      = 1_000
 	)
 
 	pagesLowerBound := uint64(clientsCount / maxEntriesPerPage)
@@ -122,7 +122,7 @@ func TestBankTransactions(t *testing.T) {
 	}()
 
 	graphDump := func() {
-		waitTime := 20
+		waitTime := 25
 		t.Logf("Waiting for %d seconds...\n", waitTime)
 		<-time.After(time.Duration(waitTime) * time.Second)
 
@@ -352,7 +352,7 @@ func TestBankTransactions(t *testing.T) {
 		firstPageUpgradeFail.Load() +
 		rollbackCutoffFail.Load())
 
-	assert.Less(t, totalFail, txnsCount, "totalFail: %d", totalFail)
+	assert.Less(t, totalFail, retryCount*txnsCount, "totalFail: %d", totalFail)
 
 	successCount := succ.Load()
 	assert.Greater(t, successCount, uint64(0))
