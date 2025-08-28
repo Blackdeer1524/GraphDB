@@ -143,8 +143,6 @@ func TestIndex_Get_KeyNotFound(t *testing.T) {
 
 // Delete tests
 
-// Delete tests
-
 func TestBucketPage_Delete(t *testing.T) {
 	const keySize = 4
 	key1 := []byte{1, 2, 3, 4}
@@ -273,3 +271,5 @@ func TestIndex_Delete_KeyNotFound(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to delete key")
 }
+
+// Insert tests

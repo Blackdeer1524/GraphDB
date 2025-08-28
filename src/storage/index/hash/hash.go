@@ -18,6 +18,7 @@ const (
 	overflowPageNotExist                  = ^uint64(0)
 	metaPageDirPagesCount                 = 100
 	dirPageBucketsPtrsCount               = 100
+	ridBytes                              = 8 + 8 + 2 + 2
 )
 
 var (
@@ -84,9 +85,6 @@ func (bp *bucketPage) find(key []byte) (*common.RecordID, error) {
 
 	keyLen := uint16(len(key))
 
-	// FileID + PageID + SlotNum + Existence
-	const ridBytes = 8 + 8 + 2 + 2
-
 	// skip slot with local depth
 	for i := uint16(1); i < ns; i++ {
 		slot := bp.p.Read(i)
@@ -124,10 +122,6 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 
 	keyLen := uint16(len(key))
 
-	// FileID + PageID + SlotNum + Existence
-	const ridBytes = 8 + 8 + 2 + 2
-
-	// skip slot with local depth
 	for i := uint16(1); i < ns; i++ {
 		slot := bp.p.Read(i)
 		if uint16(len(slot)) != keyLen+ridBytes {
@@ -147,7 +141,6 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 			continue
 		}
 
-		// Set existence flag to 0
 		suffix.Exist = 0
 
 		buf := new(bytes.Buffer)
@@ -157,7 +150,6 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 
 		copy(slot[keyLen:], buf.Bytes())
 
-		// Write back the modified slot
 		bp.p.Update(i, slot)
 
 		rid := common.RecordID{
@@ -170,6 +162,10 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 	}
 
 	return common.RecordID{}, ErrKeyNotFound
+}
+
+func (bp *bucketPage) insert(key []byte, rid common.RecordID) (bool, error) {
+	return true, nil
 }
 
 func (h *Index) getRootPage() (*rootPage, error) {
@@ -423,6 +419,81 @@ func (h *Index) Delete(key []byte) (common.RecordID, error) {
 	return rid, nil
 }
 
-func (h *Index) Insert(key []byte, rid common.RecordID) (common.RecordID, error) {
-	panic("not implemented")
+func (h *Index) Insert(key []byte, rid common.RecordID) error {
+	if len(key) != h.keySize {
+		return errors.New("key size is not equal to index key size")
+	}
+
+	rp, err := h.getRootPage()
+	if err != nil {
+		return fmt.Errorf("failed to get root page: %w", err)
+	}
+	defer h.se.Unpin(common.PageIdentity{
+		FileID: h.indexFileID,
+		PageID: common.PageID(rp.pageID),
+	})
+
+	keyHash := hashKeyToUint64(key)
+
+	index := keyHash & ((1 << rp.d) - 1)
+
+	// calc an index of meta page
+	mpIndex := index / (metaPageDirPagesCount * dirPageBucketsPtrsCount)
+
+	mp, err := h.getMetaPage(rp, mpIndex)
+	if err != nil {
+		return fmt.Errorf("failed to get meta page: %w", err)
+	}
+	if mp.pageID != rp.pageID {
+		defer h.se.Unpin(common.PageIdentity{
+			FileID: h.indexFileID,
+			PageID: common.PageID(mp.pageID),
+		})
+	}
+
+	mpOffset := index % (metaPageDirPagesCount * dirPageBucketsPtrsCount)
+
+	dirSlot := mpOffset / dirPageBucketsPtrsCount
+	bucketSlot := uint16(mpOffset % dirPageBucketsPtrsCount)
+
+	dp, err := h.getDirPage(mp, dirSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get dir page: %w", err)
+	}
+	defer h.se.Unpin(common.PageIdentity{
+		FileID: h.indexFileID,
+		PageID: common.PageID(dp.pageID),
+	})
+
+	bucketPtr, err := h.getBucketPage(dp, bucketSlot)
+	if err != nil {
+		return fmt.Errorf("failed to get bucket ptr: %w", err)
+	}
+	defer h.se.Unpin(common.PageIdentity{
+		FileID: h.indexFileID,
+		PageID: common.PageID(bucketPtr.pageID),
+	})
+
+	// only unique keys are allowed
+	_, err = bucketPtr.find(key)
+	if err == nil {
+		return errors.New("key already exists")
+	}
+
+	if !errors.Is(err, ErrKeyNotFound) {
+		return fmt.Errorf("failed to find key: %w", err)
+	}
+
+	inserted, err := bucketPtr.insert(key, rid)
+	if err != nil {
+		return fmt.Errorf("failed to delete key: %w", err)
+	}
+
+	// if inserted to bucket page, we are done
+	// else we need to rebuild
+	if inserted {
+		return nil
+	}
+
+	return errors.New("bucket is full")
 }
