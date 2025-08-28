@@ -1,9 +1,10 @@
 package fuzz
 
 import (
+	"math/rand"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"math/rand"
 )
 
 type OpsGenerator struct {

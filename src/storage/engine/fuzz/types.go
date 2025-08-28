@@ -2,6 +2,7 @@ package fuzz
 
 import (
 	"fmt"
+
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
@@ -36,7 +37,14 @@ func (op Operation) String() string {
 	case OpDropEdgeTable:
 		return fmt.Sprintf("DropEdgeTable(name=%s, txn=%d)", op.Name, op.TxnID)
 	case OpCreateIndex:
-		return fmt.Sprintf("CreateIndex(name=%s, table=%s/%s, cols=%v, txn=%d)", op.Name, op.TableKind, op.Table, op.Columns, op.TxnID)
+		return fmt.Sprintf(
+			"CreateIndex(name=%s, table=%s/%s, cols=%v, txn=%d)",
+			op.Name,
+			op.TableKind,
+			op.Table,
+			op.Columns,
+			op.TxnID,
+		)
 	case OpDropIndex:
 		return fmt.Sprintf("DropIndex(name=%s, txn=%d)", op.Name, op.TxnID)
 	default:

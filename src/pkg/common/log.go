@@ -7,7 +7,7 @@ import (
 
 type LSN uint64
 
-var NIL_LSN LSN = LSN(0)
+var NilLSN LSN = LSN(0)
 
 // is considered NIL iff lsn is NIL_LSN
 type LogRecordLocInfo struct {
@@ -17,13 +17,13 @@ type LogRecordLocInfo struct {
 
 func NewNilLogRecordLocation() LogRecordLocInfo {
 	return LogRecordLocInfo{
-		Lsn:      NIL_LSN,
+		Lsn:      NilLSN,
 		Location: FileLocation{},
 	}
 }
 
 func (p *LogRecordLocInfo) IsNil() bool {
-	return p.Lsn == NIL_LSN
+	return p.Lsn == NilLSN
 }
 
 func (l *LogRecordLocInfo) MarshalBinary() ([]byte, error) {

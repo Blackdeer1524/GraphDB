@@ -8,24 +8,28 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 )
 
 func setupLoggerMasterPage(
 	t *testing.T,
 	pool bufferpool.BufferPool,
-	pgIdent common.PageIdentity,
-	rec common.LogRecordLocInfo,
+	logFileID common.FileID,
+	checkpointInfo common.LogRecordLocInfo,
 ) {
-	pg, err := pool.GetPage(common.PageIdentity{
-		FileID: pgIdent.FileID,
-		PageID: pgIdent.PageID,
-	})
+	pg, err := pool.GetPage(
+		common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID},
+	)
 	require.NoError(t, err)
-	defer pool.Unpin(pgIdent)
+	defer pool.Unpin(common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID})
 
+	pool.MarkDirtyNoLogsAssumeLocked(
+		common.PageIdentity{FileID: logFileID, PageID: common.CheckpointInfoPageID},
+	)
 	masterPage := (*loggerInfoPage)(pg)
 	masterPage.Setup()
-	masterPage.setInfo(rec)
+	masterPage.setCheckpointLocation(checkpointInfo)
+	require.NoError(t, err)
 }
 
 func TestChainSanity(t *testing.T) {
@@ -36,19 +40,24 @@ func TestChainSanity(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: masterRecordPage,
+		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
+
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		logPageId.FileID,
 		common.LogRecordLocInfo{
-			Lsn: 123,
+			Lsn: common.NilLSN,
 			Location: common.FileLocation{
 				PageID:  logPageId.PageID,
 				SlotNum: 0,
@@ -81,7 +90,16 @@ func TestChainSanity(t *testing.T) {
 		PageID: 1,
 	}
 
-	checkpointATT := []common.TxnID{1, 2, 3}
+	checkpointATT := map[common.TxnID]common.LogRecordLocInfo{
+		1: {
+			Lsn: 1,
+			Location: common.FileLocation{
+				PageID:  2,
+				SlotNum: 3,
+			},
+		},
+	}
+
 	checkpointDPT := map[common.PageIdentity]common.LogRecordLocInfo{
 		{
 			FileID: 42,
@@ -118,9 +136,9 @@ func TestChainSanity(t *testing.T) {
 
 	// Begin
 	{
-		data := page.Read(0)
+		data := page.UnsafeRead(0)
 
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 		require.NoError(t, err)
 		require.Equal(t, TypeBegin, tag)
 
@@ -130,9 +148,9 @@ func TestChainSanity(t *testing.T) {
 
 	// Insert
 	{
-		data := page.Read(1)
+		data := page.UnsafeRead(1)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeInsert, tag)
@@ -148,9 +166,9 @@ func TestChainSanity(t *testing.T) {
 
 	// Update
 	{
-		data := page.Read(2)
+		data := page.UnsafeRead(2)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeUpdate, tag)
@@ -167,9 +185,9 @@ func TestChainSanity(t *testing.T) {
 
 	// Delete
 	{
-		data := page.Read(3)
+		data := page.UnsafeRead(3)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeDelete, tag)
@@ -184,9 +202,9 @@ func TestChainSanity(t *testing.T) {
 
 	// Abort
 	{
-		data := page.Read(4)
+		data := page.UnsafeRead(4)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeAbort, tag)
@@ -199,9 +217,9 @@ func TestChainSanity(t *testing.T) {
 
 	// Commit
 	{
-		data := page.Read(5)
+		data := page.UnsafeRead(5)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeCommit, tag)
@@ -214,9 +232,9 @@ func TestChainSanity(t *testing.T) {
 
 	// CheckpointBegin
 	{
-		data := page.Read(6)
+		data := page.UnsafeRead(6)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeCheckpointBegin, tag)
@@ -227,9 +245,9 @@ func TestChainSanity(t *testing.T) {
 
 	// CheckpointEnd
 	{
-		data := page.Read(7)
+		data := page.UnsafeRead(7)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeCheckpointEnd, tag)
@@ -243,9 +261,9 @@ func TestChainSanity(t *testing.T) {
 
 	// TxnEnd
 	{
-		data := page.Read(8)
+		data := page.UnsafeRead(8)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeTxnEnd, tag)
@@ -257,32 +275,37 @@ func TestChainSanity(t *testing.T) {
 
 func TestChain(t *testing.T) {
 	logFileID := common.FileID(42)
+	logPageId := common.PageID(23)
+	logPageIdent := common.PageIdentity{
+		FileID: logFileID,
+		PageID: logPageId,
+	}
+
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logFileID,
-		PageID: masterRecordPage,
+		PageID: common.CheckpointInfoPageID,
 	}
 
-	pool := bufferpool.NewBufferPoolMock(
-		[]common.PageIdentity{masterRecordPageIdent},
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
 	)
-
-	logPageId := common.PageIdentity{
-		FileID: logFileID,
-		PageID: 23,
-	}
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		logFileID,
 		common.LogRecordLocInfo{
-			Lsn: 1,
+			Lsn: common.NilLSN,
 			Location: common.FileLocation{
-				PageID:  logPageId.PageID,
+				PageID:  logPageId,
 				SlotNum: 0,
 			},
 		},
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
+	logger := NewTxnLogger(pool, logFileID)
 
 	dataPageId := common.PageIdentity{
 		FileID: 1,
@@ -307,18 +330,18 @@ func TestChain(t *testing.T) {
 	require.NoError(t, chain.Err())
 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
-	page, err := pool.GetPage(logPageId)
+	page, err := pool.GetPage(logPageIdent)
 	require.NoError(t, err)
 
-	defer func() { pool.Unpin(logPageId) }()
+	defer func() { pool.Unpin(logPageIdent) }()
 
 	page.RLock()
 	defer page.RUnlock()
 
 	{
-		data := page.Read(0)
+		data := page.UnsafeRead(0)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeBegin, tag)
@@ -328,9 +351,9 @@ func TestChain(t *testing.T) {
 		require.Equal(t, TransactionID_1, r.txnID)
 	}
 	{
-		data := page.Read(1)
+		data := page.UnsafeRead(1)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeInsert, tag)
@@ -339,11 +362,10 @@ func TestChain(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, TransactionID_1, r.txnID)
 	}
-
 	{
-		data := page.Read(2)
+		data := page.UnsafeRead(2)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeBegin, tag)
@@ -353,9 +375,9 @@ func TestChain(t *testing.T) {
 		require.Equal(t, TransactionID_2, r.txnID)
 	}
 	{
-		data := page.Read(3)
+		data := page.UnsafeRead(3)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeInsert, tag)
@@ -365,9 +387,9 @@ func TestChain(t *testing.T) {
 		require.Equal(t, TransactionID_2, r.txnID)
 	}
 	{
-		data := page.Read(4)
+		data := page.UnsafeRead(4)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeUpdate, tag)
@@ -376,11 +398,10 @@ func TestChain(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, TransactionID_2, r.txnID)
 	}
-
 	{
-		data := page.Read(5)
+		data := page.UnsafeRead(5)
 		require.NoError(t, err)
-		tag, untypedRecord, err := readLogRecord(data)
+		tag, untypedRecord, err := parseLogRecord(data)
 
 		require.NoError(t, err)
 		require.Equal(t, TypeUpdate, tag)

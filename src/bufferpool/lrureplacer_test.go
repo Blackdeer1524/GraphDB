@@ -1,6 +1,7 @@
 package bufferpool
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,4 +56,150 @@ func TestLRUChooseVictimEmpty(t *testing.T) {
 
 	_, err := r.ChooseVictim()
 	assert.Error(t, err)
+}
+
+func TestLRUReplacerConcurrentUnpin(t *testing.T) {
+	r := NewLRUReplacer()
+
+	const numFrames = 200
+	fileID := common.FileID(7)
+
+	var wg sync.WaitGroup
+	wg.Add(numFrames)
+	for i := 0; i < numFrames; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			r.Unpin(common.PageIdentity{FileID: fileID, PageID: common.PageID(i)}) //nolint:gosec
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, uint64(numFrames), r.GetSize())
+
+	victims := make([]common.PageIdentity, 0, numFrames)
+	for i := 0; i < numFrames; i++ {
+		v, err := r.ChooseVictim()
+		assert.NoError(t, err)
+		victims = append(victims, v)
+	}
+
+	// Ensure all inserted frames were eventually returned as victims
+	expected := make([]common.PageIdentity, 0, numFrames)
+	for i := 0; i < numFrames; i++ {
+		expected = append(
+			expected,
+			common.PageIdentity{FileID: fileID, PageID: common.PageID(i)}, //nolint:gosec
+		)
+	}
+	assert.ElementsMatch(t, expected, victims)
+	assert.Equal(t, uint64(0), r.GetSize())
+}
+
+func TestLRUReplacerConcurrentPinAndUnpin(t *testing.T) {
+	r := NewLRUReplacer()
+
+	const initial = 150
+	const added = 100
+	fileID := common.FileID(13)
+
+	// Seed with initial frames
+	for i := 0; i < initial; i++ {
+		r.Unpin(common.PageIdentity{FileID: fileID, PageID: common.PageID(i)}) //nolint:gosec
+	}
+	assert.Equal(t, uint64(initial), r.GetSize())
+
+	var wg sync.WaitGroup
+	// Concurrently pin all initial frames (removing them)
+	wg.Add(initial)
+	for i := 0; i < initial; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			r.Pin(common.PageIdentity{FileID: fileID, PageID: common.PageID(i)}) //nolint:gosec
+		}()
+	}
+
+	// Concurrently unpin a new disjoint set of frames
+	wg.Add(added)
+	for i := initial; i < initial+added; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			r.Unpin(common.PageIdentity{FileID: fileID, PageID: common.PageID(i)}) //nolint:gosec
+		}()
+	}
+
+	wg.Wait()
+
+	// All initial frames should be pinned (removed), and only the added ones remain
+	assert.Equal(t, uint64(added), r.GetSize())
+
+	// Collect victims and ensure they are exactly the added set
+	victims := make([]common.PageIdentity, 0, added)
+	for i := 0; i < added; i++ {
+		v, err := r.ChooseVictim()
+		assert.NoError(t, err)
+		victims = append(victims, v)
+	}
+	expected := make([]common.PageIdentity, 0, added)
+	for i := initial; i < initial+added; i++ {
+		expected = append(
+			expected,
+			common.PageIdentity{FileID: fileID, PageID: common.PageID(i)}, //nolint:gosec
+		)
+	}
+	assert.ElementsMatch(t, expected, victims)
+	assert.Equal(t, uint64(0), r.GetSize())
+}
+
+func TestLRUReplacerParallelChooseVictim(t *testing.T) {
+	r := NewLRUReplacer()
+
+	const numFrames = 128
+	fileID := common.FileID(21)
+	for i := 0; i < numFrames; i++ {
+		r.Unpin(common.PageIdentity{FileID: fileID, PageID: common.PageID(i)}) //nolint:gosec
+	}
+
+	var wg sync.WaitGroup
+	victimsCh := make(chan common.PageIdentity, numFrames)
+	errsCh := make(chan error, numFrames)
+
+	wg.Add(numFrames)
+	for i := 0; i < numFrames; i++ {
+		go func() {
+			defer wg.Done()
+			v, err := r.ChooseVictim()
+			if err != nil {
+				errsCh <- err
+				return
+			}
+			victimsCh <- v
+		}()
+	}
+
+	wg.Wait()
+	close(victimsCh)
+	close(errsCh)
+
+	// No errors expected because we seeded exactly numFrames
+	for err := range errsCh {
+		assert.NoError(t, err)
+	}
+
+	victims := make([]common.PageIdentity, 0, numFrames)
+	for v := range victimsCh {
+		victims = append(victims, v)
+	}
+
+	expected := make([]common.PageIdentity, 0, numFrames)
+	for i := 0; i < numFrames; i++ {
+		expected = append(
+			expected,
+			common.PageIdentity{FileID: fileID, PageID: common.PageID(i)}, //nolint:gosec
+		)
+	}
+	assert.ElementsMatch(t, expected, victims)
+	assert.Equal(t, uint64(0), r.GetSize())
 }

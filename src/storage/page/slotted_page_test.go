@@ -29,7 +29,7 @@ func TestInsertAndGet(t *testing.T) {
 	}
 
 	for i, id := range slotIDs {
-		got := page.Read(id)
+		got := page.UnsafeRead(id)
 		assert.Equal(
 			t,
 			string(records[i]),
@@ -52,7 +52,7 @@ func TestInsertAndGetLarger(t *testing.T) {
 	}
 
 	for j := range i {
-		data := page.Read(uint16(j))
+		data := page.UnsafeRead(uint16(j))
 		expected := []byte(strconv.Itoa(j))
 		assert.Equal(t, expected, data)
 	}
@@ -81,7 +81,7 @@ func TestInvalidSlotID(t *testing.T) {
 	page := NewSlottedPage()
 	assert.Panicsf(t,
 		func() {
-			_ = page.Read(uint16(999))
+			_ = page.UnsafeRead(uint16(999))
 		},
 		"123",
 	)
@@ -94,9 +94,9 @@ func TestUpdateSuccess(t *testing.T) {
 	page.insertCommit(slot.Unwrap())
 
 	newData := []byte("changed0")
-	page.Update(slot.Unwrap(), newData)
+	page.UnsafeUpdateNoLogs(slot.Unwrap(), newData)
 
-	got := page.Read(slot.Unwrap())
+	got := page.UnsafeRead(slot.Unwrap())
 	assert.Equal(t, newData, got)
 }
 
@@ -109,10 +109,10 @@ func TestUpdateTooLarge(t *testing.T) {
 
 	newData := []byte("this is too long")
 	require.Panics(t, func() {
-		page.Update(slot.Unwrap(), newData)
+		page.UnsafeUpdateNoLogs(slot.Unwrap(), newData)
 	}, "Update should fail when newData is too large")
 
-	got := page.Read(slot.Unwrap())
+	got := page.UnsafeRead(slot.Unwrap())
 	assert.NotEqual(t, newData, got)
 	assert.Equal(t, len(orig), len(got))
 }
@@ -124,7 +124,7 @@ func TestDeleteRemovesData(t *testing.T) {
 	require.NotEqual(t, slot, None[uint16]())
 	page.insertCommit(slot.Unwrap())
 
-	page.Delete(slot.Unwrap())
+	page.UnsafeDeleteNoLogs(slot.Unwrap())
 
 	// After delete, the slot status should be Deleted
 	header := page.getHeader()
@@ -147,14 +147,14 @@ func TestDeleteRemovesData(t *testing.T) {
 
 	// Trying to GetBytes should panic
 	assert.Panics(t, func() {
-		_ = page.Read(slot.Unwrap())
+		_ = page.UnsafeRead(slot.Unwrap())
 	})
 }
 
 func TestDeleteInvalidSlotPanics(t *testing.T) {
 	page := NewSlottedPage()
 	assert.Panics(t, func() {
-		page.Delete(1234)
+		page.UnsafeDeleteNoLogs(1234)
 	})
 }
 
@@ -165,9 +165,9 @@ func TestDeleteTwicePanics(t *testing.T) {
 	require.NotEqual(t, slot, None[uint16]())
 	page.insertCommit(slot.Unwrap())
 
-	page.Delete(slot.Unwrap())
+	page.UnsafeDeleteNoLogs(slot.Unwrap())
 	assert.Panics(t, func() {
-		page.Delete(slot.Unwrap())
+		page.UnsafeDeleteNoLogs(slot.Unwrap())
 	})
 }
 
@@ -178,14 +178,14 @@ func TestGetBytes_ValidSlot(t *testing.T) {
 	require.NotEqual(t, slot, None[uint16]())
 	page.insertCommit(slot.Unwrap())
 
-	got := page.Read(slot.Unwrap())
+	got := page.UnsafeRead(slot.Unwrap())
 	assert.Equal(t, data, got, "GetBytes should return the correct data")
 }
 
 func TestGetBytes_InvalidSlotID_Panics(t *testing.T) {
 	page := NewSlottedPage()
 	assert.Panics(t, func() {
-		_ = page.Read(9999)
+		_ = page.UnsafeRead(9999)
 	}, "GetBytes should panic for invalid slotID")
 }
 
@@ -195,7 +195,7 @@ func TestGetBytes_NotCommitted_Panics(t *testing.T) {
 	slot := page.insertPrepare(data)
 	// Not calling InsertCommit
 	assert.Panics(t, func() {
-		_ = page.Read(slot.Unwrap())
+		_ = page.UnsafeRead(slot.Unwrap())
 	}, "GetBytes should panic if slot is not committed")
 }
 
@@ -205,10 +205,10 @@ func TestGetBytes_DeletedSlot_Panics(t *testing.T) {
 	slot := page.insertPrepare(data)
 	require.NotEqual(t, slot, None[uint16]())
 	page.insertCommit(slot.Unwrap())
-	page.Delete(slot.Unwrap())
+	page.UnsafeDeleteNoLogs(slot.Unwrap())
 
 	assert.Panics(t, func() {
-		_ = page.Read(slot.Unwrap())
+		_ = page.UnsafeRead(slot.Unwrap())
 	}, "GetBytes should panic if slot is deleted")
 }
 
@@ -220,7 +220,7 @@ func TestUndoDelete_RestoresDataAndStatus(t *testing.T) {
 	page.insertCommit(slot.Unwrap())
 
 	// Delete the slot
-	page.Delete(slot.Unwrap())
+	page.UnsafeDeleteNoLogs(slot.Unwrap())
 	page.UndoDelete(slot.Unwrap())
 
 	// Slot status should be Inserted again
@@ -234,7 +234,7 @@ func TestUndoDelete_RestoresDataAndStatus(t *testing.T) {
 	)
 
 	// Data should be restored
-	got := page.Read(slot.Unwrap())
+	got := page.UnsafeRead(slot.Unwrap())
 	assert.Equal(
 		t,
 		orig,

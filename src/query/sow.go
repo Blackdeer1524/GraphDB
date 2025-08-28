@@ -127,7 +127,10 @@ func (e *Executor) bfsWithDepth(
 
 // GetVertexesOnDepth is the first query from SOW. It returns all vertexes on a given depth.
 // We will use BFS on graph because DFS cannot calculate right depth on graphs (except trees).
-func (e *Executor) GetVertexesOnDepth(start storage.VertexID, targetDepth uint32) (r []storage.VertexIDWithRID, err error) {
+func (e *Executor) GetVertexesOnDepth(
+	start storage.VertexID,
+	targetDepth uint32,
+) (r []storage.VertexIDWithRID, err error) {
 	if e.se == nil {
 		return nil, errors.New("storage engine is nil")
 	}
@@ -170,7 +173,10 @@ func (e *Executor) GetVertexesOnDepth(start storage.VertexID, targetDepth uint32
 
 // GetAllVertexesWithFieldValue is the second query from SOW.
 // It returns all vertexes with a given field value.
-func (e *Executor) GetAllVertexesWithFieldValue(field string, value []byte) (res []*storage.Vertex, err error) {
+func (e *Executor) GetAllVertexesWithFieldValue(
+	field string,
+	value []byte,
+) (res []*storage.Vertex, err error) {
 	if e.se == nil {
 		return nil, errors.New("storage engine is nil")
 	}
@@ -301,7 +307,11 @@ func (e *Executor) sumAttributeOverProperNeighbors(tx common.TxnID, v *storage.V
 
 		d, ok := data.(float64)
 		if !ok {
-			return 0, fmt.Errorf("failed to convert field %s of vertex %v to float64", field, nbIter.ID)
+			return 0, fmt.Errorf(
+				"failed to convert field %s of vertex %v to float64",
+				field,
+				nbIter.ID,
+			)
 		}
 
 		res += d
@@ -313,8 +323,11 @@ func (e *Executor) sumAttributeOverProperNeighbors(tx common.TxnID, v *storage.V
 // SumNeighborAttributes is the forth query from SOW. For each vertex it computes
 // the sum of a given attribute over its neighboring vertices, subject to a constraint on the edge
 // or attribute value (e.g., only include neighbors whose attribute exceeds a given threshold).
-func (e *Executor) SumNeighborAttributes(field string, filter storage.EdgeFilter,
-	pred storage.SumNeighborAttributesFilter) (r storage.AssociativeArray[storage.VertexID, float64], err error) {
+func (e *Executor) SumNeighborAttributes(
+	field string,
+	filter storage.EdgeFilter,
+	pred storage.SumNeighborAttributesFilter,
+) (r storage.AssociativeArray[storage.VertexID, float64], err error) {
 	if e.se == nil {
 		return nil, errors.New("storage engine is nil")
 	}
@@ -357,7 +370,11 @@ func (e *Executor) SumNeighborAttributes(field string, filter storage.EdgeFilter
 
 		res, err = e.sumAttributeOverProperNeighbors(tx, v, field, filter)
 		if err != nil {
-			return nil, fmt.Errorf("failed to sum attribute over neighbors of vertex %v: %w", v.ID, err)
+			return nil, fmt.Errorf(
+				"failed to sum attribute over neighbors of vertex %v: %w",
+				v.ID,
+				err,
+			)
 		}
 
 		if !pred(res) {
@@ -406,7 +423,10 @@ func (e *Executor) countCommonNeighbors(tx common.TxnID, left storage.VertexID,
 	return r, nil
 }
 
-func (e *Executor) getVertexTriangleCount(tx common.TxnID, v *storage.Vertex) (r uint64, err error) {
+func (e *Executor) getVertexTriangleCount(
+	tx common.TxnID,
+	v *storage.Vertex,
+) (r uint64, err error) {
 	r = 0
 
 	var leftNeighborsIter storage.NeighborIter

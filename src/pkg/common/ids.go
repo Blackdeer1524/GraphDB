@@ -9,10 +9,14 @@ type PageID uint64
 type FileID uint64
 type TableID uint64
 
+const CheckpointInfoPageID = PageID(0)
+
 // TxnID is a monotonically increasing counter. It is guaranteed to be unique between transactions
 // WARN: there might be problems with synchronization
 // in distributed systems that use this kind of transaction IDs
 type TxnID uint64
+
+const NilTxnID = TxnID(0)
 
 type PageIdentity struct {
 	FileID FileID

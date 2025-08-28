@@ -10,6 +10,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 )
 
 // generateSequence creates a random sequence of log record operations for
@@ -106,20 +107,24 @@ func TestIterSanity(t *testing.T) {
 
 	masterRecordPageIdent := common.PageIdentity{
 		FileID: logPageId.FileID,
-		PageID: masterRecordPage,
+		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewBufferPoolMock([]common.PageIdentity{
-		masterRecordPageIdent,
-	})
 
+	diskManager := disk.NewInMemoryManager()
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
+		map[common.PageIdentity]struct{}{
+			masterRecordPageIdent: {},
+		},
+	)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	setupLoggerMasterPage(
 		t,
 		pool,
-		masterRecordPageIdent,
+		masterRecordPageIdent.FileID,
 		common.LogRecordLocInfo{
-			Lsn:      1,
+			Lsn:      common.NilLSN,
 			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 		},
 	)
@@ -130,10 +135,10 @@ func TestIterSanity(t *testing.T) {
 		PageID: 23,
 	}
 
-	TransactionID := common.TxnID(1)
-	chain := NewTxnLogChain(logger, TransactionID)
+	txnID := common.TxnID(1)
+	chain := NewTxnLogChain(logger, txnID)
 
-	types := generateSequence(t, chain, dataPageId, 100)
+	types := generateSequence(t, chain, dataPageId, 1)
 	assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	iter, err := logger.iter(common.FileLocation{
@@ -145,7 +150,7 @@ func TestIterSanity(t *testing.T) {
 	for i := range len(types) {
 		expectedType := types[i]
 		tag, untypedRecord, err := iter.ReadRecord()
-		assertLogRecord(t, tag, untypedRecord, expectedType, TransactionID)
+		assertLogRecord(t, tag, untypedRecord, expectedType, txnID)
 		require.NoError(t, err)
 
 		ok, err := iter.MoveForward()

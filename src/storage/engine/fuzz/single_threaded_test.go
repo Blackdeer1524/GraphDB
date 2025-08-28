@@ -9,23 +9,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
-	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
+	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 // applyOp is a convenient wrapper to apply an operation to the engine.
 // It uses the model as a schema provider for create operations.
-func applyOp(se *engine.StorageEngine, op Operation, baseDir string) OpResult {
+func applyOp(
+	se *engine.StorageEngine,
+	op Operation,
+	baseDir string,
+	logger common.ITxnLoggerWithContext,
+) OpResult {
 	res := OpResult{Op: op}
 	var err error
 
 	switch op.Type {
 	case OpCreateVertexTable:
-		err = se.CreateVertexTable(op.TxnID, op.Name, nil)
+		err = se.CreateVertexTable(op.TxnID, op.Name, nil, logger)
 	case OpDropVertexTable:
-		err = se.DropVertexTable(op.TxnID, op.Name)
+		err = se.DropVertexTable(op.TxnID, op.Name, logger)
 		if err == nil {
 			filePath := engine.GetVertexTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
@@ -34,9 +42,9 @@ func applyOp(se *engine.StorageEngine, op Operation, baseDir string) OpResult {
 			}
 		}
 	case OpCreateEdgeTable:
-		err = se.CreateEdgesTable(op.TxnID, op.Name, nil)
+		err = se.CreateEdgesTable(op.TxnID, op.Name, nil, logger)
 	case OpDropEdgeTable:
-		err = se.DropEdgesTable(op.TxnID, op.Name)
+		err = se.DropEdgesTable(op.TxnID, op.Name, logger)
 		if err == nil {
 			filePath := engine.GetEdgeTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
@@ -45,9 +53,17 @@ func applyOp(se *engine.StorageEngine, op Operation, baseDir string) OpResult {
 			}
 		}
 	case OpCreateIndex:
-		err = se.CreateIndex(op.TxnID, op.Name, op.Table, op.TableKind, op.Columns, 8)
+		err = se.CreateIndex(
+			op.TxnID,
+			op.Name,
+			op.Table,
+			op.TableKind,
+			op.Columns,
+			8,
+			logger,
+		)
 	case OpDropIndex:
-		err = se.DropIndex(op.TxnID, op.Name)
+		err = se.DropIndex(op.TxnID, op.Name, logger)
 		if err == nil {
 			filePath := engine.GetIndexFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
@@ -78,8 +94,8 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(baseDir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := newMockRWMutexLockManager()
-	se, err := engine.New(baseDir, uint64(200), afero.NewOsFs(), lockMgr)
+	lockMgr := txns.NewHierarchyLocker()
+	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	model := newEngineSimulator()
@@ -89,22 +105,21 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	operations := NewOpsGenerator(r, opsCount).Gen()
 
 	i := 0
-
 	for op := range operations {
-		res := applyOp(se, op, baseDir)
+		res := applyOp(se, op, baseDir, common.NoLogs())
 
 		model.apply(op, res)
-		lockMgr.UnlockAll()
+		lockMgr.UnlockByTxnID(op.TxnID)
 
 		if i%25 == 0 {
 			t.Logf("validate invariants at step=%d", i)
-			model.compareWithEngineFS(t, baseDir, se, lockMgr)
+			model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
 		}
 
 		i += 1
 	}
 
-	model.compareWithEngineFS(t, baseDir, se, lockMgr)
+	model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
 
 	t.Logf("fuzz ok: seed=%d, ops=%d", seed, opsCount)
 }
@@ -119,8 +134,8 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 	err := systemcatalog.InitSystemCatalog(baseDir, afero.NewOsFs())
 	require.NoError(t, err)
 
-	lockMgr := newMockRWMutexLockManager()
-	se, err := engine.New(baseDir, uint64(200), afero.NewOsFs(), lockMgr)
+	lockMgr := txns.NewHierarchyLocker()
+	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	model := newEngineSimulator()
@@ -155,19 +170,19 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 					return
 				}
 
-				res := applyOp(se, op, baseDir)
+				res := applyOp(se, op, baseDir, common.NoLogs())
 
-				lockMgr.UnlockAll()
-
-				mu.Lock()
-				sequence++
-				applied = append(applied, AppliedOp{
-					op:       op,
-					res:      res,
-					sequence: sequence,
-				})
-
-				mu.Unlock()
+				lockMgr.UnlockByTxnID(op.TxnID)
+				if res.Success {
+					mu.Lock()
+					sequence++
+					applied = append(applied, AppliedOp{
+						op:       op,
+						res:      res,
+						sequence: sequence,
+					})
+					mu.Unlock()
+				}
 			}
 		}()
 	}
@@ -182,7 +197,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 		model.apply(a.op, a.res)
 	}
 
-	model.compareWithEngineFS(t, baseDir, se, lockMgr)
+	model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
 
 	t.Logf("fuzz ok: seed=%d, threads=%d, ops=%d", seed, numThreads, totalOps)
 }

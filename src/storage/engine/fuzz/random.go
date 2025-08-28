@@ -1,9 +1,10 @@
 package fuzz
 
 import (
-	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"math/rand"
 	"strconv"
+
+	"github.com/Blackdeer1524/GraphDB/src/storage"
 )
 
 func getRandomMapKey[K comparable, V any](r *rand.Rand, m map[K]V) (K, bool) {
@@ -59,7 +60,11 @@ func randomSchema(r *rand.Rand) storage.Schema {
 	return schema
 }
 
-func randomIndexNameForCreate(r *rand.Rand, existingTables map[string]storage.Index, exist int) string {
+func randomIndexNameForCreate(
+	r *rand.Rand,
+	existingTables map[string]storage.Index,
+	exist int,
+) string {
 	d := r.Intn(10)
 
 	if d < exist {
@@ -71,7 +76,11 @@ func randomIndexNameForCreate(r *rand.Rand, existingTables map[string]storage.In
 	return "idx_" + randomString(r, 10)
 }
 
-func randomIndexNameForDrop(r *rand.Rand, existingIndexes map[string]storage.Index, exist int) string {
+func randomIndexNameForDrop(
+	r *rand.Rand,
+	existingIndexes map[string]storage.Index,
+	exist int,
+) string {
 	d := r.Intn(10)
 
 	if d < exist {

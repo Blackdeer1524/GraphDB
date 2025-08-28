@@ -6,6 +6,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
@@ -33,6 +34,10 @@ func newLogRecordIter(
 
 var ErrInvalidIterator = errors.New("iterator is invalid")
 
+func (iter *LogRecordsIter) PageID() common.PageID {
+	return iter.curLoc.PageID
+}
+
 // Returns an error only if couldn't read the next page
 func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 	assert.Assert(iter.currentPage != nil)
@@ -58,7 +63,7 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 			PageID: iter.curLoc.PageID + 1,
 		})
 
-	if errors.Is(err, bufferpool.ErrNoSuchPage) {
+	if errors.Is(err, disk.ErrNoSuchPage) {
 		return false, nil
 	} else if err != nil {
 		return false, err
@@ -72,10 +77,8 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 }
 
 func (iter *LogRecordsIter) ReadRecord() (LogRecordTypeTag, any, error) {
-	iter.currentPage.RLock()
-	d := iter.currentPage.Read(iter.curLoc.SlotNum)
-	iter.currentPage.RUnlock()
-	return readLogRecord(d)
+	d := iter.currentPage.LockedRead(iter.curLoc.SlotNum)
+	return parseLogRecord(d)
 }
 
 func (iter *LogRecordsIter) Location() common.FileLocation {

@@ -517,7 +517,7 @@ func (c *CheckpointBeginLogRecord) MarshalBinary() ([]byte, error) {
 
 func (c *CheckpointBeginLogRecord) UnmarshalBinary(data []byte) error {
 	if len(data) < 1 || data[0] != byte(TypeCheckpointBegin) {
-		return errors.New("invalid type tag for CompensationLogRecord")
+		return errors.New("invalid type tag for CheckpointBeginLogRecord")
 	}
 
 	reader := bytes.NewReader(data[1:])
@@ -537,31 +537,34 @@ func (c *CheckpointEndLogRecord) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 
-	// Write active transactions
+	// Write active transactions map
 	//nolint:gosec
 	if err := binary.Write(buf, binary.BigEndian, uint32(len(c.activeTransactions))); err != nil {
 		return nil, err
 	}
 
-	for _, TransactionID := range c.activeTransactions {
-		if err := binary.Write(buf, binary.BigEndian, TransactionID); err != nil {
+	for txnID, logLocInfo := range c.activeTransactions {
+		if err := binary.Write(buf, binary.BigEndian, txnID); err != nil {
+			return nil, err
+		}
+		if err := binary.Write(buf, binary.BigEndian, logLocInfo); err != nil {
 			return nil, err
 		}
 	}
 
-	// Write dirty page table
+	// Write dirty page table map
 	//nolint:gosec
 	if err := binary.Write(buf, binary.BigEndian, uint32(len(c.dirtyPageTable))); err != nil {
 		return nil, err
 	}
 
-	for pageID, pageInfo := range c.dirtyPageTable {
-		// Write page identity length and data
+	for pageID, logLocInfo := range c.dirtyPageTable {
+		// Write page identity
 		if err := binary.Write(buf, binary.BigEndian, pageID); err != nil {
 			return nil, err
 		}
-		// Write associated LSN
-		if err := binary.Write(buf, binary.BigEndian, pageInfo); err != nil {
+		// Write associated log record location info
+		if err := binary.Write(buf, binary.BigEndian, logLocInfo); err != nil {
 			return nil, err
 		}
 	}
@@ -585,48 +588,52 @@ func (c *CheckpointEndLogRecord) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	// Read active transactions
+	// Read active transactions map
 	var activeTxnsLen uint32
 	if err := binary.Read(reader, binary.BigEndian, &activeTxnsLen); err != nil {
 		return err
 	}
 
-	c.activeTransactions = make([]common.TxnID, activeTxnsLen)
-	for i := range c.activeTransactions {
-		if err := binary.Read(reader, binary.BigEndian, &c.activeTransactions[i]); err != nil {
+	c.activeTransactions = make(map[common.TxnID]common.LogRecordLocInfo, activeTxnsLen)
+	for i := 0; i < int(activeTxnsLen); i++ {
+		var txnID common.TxnID
+		if err := binary.Read(reader, binary.BigEndian, &txnID); err != nil {
 			return err
 		}
+
+		var logLocInfo common.LogRecordLocInfo
+		if err := binary.Read(reader, binary.BigEndian, &logLocInfo); err != nil {
+			return err
+		}
+
+		c.activeTransactions[txnID] = logLocInfo
 	}
 
-	// Read dirty page table
+	// Read dirty page table map
 	var dirtyPagesLen uint32
 	if err := binary.Read(reader, binary.BigEndian, &dirtyPagesLen); err != nil {
 		return err
 	}
 
-	c.dirtyPageTable = make(
-		map[common.PageIdentity]common.LogRecordLocInfo,
-		dirtyPagesLen,
-	)
-
+	c.dirtyPageTable = make(map[common.PageIdentity]common.LogRecordLocInfo, dirtyPagesLen)
 	for i := 0; i < int(dirtyPagesLen); i++ {
 		var pageID common.PageIdentity
 		if err := binary.Read(reader, binary.BigEndian, &pageID); err != nil {
 			return err
 		}
 
-		var logInfo common.LogRecordLocInfo
-		if err := binary.Read(reader, binary.BigEndian, &logInfo); err != nil {
+		var logLocInfo common.LogRecordLocInfo
+		if err := binary.Read(reader, binary.BigEndian, &logLocInfo); err != nil {
 			return err
 		}
 
-		c.dirtyPageTable[pageID] = logInfo
+		c.dirtyPageTable[pageID] = logLocInfo
 	}
 
 	return nil
 }
 
-func readLogRecord(data []byte) (LogRecordTypeTag, any, error) {
+func parseLogRecord(data []byte) (LogRecordTypeTag, any, error) {
 	switch LogRecordTypeTag(data[0]) {
 	case TypeBegin:
 		r := BeginLogRecord{}

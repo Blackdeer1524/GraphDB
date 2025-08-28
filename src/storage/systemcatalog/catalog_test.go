@@ -7,12 +7,15 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
-	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/Blackdeer1524/GraphDB/src/storage/page"
-	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog/mocks"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
 func Test_getSystemCatalogFilename(t *testing.T) {
@@ -67,8 +70,12 @@ func TestManager_Save_CreatesNewVersionFile(t *testing.T) {
 	dir := t.TempDir()
 
 	p := page.NewSlottedPage()
+	p.UnsafeInsertNoLogs(utils.ToBytes(uint64(0)))
 
-	p.Insert(utils.ToBytes(uint64(0)))
+	pool := bufferpool.NewDebugBufferPool(
+		bufferpool.New(10, bufferpool.NewLRUReplacer(), disk.NewInMemoryManager()),
+		make(map[common.PageIdentity]struct{}),
+	)
 
 	m := &Manager{
 		basePath: dir,
@@ -81,12 +88,12 @@ func TestManager_Save_CreatesNewVersionFile(t *testing.T) {
 		},
 		currentVersion:     0,
 		currentVersionPage: p,
-		bp:                 &mocks.MockDataBufferPool{},
+		bp:                 pool,
 
 		mu: new(sync.RWMutex),
 	}
 
-	err := m.Save()
+	err := m.Save(common.NoLogs())
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), m.currentVersion)
 
@@ -106,7 +113,7 @@ func TestManager_Save_Twice_IncrementsVersion(t *testing.T) {
 
 	p := page.NewSlottedPage()
 
-	p.Insert(utils.ToBytes(uint64(0)))
+	p.UnsafeInsertNoLogs(utils.ToBytes(uint64(0)))
 
 	m := &Manager{
 		basePath: dir,
@@ -119,15 +126,18 @@ func TestManager_Save_Twice_IncrementsVersion(t *testing.T) {
 		},
 		currentVersion:     0,
 		currentVersionPage: p,
-		bp:                 &mocks.MockDataBufferPool{},
+		bp: bufferpool.NewDebugBufferPool(
+			bufferpool.New(10, bufferpool.NewLRUReplacer(), disk.NewInMemoryManager()),
+			make(map[common.PageIdentity]struct{}),
+		),
 
 		mu: new(sync.RWMutex),
 	}
 
-	err := m.Save()
+	err := m.Save(common.NoLogs())
 	require.NoError(t, err)
 
-	err = m.Save()
+	err = m.Save(common.NoLogs())
 	require.NoError(t, err)
 
 	require.Equal(t, uint64(2), m.currentVersion)
@@ -164,7 +174,7 @@ func TestManager_updateSystemCatalogData(t *testing.T) {
 	}
 
 	p := page.NewSlottedPage()
-	p.Insert(utils.ToBytes(uint64(1)))
+	p.UnsafeInsertNoLogs(utils.ToBytes(uint64(1)))
 
 	m := &Manager{
 		basePath:           dir,
@@ -210,7 +220,7 @@ func TestManager_updateSystemCatalogData_NoUpdate(t *testing.T) {
 	}
 
 	p := page.NewSlottedPage()
-	p.Insert(utils.ToBytes(uint64(1)))
+	p.UnsafeInsertNoLogs(utils.ToBytes(uint64(1)))
 
 	m := &Manager{
 		basePath:           dir,

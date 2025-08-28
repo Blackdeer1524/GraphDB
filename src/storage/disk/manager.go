@@ -3,118 +3,133 @@ package disk
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
+
+var ErrNoSuchPage = errors.New("no such page")
 
 const PageSize = 4096
 
-type Manager[T Page] struct {
+type Manager struct {
+	mu           sync.Mutex
 	fileIDToPath map[common.FileID]string
-	newPageFunc  func() T
-
-	mu *sync.RWMutex
+	newPageFunc  func(fileID common.FileID, pageID common.PageID) *page.SlottedPage
 }
 
-type Page interface {
-	GetData() []byte
-	SetData(d []byte)
+var (
+	_ common.DiskManager[*page.SlottedPage] = &Manager{}
+)
 
-	Lock()
-	Unlock()
-	RLock()
-	RUnlock()
-}
-
-func New[T Page](
+func New(
 	fileIDToPath map[common.FileID]string,
-	newPageFunc func() T,
-) *Manager[T] {
-	return &Manager[T]{
+	newPageFunc func(fileID common.FileID, pageID common.PageID) *page.SlottedPage,
+) *Manager {
+	return &Manager{
 		fileIDToPath: fileIDToPath,
 		newPageFunc:  newPageFunc,
-
-		mu: new(sync.RWMutex),
+		mu:           sync.Mutex{},
 	}
 }
-
-func (m *Manager[T]) ReadPage(pageIdent common.PageIdentity) (T, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var zeroVal T
-
-	path, ok := m.fileIDToPath[pageIdent.FileID]
-	if !ok {
-		return zeroVal, fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
-	}
-
-	file, err := os.Open(filepath.Clean(path))
-	if err != nil {
-		return zeroVal, err
-	}
-	defer file.Close()
-
-	//nolint:gosec
-	offset := int64(pageIdent.PageID * PageSize)
-	data := make([]byte, PageSize)
-
-	_, err = file.ReadAt(data, offset)
-	if err != nil {
-		return zeroVal, err
-	}
-
-	page := m.newPageFunc()
-
-	page.SetData(data)
-
-	return page, nil
+func (m *Manager) Lock() {
+	m.mu.Lock()
 }
 
-func (m *Manager[T]) GetPageNoNew(page T, pageIdent common.PageIdentity) (T, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var zeroVal T
-
-	path, ok := m.fileIDToPath[pageIdent.FileID]
-	if !ok {
-		return zeroVal, fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
-	}
-
-	file, err := os.Open(filepath.Clean(path))
-	if err != nil {
-		return zeroVal, fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
-	//nolint:gosec
-	offset := int64(pageIdent.PageID * PageSize)
-	data := make([]byte, PageSize)
-
-	_, err = file.ReadAt(data, offset)
-	if err != nil {
-		return zeroVal, fmt.Errorf("failed to reat at: %w", err)
-	}
-
-	page.SetData(data)
-
-	return page, nil
+func (m *Manager) Unlock() {
+	m.mu.Unlock()
 }
 
-func (m *Manager[T]) WritePage(page T, pageIdent common.PageIdentity) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (m *Manager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	return m.ReadPageAssumeLocked(pg, pageIdent)
+}
+
+func (m *Manager) ReadPageAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
 	path, ok := m.fileIDToPath[pageIdent.FileID]
 	if !ok {
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	data := page.GetData()
+	file, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	//nolint:gosec
+	offset := int64(pageIdent.PageID * PageSize)
+	data := make([]byte, PageSize)
+
+	_, err = file.ReadAt(data, offset)
+	if errors.Is(err, io.EOF) {
+		// TODO: CHECK THIS !!!
+		m.newPageFunc(pageIdent.FileID, pageIdent.PageID)
+		pg.UnsafeClear()
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	pg.SetData(data)
+	pg.UnsafeInitLatch()
+	return nil
+}
+
+func (m *Manager) GetPageNoNew(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.GetPageNoNewAssumeLocked(pg, pageIdent)
+}
+
+func (m *Manager) GetPageNoNewAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	path, ok := m.fileIDToPath[pageIdent.FileID]
+	if !ok {
+		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
+	}
+
+	file, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	//nolint:gosec
+	offset := int64(pageIdent.PageID * PageSize)
+	data := make([]byte, PageSize)
+
+	_, err = file.ReadAt(data, offset)
+	if err != nil {
+		return errors.Join(err, ErrNoSuchPage)
+	}
+
+	pg.SetData(data)
+	return nil
+}
+
+func (m *Manager) WritePageAssumeLocked(
+	lockedPage *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	path, ok := m.fileIDToPath[pageIdent.FileID]
+	if !ok {
+		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
+	}
+
+	data := lockedPage.GetData()
 	if len(data) == 0 {
 		return errors.New("page data is empty")
 	}
@@ -140,14 +155,96 @@ func (m *Manager[T]) WritePage(page T, pageIdent common.PageIdentity) error {
 	return nil
 }
 
-func (m *Manager[T]) UpdateFileMap(mp map[common.FileID]string) {
+type InMemoryManager struct {
+	mu    sync.Mutex
+	pages map[common.PageIdentity]*page.SlottedPage
+}
+
+var (
+	_ common.DiskManager[*page.SlottedPage] = &InMemoryManager{}
+)
+
+func NewInMemoryManager() *InMemoryManager {
+	return &InMemoryManager{
+		mu:    sync.Mutex{},
+		pages: make(map[common.PageIdentity]*page.SlottedPage),
+	}
+}
+
+func (m *InMemoryManager) Lock() {
+	m.mu.Lock()
+}
+
+func (m *InMemoryManager) Unlock() {
+	m.mu.Unlock()
+}
+
+func (m *InMemoryManager) GetPageNoNew(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.GetPageNoNewAssumeLocked(pg, pageIdent)
+}
+
+func (m *InMemoryManager) GetPageNoNewAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	storedPage, ok := m.pages[pageIdent]
+	if !ok {
+		return ErrNoSuchPage
+	}
+
+	pg.SetData(storedPage.GetData())
+	pg.UnsafeInitLatch()
+	return nil
+}
+
+func (m *InMemoryManager) ReadPage(pg *page.SlottedPage, pageIdent common.PageIdentity) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ReadPageAssumeLocked(pg, pageIdent)
+}
+
+func (m *InMemoryManager) ReadPageAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	storedPage, ok := m.pages[pageIdent]
+	if !ok {
+		m.pages[pageIdent] = page.NewSlottedPage()
+		pg.SetData(m.pages[pageIdent].GetData())
+		return nil
+	}
+
+	pg.SetData(storedPage.GetData())
+	pg.UnsafeInitLatch()
+	return nil
+}
+
+func (m *InMemoryManager) WritePageAssumeLocked(
+	pg *page.SlottedPage,
+	pgIdent common.PageIdentity,
+) error {
+	if _, ok := m.pages[pgIdent]; !ok {
+		return fmt.Errorf("page %+v not found", pgIdent)
+	}
+
+	m.pages[pgIdent].SetData(pg.GetData())
+	return nil
+}
+
+func (m *Manager) UpdateFileMap(mp map[common.FileID]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.fileIDToPath = mp
 }
 
-func (m *Manager[T]) InsertToFileMap(id common.FileID, path string) {
+func (m *Manager) InsertToFileMap(id common.FileID, path string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

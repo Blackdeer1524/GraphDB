@@ -7,8 +7,8 @@ import (
 )
 
 type TxnLogChain struct {
-	logger        *txnLogger
-	TransactionID common.TxnID
+	logger *txnLogger
+	txnID  common.TxnID
 
 	lastLocations map[common.TxnID]common.LogRecordLocInfo
 	err           error
@@ -19,8 +19,8 @@ func NewTxnLogChain(
 	TransactionID common.TxnID,
 ) *TxnLogChain {
 	return &TxnLogChain{
-		logger:        logger,
-		TransactionID: TransactionID,
+		logger: logger,
+		txnID:  TransactionID,
 
 		lastLocations: map[common.TxnID]common.LogRecordLocInfo{},
 	}
@@ -33,7 +33,7 @@ func (c *TxnLogChain) SwitchTransactionID(
 		return c
 	}
 
-	c.TransactionID = TransactionID
+	c.txnID = TransactionID
 	return c
 }
 
@@ -42,9 +42,7 @@ func (c *TxnLogChain) Begin() *TxnLogChain {
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendBegin(
-		c.TransactionID,
-	)
+	c.lastLocations[c.txnID], c.err = c.logger.AppendBegin(c.txnID)
 
 	return c
 }
@@ -57,16 +55,20 @@ func (c *TxnLogChain) Insert(
 		return c
 	}
 
-	if _, ok := c.lastLocations[c.TransactionID]; !ok {
-		c.err = fmt.Errorf("no last location found for %d", c.TransactionID)
+	if _, ok := c.lastLocations[c.txnID]; !ok {
+		c.err = fmt.Errorf("no last location found for %d", c.txnID)
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendInsert(
-		c.TransactionID,
-		c.lastLocations[c.TransactionID],
-		recordID,
-		value,
+	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
+		func() (common.LogRecordLocInfo, error) {
+			return c.logger.AppendInsert(
+				c.txnID,
+				c.lastLocations[c.txnID],
+				recordID,
+				value,
+			)
+		},
 	)
 
 	return c
@@ -80,17 +82,21 @@ func (c *TxnLogChain) Update(
 		return c
 	}
 
-	if _, ok := c.lastLocations[c.TransactionID]; !ok {
-		c.err = fmt.Errorf("no last location found for %d", c.TransactionID)
+	if _, ok := c.lastLocations[c.txnID]; !ok {
+		c.err = fmt.Errorf("no last location found for %d", c.txnID)
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendUpdate(
-		c.TransactionID,
-		c.lastLocations[c.TransactionID],
-		recordID,
-		beforeValue,
-		afterValue,
+	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
+		func() (common.LogRecordLocInfo, error) {
+			return c.logger.AppendUpdate(
+				c.txnID,
+				c.lastLocations[c.txnID],
+				recordID,
+				beforeValue,
+				afterValue,
+			)
+		},
 	)
 
 	return c
@@ -103,15 +109,19 @@ func (c *TxnLogChain) Delete(
 		return c
 	}
 
-	if _, ok := c.lastLocations[c.TransactionID]; !ok {
-		c.err = fmt.Errorf("no last location found for %d", c.TransactionID)
+	if _, ok := c.lastLocations[c.txnID]; !ok {
+		c.err = fmt.Errorf("no last location found for %d", c.txnID)
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendDelete(
-		c.TransactionID,
-		c.lastLocations[c.TransactionID],
-		recordID,
+	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
+		func() (common.LogRecordLocInfo, error) {
+			return c.logger.AppendDelete(
+				c.txnID,
+				c.lastLocations[c.txnID],
+				recordID,
+			)
+		},
 	)
 
 	return c
@@ -122,16 +132,12 @@ func (c *TxnLogChain) Commit() *TxnLogChain {
 		return c
 	}
 
-	if _, ok := c.lastLocations[c.TransactionID]; !ok {
-		c.err = fmt.Errorf("no last location found for %d", c.TransactionID)
+	if _, ok := c.lastLocations[c.txnID]; !ok {
+		c.err = fmt.Errorf("no last location found for %d", c.txnID)
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendCommit(
-		c.TransactionID,
-		c.lastLocations[c.TransactionID],
-	)
-
+	c.lastLocations[c.txnID], c.err = c.logger.AppendCommit(c.txnID, c.lastLocations[c.txnID])
 	return c
 }
 
@@ -140,15 +146,12 @@ func (c *TxnLogChain) Abort() *TxnLogChain {
 		return c
 	}
 
-	if _, ok := c.lastLocations[c.TransactionID]; !ok {
-		c.err = fmt.Errorf("no last location found for %d", c.TransactionID)
+	if _, ok := c.lastLocations[c.txnID]; !ok {
+		c.err = fmt.Errorf("no last location found for %d", c.txnID)
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendAbort(
-		c.TransactionID,
-		c.lastLocations[c.TransactionID],
-	)
+	c.lastLocations[c.txnID], c.err = c.logger.AppendAbort(c.txnID, c.lastLocations[c.txnID])
 
 	return c
 }
@@ -158,15 +161,12 @@ func (c *TxnLogChain) TxnEnd() *TxnLogChain {
 		return c
 	}
 
-	if _, ok := c.lastLocations[c.TransactionID]; !ok {
-		c.err = fmt.Errorf("no last location found for %d", c.TransactionID)
+	if _, ok := c.lastLocations[c.txnID]; !ok {
+		c.err = fmt.Errorf("no last location found for %d", c.txnID)
 		return c
 	}
 
-	c.lastLocations[c.TransactionID], c.err = c.logger.AppendTxnEnd(
-		c.TransactionID,
-		c.lastLocations[c.TransactionID],
-	)
+	c.lastLocations[c.txnID], c.err = c.logger.AppendTxnEnd(c.txnID, c.lastLocations[c.txnID])
 
 	return c
 }
@@ -182,7 +182,7 @@ func (c *TxnLogChain) CheckpointBegin() *TxnLogChain {
 }
 
 func (c *TxnLogChain) CheckpointEnd(
-	ATT []common.TxnID,
+	ATT map[common.TxnID]common.LogRecordLocInfo,
 	DPT map[common.PageIdentity]common.LogRecordLocInfo,
 ) *TxnLogChain {
 	if c.err != nil {
@@ -190,12 +190,11 @@ func (c *TxnLogChain) CheckpointEnd(
 	}
 
 	c.err = c.logger.AppendCheckpointEnd(ATT, DPT)
-
 	return c
 }
 
 func (c *TxnLogChain) Loc() common.LogRecordLocInfo {
-	return c.lastLocations[c.TransactionID]
+	return c.lastLocations[c.txnID]
 }
 
 func (c *TxnLogChain) Err() error {

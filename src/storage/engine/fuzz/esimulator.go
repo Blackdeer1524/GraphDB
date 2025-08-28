@@ -1,12 +1,15 @@
 package fuzz
 
 import (
-	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
-	"github.com/stretchr/testify/require"
 	"os"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 )
 
 type engineSimulator struct {
@@ -72,7 +75,12 @@ func (m *engineSimulator) apply(op Operation, res OpResult) {
 	}
 }
 
-func (m *engineSimulator) compareWithEngineFS(t *testing.T, baseDir string, se *engine.StorageEngine, l *MockRWMutexLockManager) {
+func (m *engineSimulator) compareWithEngineFS(
+	t *testing.T,
+	baseDir string,
+	se *engine.StorageEngine,
+	l common.ITxnLoggerWithContext,
+) {
 	for tbl := range m.VertexTables {
 		_, err := os.Stat(engine.GetVertexTableFilePath(baseDir, tbl))
 		require.NoError(t, err, "vertex table file is missing: %s", tbl)
@@ -89,23 +97,25 @@ func (m *engineSimulator) compareWithEngineFS(t *testing.T, baseDir string, se *
 	}
 
 	for tbl, sch := range m.VertexTables {
-		err := se.CreateVertexTable(0, tbl, sch)
+		err := se.CreateVertexTable(0, tbl, sch, l)
 		require.Error(t, err, "expected error on duplicate CreateVertexTable(%s)", tbl)
-
-		l.UnlockAll()
 	}
 
 	for tbl, sch := range m.EdgeTables {
-		err := se.CreateEdgesTable(0, tbl, sch)
+		err := se.CreateEdgesTable(0, tbl, sch, l)
 		require.Error(t, err, "expected error on duplicate CreateEdgesTable(%s)", tbl)
-
-		l.UnlockAll()
 	}
 
 	for idx, meta := range m.Indexes {
-		err := se.CreateIndex(0, idx, meta.TableName, meta.TableKind, meta.Columns, 8)
+		err := se.CreateIndex(
+			0,
+			idx,
+			meta.TableName,
+			meta.TableKind,
+			meta.Columns,
+			8,
+			l,
+		)
 		require.Error(t, err, "expected error on duplicate CreateIndex(%s)", idx)
-
-		l.UnlockAll()
 	}
 }

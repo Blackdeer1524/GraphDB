@@ -12,14 +12,51 @@ type MockDiskManager struct {
 	mock.Mock
 }
 
+var (
+	_ common.DiskManager[*page.SlottedPage] = &MockDiskManager{}
+)
+
 func (m *MockDiskManager) ReadPage(
+	pg *page.SlottedPage,
 	pageIdent common.PageIdentity,
-) (*page.SlottedPage, error) {
-	args := m.Called(pageIdent)
-	return args.Get(0).(*page.SlottedPage), args.Error(1)
+) error {
+	args := m.Called(pg, pageIdent)
+	return args.Error(0)
 }
 
-func (m *MockDiskManager) WritePage(
+func (m *MockDiskManager) ReadPageAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	args := m.Called(pg, pageIdent)
+	return args.Error(0)
+}
+
+func (m *MockDiskManager) Lock() {
+	m.Called()
+}
+
+func (m *MockDiskManager) Unlock() {
+	m.Called()
+}
+
+func (m *MockDiskManager) GetPageNoNew(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	args := m.Called(pg, pageIdent)
+	return args.Error(0)
+}
+
+func (m *MockDiskManager) GetPageNoNewAssumeLocked(
+	pg *page.SlottedPage,
+	pageIdent common.PageIdentity,
+) error {
+	args := m.Called(pg, pageIdent)
+	return args.Error(0)
+}
+
+func (m *MockDiskManager) WritePageAssumeLocked(
 	page *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
