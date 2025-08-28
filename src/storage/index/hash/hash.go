@@ -2,6 +2,7 @@ package hash
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
@@ -17,9 +18,6 @@ const (
 	overflowPageNotExist                  = ^uint64(0)
 	metaPageDirPagesCount                 = 100
 	dirPageBucketsPtrsCount               = 100
-
-	// FileID + PageID + SlotNum + Existence
-	ridBytes = 8 + 8 + 2 + 2
 )
 
 var (
@@ -74,35 +72,45 @@ type bucketPage struct {
 	pageID uint64
 }
 
+type entrySuffix struct {
+	FileID  common.FileID
+	PageID  common.PageID
+	SlotNum uint16
+	Exist   uint16
+}
+
 func (bp *bucketPage) find(key []byte) (*common.RecordID, error) {
 	ns := bp.p.NumSlots()
 
 	keyLen := uint16(len(key))
 
+	// FileID + PageID + SlotNum + Existence
+	const ridBytes = 8 + 8 + 2 + 2
+
+	// skip slot with local depth
 	for i := uint16(1); i < ns; i++ {
-		sl := bp.p.Read(i)
-		if uint16(len(sl)) != keyLen+ridBytes {
+		slot := bp.p.Read(i)
+		if uint16(len(slot)) != keyLen+ridBytes {
 			continue
 		}
 
-		if !bytes.Equal(sl[:keyLen], key) {
+		if !bytes.Equal(slot[:keyLen], key) {
 			continue
 		}
 
-		base := keyLen
-		fid := utils.FromBytes[uint64](sl[base : base+8])
-		pid := utils.FromBytes[uint64](sl[base+8 : base+16])
-		sn := utils.FromBytes[uint16](sl[base+16 : base+18])
-		ext := utils.FromBytes[uint16](sl[base+18 : base+20])
+		var suffix entrySuffix
+		if err := binary.Read(bytes.NewReader(slot[keyLen:]), binary.BigEndian, &suffix); err != nil {
+			continue
+		}
 
-		if ext == 0 {
+		if suffix.Exist == 0 {
 			continue
 		}
 
 		rid := &common.RecordID{
-			FileID:  common.FileID(fid),
-			PageID:  common.PageID(pid),
-			SlotNum: sn,
+			FileID:  suffix.FileID,
+			PageID:  suffix.PageID,
+			SlotNum: suffix.SlotNum,
 		}
 
 		return rid, nil
@@ -119,6 +127,7 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 	// FileID + PageID + SlotNum + Existence
 	const ridBytes = 8 + 8 + 2 + 2
 
+	// skip slot with local depth
 	for i := uint16(1); i < ns; i++ {
 		slot := bp.p.Read(i)
 		if uint16(len(slot)) != keyLen+ridBytes {
@@ -129,25 +138,32 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 			continue
 		}
 
-		base := keyLen
-		fid := utils.FromBytes[uint64](slot[base : base+8])
-		pid := utils.FromBytes[uint64](slot[base+8 : base+16])
-		sn := utils.FromBytes[uint16](slot[base+16 : base+18])
-		ext := utils.FromBytes[uint16](slot[base+18 : base+20])
-
-		if ext == 0 {
+		var suffix entrySuffix
+		if err := binary.Read(bytes.NewReader(slot[keyLen:]), binary.BigEndian, &suffix); err != nil {
 			continue
 		}
 
-		newExt := utils.ToBytes[uint16](0)
-		copy(slot[base+18:base+20], newExt)
+		if suffix.Exist == 0 {
+			continue
+		}
 
-		//bp.p.Write(i, slot)
+		// Set existence flag to 0
+		suffix.Exist = 0
+
+		buf := new(bytes.Buffer)
+		if err := binary.Write(buf, binary.BigEndian, suffix); err != nil {
+			return common.RecordID{}, err
+		}
+
+		copy(slot[keyLen:], buf.Bytes())
+
+		// Write back the modified slot
+		bp.p.Update(i, slot)
 
 		rid := common.RecordID{
-			FileID:  common.FileID(fid),
-			PageID:  common.PageID(pid),
-			SlotNum: sn,
+			FileID:  suffix.FileID,
+			PageID:  suffix.PageID,
+			SlotNum: suffix.SlotNum,
 		}
 
 		return rid, nil
