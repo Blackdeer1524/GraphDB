@@ -22,7 +22,8 @@ const (
 )
 
 var (
-	ErrKeyNotFound = errors.New("key not found")
+	ErrKeyNotFound         = errors.New("key not found")
+	errKeyNotInsertedRetry = errors.New("key not found")
 )
 
 type StorageEngine interface {
@@ -497,20 +498,7 @@ func (h *Index) Delete(key []byte) (common.RecordID, error) {
 	return rid, nil
 }
 
-func (h *Index) Insert(key []byte, rid common.RecordID) error {
-	if len(key) != h.keySize {
-		return errors.New("key size is not equal to index key size")
-	}
-
-	rp, err := h.getRootPage()
-	if err != nil {
-		return fmt.Errorf("failed to get root page: %w", err)
-	}
-	defer h.se.Unpin(common.PageIdentity{
-		FileID: h.indexFileID,
-		PageID: common.PageID(rp.pageID),
-	})
-
+func (h *Index) tryInsert(rp *rootPage, key []byte, rid common.RecordID) error {
 	keyHash := hashKeyToUint64(key)
 
 	index := keyHash & ((1 << rp.d) - 1)
@@ -573,5 +561,33 @@ func (h *Index) Insert(key []byte, rid common.RecordID) error {
 		return nil
 	}
 
-	return errors.New("bucket is full")
+	return errKeyNotInsertedRetry
+}
+
+func (h *Index) Insert(key []byte, rid common.RecordID) error {
+	if len(key) != h.keySize {
+		return errors.New("key size is not equal to index key size")
+	}
+
+	rp, err := h.getRootPage()
+	if err != nil {
+		return fmt.Errorf("failed to get root page: %w", err)
+	}
+	defer h.se.Unpin(common.PageIdentity{
+		FileID: h.indexFileID,
+		PageID: common.PageID(rp.pageID),
+	})
+
+	for {
+		err = h.tryInsert(rp, key, rid)
+		if err != nil {
+			if errors.Is(err, errKeyNotInsertedRetry) {
+				continue
+			}
+
+			return fmt.Errorf("failed to insert key: %w", err)
+		}
+
+		return nil
+	}
 }
