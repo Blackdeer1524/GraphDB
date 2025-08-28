@@ -273,3 +273,94 @@ func TestIndex_Delete_KeyNotFound(t *testing.T) {
 }
 
 // Insert tests
+
+func TestBucketPage_Insert(t *testing.T) {
+	const keySize = 4
+	key1 := []byte{1, 2, 3, 4}
+	key2 := []byte{9, 9, 9, 9}
+
+	rid1 := common.RecordID{
+		FileID:  10,
+		PageID:  20,
+		SlotNum: 30,
+	}
+	rid2 := common.RecordID{
+		FileID:  11,
+		PageID:  21,
+		SlotNum: 31,
+	}
+
+	t.Run("insert success", func(t *testing.T) {
+		p := page.NewSlottedPage()
+		p.Insert(utils.ToBytes(uint16(1))) // local depth
+
+		bp := &bucketPage{p: p}
+		ok, err := bp.insert(key1, rid1, 10)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		d, err := bp.find(key1)
+		require.NoError(t, err)
+		require.Equal(t, rid1, *d)
+
+		slot := p.Read(1)
+		require.Equal(t, key1, slot[:keySize])
+
+		gotRid := common.RecordID{
+			FileID:  common.FileID(utils.FromBytes[uint64](slot[keySize : keySize+8])),
+			PageID:  common.PageID(utils.FromBytes[uint64](slot[keySize+8 : keySize+16])),
+			SlotNum: utils.FromBytes[uint16](slot[keySize+16 : keySize+18]),
+		}
+		require.Equal(t, rid1, gotRid)
+
+		exist := utils.FromBytes[uint16](slot[keySize+18 : keySize+20])
+		require.Equal(t, uint16(1), exist)
+	})
+
+	t.Run("respect deleted slot (reuse)", func(t *testing.T) {
+		p := page.NewSlottedPage()
+		p.Insert(utils.ToBytes(uint16(1)))
+
+		bp := &bucketPage{p: p}
+		_, err := bp.insert(key1, rid1, 10)
+		require.NoError(t, err)
+
+		d, err := bp.find(key1)
+		require.NoError(t, err)
+		require.Equal(t, rid1, *d)
+
+		_, err = bp.delete(key1)
+		require.NoError(t, err)
+
+		ok, err := bp.insert(key1, rid1, 10)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		d, err = bp.find(key1)
+		require.NoError(t, err)
+		require.Equal(t, rid1, *d)
+	})
+
+	t.Run("bucket overflow", func(t *testing.T) {
+		p := page.NewSlottedPage()
+		p.Insert(utils.ToBytes(uint16(1)))
+
+		bp := &bucketPage{p: p}
+
+		_, err := bp.insert(key1, rid1, 1)
+		require.NoError(t, err)
+
+		d, err := bp.find(key1)
+		require.NoError(t, err)
+		require.Equal(t, rid1, *d)
+
+		ok, err := bp.insert(key2, rid2, 1)
+		require.Error(t, err)
+		require.False(t, ok)
+		require.Contains(t, err.Error(), "bucket page is full")
+
+		d, err = bp.find(key1)
+		require.NoError(t, err)
+		require.Equal(t, rid1, *d)
+	})
+}

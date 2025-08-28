@@ -38,13 +38,16 @@ type Index struct {
 	indexFileID common.FileID
 
 	keySize int
+
+	recordsCountInBucket uint16
 }
 
 func New(indexFileID common.FileID, se StorageEngine, keySize int) (*Index, error) {
 	return &Index{
-		se:          se,
-		indexFileID: indexFileID,
-		keySize:     keySize,
+		se:                   se,
+		indexFileID:          indexFileID,
+		keySize:              keySize,
+		recordsCountInBucket: uint16(3 * 1024 / keySize),
 	}, nil
 }
 
@@ -164,7 +167,79 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 	return common.RecordID{}, ErrKeyNotFound
 }
 
-func (bp *bucketPage) insert(key []byte, rid common.RecordID) (bool, error) {
+func (bp *bucketPage) insert(key []byte, rid common.RecordID, recordsCountInBucket uint16) (bool, error) {
+	ns := bp.p.NumSlots()
+
+	keyLen := uint16(len(key))
+
+	// try to reuse a previously deleted slot (exist == 0)
+	for i := uint16(1); i < ns; i++ {
+		slot := bp.p.Read(i)
+		if uint16(len(slot)) != keyLen+ridBytes {
+			continue
+		}
+
+		var suffix entrySuffix
+		if err := binary.Read(bytes.NewReader(slot[keyLen:]), binary.BigEndian, &suffix); err != nil {
+			continue
+		}
+
+		if suffix.Exist == 0 {
+			data := make([]byte, 0, int(keyLen)+ridBytes)
+
+			data = append(data, key...)
+
+			suffix = entrySuffix{
+				FileID:  rid.FileID,
+				PageID:  rid.PageID,
+				SlotNum: rid.SlotNum,
+				Exist:   1,
+			}
+
+			buf := new(bytes.Buffer)
+
+			err := binary.Write(buf, binary.BigEndian, suffix)
+			if err != nil {
+				return false, err
+			}
+
+			data = append(data, buf.Bytes()...)
+
+			bp.p.Update(i, data)
+
+			return true, nil
+		}
+	}
+
+	// cannot reuse, lets allocate new slot
+
+	if ns == recordsCountInBucket+1 {
+		return false, errors.New("bucket page is full")
+	}
+
+	suffix := entrySuffix{
+		FileID:  rid.FileID,
+		PageID:  rid.PageID,
+		SlotNum: rid.SlotNum,
+		Exist:   1,
+	}
+
+	buf := new(bytes.Buffer)
+
+	err := binary.Write(buf, binary.BigEndian, suffix)
+	if err != nil {
+		return false, err
+	}
+
+	data := make([]byte, 0, int(keyLen)+ridBytes)
+	data = append(data, key...)
+	data = append(data, buf.Bytes()...)
+
+	sl := bp.p.Insert(data)
+	if sl.IsNone() {
+		return false, errors.New("failed to insert to bucket")
+	}
+
 	return true, nil
 }
 
@@ -484,7 +559,7 @@ func (h *Index) Insert(key []byte, rid common.RecordID) error {
 		return fmt.Errorf("failed to find key: %w", err)
 	}
 
-	inserted, err := bucketPtr.insert(key, rid)
+	inserted, err := bucketPtr.insert(key, rid, h.recordsCountInBucket)
 	if err != nil {
 		return fmt.Errorf("failed to delete key: %w", err)
 	}
