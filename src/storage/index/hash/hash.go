@@ -497,6 +497,13 @@ func (h *Index) Delete(key []byte) (common.RecordID, error) {
 
 	return rid, nil
 }
+func (h *Index) splitBucket(rp *rootPage, dp *dirPage, bp *bucketPage, bucketSlot uint16) error {
+	return nil
+}
+
+func (h *Index) doubleDirectory(rp *rootPage) error {
+	return nil
+}
 
 func (h *Index) tryInsert(rp *rootPage, key []byte, rid common.RecordID) error {
 	keyHash := hashKeyToUint64(key)
@@ -531,17 +538,17 @@ func (h *Index) tryInsert(rp *rootPage, key []byte, rid common.RecordID) error {
 		PageID: common.PageID(dp.pageID),
 	})
 
-	bucketPtr, err := h.getBucketPage(dp, bucketSlot)
+	bp, err := h.getBucketPage(dp, bucketSlot)
 	if err != nil {
 		return fmt.Errorf("failed to get bucket ptr: %w", err)
 	}
 	defer h.se.Unpin(common.PageIdentity{
 		FileID: h.indexFileID,
-		PageID: common.PageID(bucketPtr.pageID),
+		PageID: common.PageID(bp.pageID),
 	})
 
 	// only unique keys are allowed
-	_, err = bucketPtr.find(key)
+	_, err = bp.find(key)
 	if err == nil {
 		return errors.New("key already exists")
 	}
@@ -550,15 +557,26 @@ func (h *Index) tryInsert(rp *rootPage, key []byte, rid common.RecordID) error {
 		return fmt.Errorf("failed to find key: %w", err)
 	}
 
-	inserted, err := bucketPtr.insert(key, rid, h.recordsCountInBucket)
+	inserted, err := bp.insert(key, rid, h.recordsCountInBucket)
 	if err != nil {
 		return fmt.Errorf("failed to delete key: %w", err)
 	}
 
-	// if inserted to bucket page, we are done
-	// else we need to rebuild
+	// if inserted to bucket page, we are done else we need to rebuild
 	if inserted {
 		return nil
+	}
+
+	if bp.l < rp.d {
+		err = h.splitBucket(rp, dp, bp, bucketSlot)
+		if err != nil {
+			return fmt.Errorf("failed to split bucket: %w", err)
+		}
+	} else {
+		err = h.doubleDirectory(rp)
+		if err != nil {
+			return fmt.Errorf("failed to double directory: %w", err)
+		}
 	}
 
 	return errKeyNotInsertedRetry
