@@ -274,7 +274,7 @@ func TestIndex_Delete_KeyNotFound(t *testing.T) {
 
 // Insert tests
 
-func TestBucketPage_Insert(t *testing.T) {
+func TestBucketPage_insert(t *testing.T) {
 	const keySize = 4
 	key1 := []byte{1, 2, 3, 4}
 	key2 := []byte{9, 9, 9, 9}

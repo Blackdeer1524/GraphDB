@@ -151,9 +151,12 @@ func (bp *bucketPage) delete(key []byte) (common.RecordID, error) {
 			return common.RecordID{}, err
 		}
 
-		copy(slot[keyLen:], buf.Bytes())
+		data := make([]byte, 0, int(keyLen)+ridBytes)
 
-		bp.p.Update(i, slot)
+		data = append(data, key...)
+		data = append(data, buf.Bytes()...)
+
+		bp.p.Update(i, data)
 
 		rid := common.RecordID{
 			FileID:  suffix.FileID,
