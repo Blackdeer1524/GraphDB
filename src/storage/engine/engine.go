@@ -57,8 +57,8 @@ func NewEdgeInternalFields(
 	DirectoryItemID storage.DirItemID,
 	SrcVertexID storage.VertexID,
 	DstVertexID storage.VertexID,
-	NextEdgeID storage.EdgeID,
 	PrevEdgeID storage.EdgeID,
+	NextEdgeID storage.EdgeID,
 ) EdgeInternalFields {
 	return EdgeInternalFields{
 		ID:              ID,
@@ -81,7 +81,7 @@ var edgeInternalSchema = storage.Schema{
 
 type VertexInternalFields struct {
 	ID          storage.VertexID
-	DirectoryID storage.DirItemID
+	DirItemID storage.DirItemID
 }
 
 var vertexInternalSchema = storage.Schema{

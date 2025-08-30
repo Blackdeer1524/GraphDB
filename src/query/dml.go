@@ -20,10 +20,10 @@ type Index interface {
 
 func (e *Executor) getSerializedVertex(
 	txnID common.TxnID,
-	fToken *txns.FileLockToken,
+	vertexFileToken *txns.FileLockToken,
 	vertexID storage.VertexID,
 ) ([]byte, error) {
-	vertexRID, err := e.se.GetVertexRID(txnID, fToken.GetFileID(), vertexID)
+	vertexRID, err := e.se.GetVertexRID(txnID, vertexFileToken.GetFileID(), vertexID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex RID: %w", err)
 	}
@@ -41,24 +41,20 @@ func (e *Executor) getSerializedVertex(
 
 func (e *Executor) SelectVertex(
 	txnID common.TxnID,
-	fToken *txns.FileLockToken,
+	vertexFileToken *txns.FileLockToken,
 	vertexID storage.VertexID,
 	schema storage.Schema,
 ) (engine.VertexInternalFields, map[string]any, error) {
-	data, err := e.getSerializedVertex(txnID, fToken, vertexID)
+	data, err := e.getSerializedVertex(txnID, vertexFileToken, vertexID)
 	if err != nil {
-		return engine.VertexInternalFields{}, nil, fmt.Errorf(
-			"failed to get serialized vertex: %w",
-			err,
-		)
+		err = fmt.Errorf("failed to get serialized vertex: %w", err)
+		return engine.VertexInternalFields{}, nil, err
 	}
 
 	vertexInternalFields, record, err := parseVertexRecord(data, schema)
 	if err != nil {
-		return engine.VertexInternalFields{}, nil, fmt.Errorf(
-			"failed to parse vertex record: %w",
-			err,
-		)
+		err = fmt.Errorf("failed to parse vertex record: %w", err)
+		return engine.VertexInternalFields{}, nil, err
 	}
 
 	return vertexInternalFields, record, nil
@@ -70,40 +66,38 @@ func (e *Executor) getPageWithFreeSpace(fileID common.FileID) (common.PageID, er
 
 func (e *Executor) InsertVertex(
 	txnID common.TxnID,
-	fToken *txns.FileLockToken,
+	vertexFileToken *txns.FileLockToken,
 	data map[string]any,
 	schema storage.Schema,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	pageID, err := e.getPageWithFreeSpace(fToken.GetFileID())
+	pageID, err := e.getPageWithFreeSpace(vertexFileToken.GetFileID())
 	if err != nil {
 		return fmt.Errorf("failed to get free page: %w", err)
 	}
-	if e.locker.LockPage(fToken, pageID, txns.PAGE_LOCK_EXCLUSIVE) == nil {
+	if e.locker.LockPage(vertexFileToken, pageID, txns.PAGE_LOCK_EXCLUSIVE) == nil {
 		return fmt.Errorf("failed to lock page: %w", err)
 	}
 
 	pageIdent := common.PageIdentity{
-		FileID: fToken.GetFileID(),
+		FileID: vertexFileToken.GetFileID(),
 		PageID: pageID,
 	}
-	pg, err := e.pool.GetPageNoCreate(pageIdent)
+	pg, err := e.pool.GetPage(pageIdent)
 	if err != nil {
 		return fmt.Errorf("failed to get page: %w", err)
 	}
 	defer e.pool.Unpin(pageIdent)
 
 	internalFields := engine.VertexInternalFields{
-		ID:          storage.VertexID(uuid.New()),
-		DirectoryID: storage.DirItemID(uuid.Nil),
+		ID:        storage.VertexID(uuid.New()),
+		DirItemID: storage.NilDirItemID,
 	}
-
 	serializedData, err := serializeVertexRecord(
 		internalFields,
 		data,
 		schema,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to serialize vertex record: %w", err)
 	}
@@ -121,17 +115,17 @@ func (e *Executor) InsertVertex(
 
 func (e *Executor) DeleteVertex(
 	txnID common.TxnID,
-	fToken *txns.FileLockToken,
+	vertexFileToken *txns.FileLockToken,
 	vertexID storage.VertexID,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	vertexRID, err := e.se.GetVertexRID(txnID, fToken.GetFileID(), vertexID)
+	vertexRID, err := e.se.GetVertexRID(txnID, vertexFileToken.GetFileID(), vertexID)
 	if err != nil {
 		return fmt.Errorf("failed to get vertex RID: %w", err)
 	}
 
 	pageIdent := vertexRID.R.PageIdentity()
-	pToken := e.locker.LockPage(fToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
+	pToken := e.locker.LockPage(vertexFileToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page: %v", pageIdent)
 	}
@@ -154,19 +148,19 @@ func (e *Executor) DeleteVertex(
 
 func (e *Executor) UpdateVertex(
 	txnID common.TxnID,
-	fToken *txns.FileLockToken,
+	vertexFileToken *txns.FileLockToken,
 	vertexID storage.VertexID,
 	newData map[string]any,
 	schema storage.Schema,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	vertexRID, err := e.se.GetVertexRID(txnID, fToken.GetFileID(), vertexID)
+	vertexRID, err := e.se.GetVertexRID(txnID, vertexFileToken.GetFileID(), vertexID)
 	if err != nil {
 		return fmt.Errorf("failed to get vertex RID: %w", err)
 	}
 
 	pageIdent := vertexRID.R.PageIdentity()
-	pToken := e.locker.LockPage(fToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
+	pToken := e.locker.LockPage(vertexFileToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page: %v", pageIdent)
 	}
@@ -198,10 +192,8 @@ func (e *Executor) UpdateVertex(
 			)
 
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to serialize vertex record: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to serialize vertex record: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 
 			return lockedPage.UpdateWithLogs(serializedData, vertexRID.R, ctxLogger)
@@ -244,19 +236,15 @@ func (e *Executor) updateVertexDirItemID(
 			vertexRecordBytes := lockedPage.UnsafeRead(vertexRID.R.SlotNum)
 			vertexInternalFields, tail, err := parseVertexRecordHeader(vertexRecordBytes)
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to parse vertex record header: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to parse vertex record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 
-			vertexInternalFields.DirectoryID = dirItemID
+			vertexInternalFields.DirItemID = dirItemID
 			udpatedVertexData, err := serializeVertexRecordHeader(vertexInternalFields, tail)
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to serialize vertex record header: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to serialize vertex record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 
 			return lockedPage.UpdateWithLogs(udpatedVertexData, vertexRID.R, ctxLogger)
@@ -272,15 +260,19 @@ func (e *Executor) updateVertexDirItemID(
 func (e *Executor) SelectEdge(
 	txnID common.TxnID,
 	edgeID storage.EdgeID,
-	fToken *txns.FileLockToken,
+	edgeFileToken *txns.FileLockToken,
 	schema storage.Schema,
 ) (engine.EdgeInternalFields, map[string]any, error) {
-	edgeRID, err := e.se.GetEdgeRID(txnID, fToken.GetFileID(), edgeID)
+	edgeRID, err := e.se.GetEdgeRID(txnID, edgeFileToken.GetFileID(), edgeID)
 	if err != nil {
 		return engine.EdgeInternalFields{}, nil, fmt.Errorf("failed to get edge RID: %w", err)
 	}
 
-	pToken := e.locker.LockPage(fToken, edgeRID.R.PageIdentity().PageID, txns.PAGE_LOCK_SHARED)
+	pToken := e.locker.LockPage(
+		edgeFileToken,
+		edgeRID.R.PageIdentity().PageID,
+		txns.PAGE_LOCK_SHARED,
+	)
 	if pToken == nil {
 		return engine.EdgeInternalFields{}, nil, fmt.Errorf(
 			"failed to lock page: %v",
@@ -312,10 +304,10 @@ func (e *Executor) insertEdgeHelper(
 ) (storage.EdgeID, error) {
 	edgePageID, err := e.getPageWithFreeSpace(edgesFileToken.GetFileID())
 	if err != nil {
-		return storage.EdgeID(uuid.Nil), fmt.Errorf("failed to get free page: %w", err)
+		return storage.NilEdgeID, fmt.Errorf("failed to get free page: %w", err)
 	}
 	if e.locker.LockPage(edgesFileToken, edgePageID, txns.PAGE_LOCK_EXCLUSIVE) == nil {
-		return storage.EdgeID(uuid.Nil), fmt.Errorf("failed to lock page: %w", err)
+		return storage.NilEdgeID, fmt.Errorf("failed to lock page: %w", err)
 	}
 
 	edgeInternalFields := engine.NewEdgeInternalFields(
@@ -323,48 +315,38 @@ func (e *Executor) insertEdgeHelper(
 		dirItemID,
 		srcVertexID,
 		dstVertexID,
+		storage.NilEdgeID,
 		nextEdgeID,
-		storage.EdgeID(uuid.Nil),
 	)
 
 	edgePageIdent := common.PageIdentity{
 		FileID: edgesFileToken.GetFileID(),
 		PageID: edgePageID,
 	}
-	edgePg, err := e.pool.GetPageNoCreate(edgePageIdent)
+	edgePg, err := e.pool.GetPage(edgePageIdent)
 	if err != nil {
-		return storage.EdgeID(uuid.Nil), fmt.Errorf("failed to get page: %w", err)
+		return storage.NilEdgeID, fmt.Errorf("failed to get page: %w", err)
 	}
 	defer e.pool.Unpin(edgePageIdent)
 
 	edgeRecordBytes, err := serializeEdgeRecord(edgeInternalFields, edgeFields, schema)
 	if err != nil {
-		return storage.EdgeID(
-				uuid.Nil,
-			), fmt.Errorf(
-				"failed to serialize edge record: %w",
-				err,
-			)
+		err = fmt.Errorf("failed to serialize edge record: %w", err)
+		return storage.NilEdgeID, err
 	}
 	err = e.pool.WithMarkDirty(
 		txnID,
 		edgePageIdent,
 		edgePg,
 		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-			_, loc, err := lockedPage.InsertWithLogs(
-				edgeRecordBytes,
-				edgePageIdent,
-				ctxLogger,
-			)
+			_, loc, err := lockedPage.InsertWithLogs(edgeRecordBytes, edgePageIdent, ctxLogger)
 			return loc, err
 		},
 	)
 	if err != nil {
-		return storage.EdgeID(uuid.Nil), fmt.Errorf("failed to insert edge record: %w", err)
+		return storage.NilEdgeID, fmt.Errorf("failed to insert edge record: %w", err)
 	}
-
 	return edgeInternalFields.ID, nil
-
 }
 
 func (e *Executor) insertEdgeWithDirItem(
@@ -441,8 +423,8 @@ func (e *Executor) InsertEdge(
 		return fmt.Errorf("failed to get serialized src vertex: %w", err)
 	}
 
-	if srcVertInternalFields.DirectoryID.IsNil() {
-		_, dirItemID, err := e.insertEdgeWithDirItem(
+	if srcVertInternalFields.DirItemID.IsNil() {
+		_, newDirItemID, err := e.insertEdgeWithDirItem(
 			txnID,
 			srcVertexID,
 			dstVertexID,
@@ -456,7 +438,7 @@ func (e *Executor) InsertEdge(
 		if err != nil {
 			return fmt.Errorf("failed to insert edge with directory item: %w", err)
 		}
-		err = e.updateVertexDirItemID(txnID, srcVertToken, srcVertexID, dirItemID, ctxLogger)
+		err = e.updateVertexDirItemID(txnID, srcVertToken, srcVertexID, newDirItemID, ctxLogger)
 		if err != nil {
 			return fmt.Errorf("failed to update vertex directory item ID: %w", err)
 		}
@@ -466,65 +448,79 @@ func (e *Executor) InsertEdge(
 	dirItem, err := e.selectDirectoryItem(
 		txnID,
 		srcVertDirToken,
-		srcVertInternalFields.DirectoryID,
+		srcVertInternalFields.DirItemID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to select directory item: %w", err)
 	}
 
 	for {
-		if dirItem.EdgeFileID == edgesFileToken.GetFileID() {
-			insertedEdgeID, err := e.insertEdgeHelper(
+		if dirItem.EdgeFileID != edgesFileToken.GetFileID() {
+			if dirItem.NextItemID.IsNil() {
+				break
+			}
+			dirItem, err = e.selectDirectoryItem(
 				txnID,
-				srcVertexID,
-				dstVertexID,
-				dirItem.ID,
-				edgeFields,
-				schema,
-				dirItem.EdgeID,
+				srcVertDirToken,
+				dirItem.NextItemID,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to select directory item: %w", err)
+			}
+		}
+		insertedEdgeID, err := e.insertEdgeHelper(
+			txnID,
+			srcVertexID,
+			dstVertexID,
+			dirItem.ID,
+			edgeFields,
+			schema,
+			dirItem.EdgeID,
+			edgesFileToken,
+			ctxLogger,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert edge: %w", err)
+		}
+
+		if !dirItem.EdgeID.IsNil() {
+			err = e.updateEdgePrevID(
+				txnID,
 				edgesFileToken,
+				dirItem.EdgeID,
+				insertedEdgeID,
 				ctxLogger,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to insert edge: %w", err)
+				return fmt.Errorf("failed to update prev edge ID: %w", err)
 			}
 
-			if !dirItem.EdgeID.IsNil() {
-				err = e.updateEdgePrevID(
-					txnID,
-					edgesFileToken,
-					dirItem.EdgeID,
-					insertedEdgeID,
-					ctxLogger,
-				)
-				if err != nil {
-					return fmt.Errorf("failed to update prev edge ID: %w", err)
-				}
-			}
-
-			dirItem.EdgeID = insertedEdgeID
-			err = e.updateDirectoryItem(txnID, srcVertDirToken, dirItem.ID, dirItem, ctxLogger)
+			err = e.updateEdgeNextID(
+				txnID,
+				edgesFileToken,
+				insertedEdgeID,
+				dirItem.EdgeID,
+				ctxLogger,
+			)
 			if err != nil {
-				return fmt.Errorf("failed to update directory item: %w", err)
+				return fmt.Errorf("failed to update next edge ID: %w", err)
 			}
-			return nil
 		}
 
-		if dirItem.NextItemID.IsNil() {
-			break
-		}
-
-		dirItem, err = e.selectDirectoryItem(
+		err = e.updateDirItemEdgeID(
 			txnID,
 			srcVertDirToken,
-			dirItem.NextItemID,
+			dirItem.ID,
+			insertedEdgeID,
+			ctxLogger,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to select directory item: %w", err)
+			return fmt.Errorf("failed to update directory item: %w", err)
 		}
+		return nil
 	}
 
-	_, _, err = e.insertEdgeWithDirItem(
+	_, newDirItemID, err := e.insertEdgeWithDirItem(
 		txnID,
 		srcVertexID,
 		dstVertexID,
@@ -538,6 +534,12 @@ func (e *Executor) InsertEdge(
 	if err != nil {
 		return fmt.Errorf("failed to insert edge with directory item: %w", err)
 	}
+
+	err = e.updateDirectoryItemNextID(txnID, srcVertDirToken, dirItem.ID, newDirItemID, ctxLogger)
+	if err != nil {
+		return fmt.Errorf("failed to update directory item next ID: %w", err)
+	}
+
 	return nil
 }
 
@@ -575,10 +577,10 @@ func (e *Executor) insertDirectoryItem(
 ) (storage.DirItemID, error) {
 	pageID, err := e.getPageWithFreeSpace(dirToken.GetFileID())
 	if err != nil {
-		return storage.DirItemID(uuid.Nil), fmt.Errorf("failed to get free page: %w", err)
+		return storage.NilDirItemID, fmt.Errorf("failed to get free page: %w", err)
 	}
 	if e.locker.LockPage(dirToken, pageID, txns.PAGE_LOCK_EXCLUSIVE) == nil {
-		return storage.DirItemID(uuid.Nil), fmt.Errorf("failed to lock page: %w", err)
+		return storage.NilDirItemID, fmt.Errorf("failed to lock page: %w", err)
 	}
 
 	pageIdent := common.PageIdentity{
@@ -588,12 +590,12 @@ func (e *Executor) insertDirectoryItem(
 
 	pToken := e.locker.LockPage(dirToken, pageID, txns.PAGE_LOCK_EXCLUSIVE)
 	if pToken == nil {
-		return storage.DirItemID(uuid.Nil), fmt.Errorf("failed to lock page: %v", pageIdent)
+		return storage.NilDirItemID, fmt.Errorf("failed to lock page: %v", pageIdent)
 	}
 
 	pg, err := e.pool.GetPageNoCreate(pageIdent)
 	if err != nil {
-		return storage.DirItemID(uuid.Nil), fmt.Errorf("failed to get page: %w", err)
+		return storage.NilDirItemID, fmt.Errorf("failed to get page: %w", err)
 	}
 	defer e.pool.Unpin(pageIdent)
 
@@ -606,7 +608,7 @@ func (e *Executor) insertDirectoryItem(
 			fullDirItem := engine.DirectoryItem{
 				DirectoryItemInternalFields: engine.DirectoryItemInternalFields{
 					ID:         newDirItemID,
-					NextItemID: storage.DirItemID(uuid.Nil),
+					NextItemID: storage.NilDirItemID,
 					PrevItemID: prevDirItemID,
 				},
 				DirectoryItemDataFields: dirItem,
@@ -625,9 +627,106 @@ func (e *Executor) insertDirectoryItem(
 		},
 	)
 	if err != nil {
-		return storage.DirItemID(uuid.Nil), fmt.Errorf("failed to insert directory item: %w", err)
+		return storage.NilDirItemID, fmt.Errorf("failed to insert directory item: %w", err)
 	}
 	return newDirItemID, nil
+}
+
+func (e *Executor) updateDirItemEdgeID(
+	txnID common.TxnID,
+	dirToken *txns.FileLockToken,
+	dirItemID storage.DirItemID,
+	edgeID storage.EdgeID,
+	ctxLogger common.ITxnLoggerWithContext,
+) error {
+	dirRID, err := e.se.GetDirectoryRID(txnID, dirToken.GetFileID(), dirItemID)
+	if err != nil {
+		return fmt.Errorf("failed to get directory RID: %w", err)
+	}
+
+	pageIdent := dirRID.R.PageIdentity()
+	pToken := e.locker.LockPage(dirToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
+	if pToken == nil {
+		return fmt.Errorf("failed to lock page: %v", pageIdent)
+	}
+
+	pg, err := e.pool.GetPageNoCreate(pageIdent)
+	if err != nil {
+		return fmt.Errorf("failed to get page: %w", err)
+	}
+	defer e.pool.Unpin(pageIdent)
+
+	return e.pool.WithMarkDirty(
+		txnID,
+		pageIdent,
+		pg,
+		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+			dirRecordBytes := lockedPage.UnsafeRead(dirRID.R.SlotNum)
+			dirItem, err := parseDirectoryRecord(dirRecordBytes)
+			if err != nil {
+				err = fmt.Errorf(
+					"failed to parse directory record: %w",
+					err,
+				)
+				return common.NewNilLogRecordLocation(), err
+			}
+			dirItem.DirectoryItemDataFields.EdgeID = edgeID
+			dirRecordBytes, err = serializeDirectoryRecord(dirItem)
+			if err != nil {
+				err = fmt.Errorf(
+					"failed to serialize directory record: %w",
+					err,
+				)
+				return common.NewNilLogRecordLocation(), err
+			}
+			return lockedPage.UpdateWithLogs(dirRecordBytes, dirRID.R, ctxLogger)
+		},
+	)
+}
+
+func (e *Executor) updateDirectoryItemNextID(
+	txnID common.TxnID,
+	dirToken *txns.FileLockToken,
+	dirItemID storage.DirItemID,
+	newNextItemID storage.DirItemID,
+	ctxLogger common.ITxnLoggerWithContext,
+) error {
+	dirRID, err := e.se.GetDirectoryRID(txnID, dirToken.GetFileID(), dirItemID)
+	if err != nil {
+		return fmt.Errorf("failed to get directory RID: %w", err)
+	}
+
+	pToken := e.locker.LockPage(dirToken, dirRID.R.PageIdentity().PageID, txns.PAGE_LOCK_EXCLUSIVE)
+	if pToken == nil {
+		return fmt.Errorf("failed to lock page: %v", dirRID.R.PageIdentity())
+	}
+
+	pg, err := e.pool.GetPageNoCreate(dirRID.R.PageIdentity())
+	if err != nil {
+		return fmt.Errorf("failed to get page: %w", err)
+	}
+	defer e.pool.Unpin(dirRID.R.PageIdentity())
+
+	return e.pool.WithMarkDirty(
+		txnID,
+		dirRID.R.PageIdentity(),
+		pg,
+		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+			dirRecordBytes := lockedPage.UnsafeRead(dirRID.R.SlotNum)
+			dirItem, err := parseDirectoryRecord(dirRecordBytes)
+			if err != nil {
+				err = fmt.Errorf("failed to parse directory record: %w", err)
+				return common.NewNilLogRecordLocation(), err
+			}
+			dirItem.NextItemID = newNextItemID
+			dirRecordBytes, err = serializeDirectoryRecord(dirItem)
+			if err != nil {
+				err = fmt.Errorf("failed to serialize directory record: %w", err)
+				return common.NewNilLogRecordLocation(), err
+			}
+			return lockedPage.UpdateWithLogs(dirRecordBytes, dirRID.R, ctxLogger)
+		},
+	)
 }
 
 func (e *Executor) updateDirectoryItem(
@@ -671,52 +770,20 @@ func (e *Executor) updateDirectoryItem(
 	)
 }
 
-func (e *Executor) deleteDirectoryItem(
-	txnID common.TxnID,
-	dirToken *txns.FileLockToken,
-	dirItemID storage.DirItemID,
-	ctxLogger common.ITxnLoggerWithContext,
-) error {
-	dirRID, err := e.se.GetDirectoryRID(txnID, dirToken.GetFileID(), dirItemID)
-	if err != nil {
-		return fmt.Errorf("failed to get directory RID: %w", err)
-	}
-
-	pageIdent := dirRID.R.PageIdentity()
-	pToken := e.locker.LockPage(dirToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
-	if pToken == nil {
-		return fmt.Errorf("failed to lock page: %v", pageIdent)
-	}
-
-	pg, err := e.pool.GetPageNoCreate(pageIdent)
-	if err != nil {
-		return fmt.Errorf("failed to get page: %w", err)
-	}
-	defer e.pool.Unpin(pageIdent)
-
-	return e.pool.WithMarkDirty(
-		txnID,
-		pageIdent,
-		pg,
-		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-			return lockedPage.DeleteWithLogs(dirRID.R, ctxLogger)
-		},
-	)
-}
-
 func (e *Executor) DeleteEdge(
 	txnID common.TxnID,
-	fToken *txns.FileLockToken,
+	edgesFileToken *txns.FileLockToken,
+	dirFileToken *txns.FileLockToken,
 	edgeID storage.EdgeID,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	edgeRID, err := e.se.GetEdgeRID(txnID, fToken.GetFileID(), edgeID)
+	edgeRID, err := e.se.GetEdgeRID(txnID, edgesFileToken.GetFileID(), edgeID)
 	if err != nil {
 		return fmt.Errorf("failed to get edge RID: %w", err)
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
-	pToken := e.locker.LockPage(fToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
+	pToken := e.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page: %v", pageIdent)
 	}
@@ -728,52 +795,111 @@ func (e *Executor) DeleteEdge(
 	defer e.pool.Unpin(pageIdent)
 
 	curEdgeData := pg.LockedRead(edgeRID.R.SlotNum)
-	curEdgeInternalFields, _, err := parseEdgeRecordHeader(curEdgeData)
+	curEdgeInternals, _, err := parseEdgeRecordHeader(curEdgeData)
 	if err != nil {
 		return fmt.Errorf("failed to parse edge record header: %w", err)
 	}
 
-	err = e.updateEdgeNextID(
-		txnID,
-		fToken,
-		curEdgeInternalFields.PrevEdgeID,
-		curEdgeInternalFields.NextEdgeID,
-		ctxLogger,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update edge next ID: %w", err)
+	if curEdgeInternals.PrevEdgeID.IsNil() {
+		err = e.updateDirItemEdgeID(
+			txnID,
+			dirFileToken,
+			curEdgeInternals.DirectoryItemID,
+			curEdgeInternals.NextEdgeID,
+			ctxLogger,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update dir item edge ID: %w", err)
+		}
+	} else {
+		err = e.updateEdgeNextID(
+			txnID,
+			edgesFileToken,
+			curEdgeInternals.PrevEdgeID,
+			curEdgeInternals.NextEdgeID,
+			ctxLogger,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update edge next ID: %w", err)
+		}
 	}
-	e.updateEdgePrevID(
+
+	err = e.updateEdgePrevID(
 		txnID,
-		fToken,
-		curEdgeInternalFields.NextEdgeID,
-		curEdgeInternalFields.PrevEdgeID,
+		edgesFileToken,
+		curEdgeInternals.NextEdgeID,
+		curEdgeInternals.PrevEdgeID,
 		ctxLogger,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update edge prev ID: %w", err)
 	}
+
 	return nil
 }
 
-func (e *Executor) UpdateEdge() error {
-	return nil
-}
-
-func (e *Executor) updateEdgePrevID(
+func (e *Executor) UpdateEdge(
 	txnID common.TxnID,
-	fToken *txns.FileLockToken,
+	edgesFileToken *txns.FileLockToken,
 	edgeID storage.EdgeID,
-	prevEdgeID storage.EdgeID,
+	edgeFields map[string]any,
+	schema storage.Schema,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	edgeRID, err := e.se.GetEdgeRID(txnID, fToken.GetFileID(), edgeID)
+	edgeRID, err := e.se.GetEdgeRID(txnID, edgesFileToken.GetFileID(), edgeID)
 	if err != nil {
 		return fmt.Errorf("failed to get edge RID: %w", err)
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
-	pToken := e.locker.LockPage(fToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
+	pToken := e.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
+	if pToken == nil {
+		return fmt.Errorf("failed to lock page: %v", pageIdent)
+	}
+
+	pg, err := e.pool.GetPageNoCreate(pageIdent)
+	if err != nil {
+		return fmt.Errorf("failed to get page: %w", err)
+	}
+	defer e.pool.Unpin(pageIdent)
+
+	return e.pool.WithMarkDirty(
+		txnID,
+		pageIdent,
+		pg,
+		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+			edgeRecordBytes := lockedPage.UnsafeRead(edgeRID.R.SlotNum)
+			edgeInternalFields, _, err := parseEdgeRecordHeader(edgeRecordBytes)
+			if err != nil {
+				err = fmt.Errorf("failed to parse edge record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
+			}
+
+			newEdgeRecordBytes, err := serializeEdgeRecord(edgeInternalFields, edgeFields, schema)
+			if err != nil {
+				err = fmt.Errorf("failed to serialize edge record: %w", err)
+				return common.NewNilLogRecordLocation(), err
+			}
+
+			return lockedPage.UpdateWithLogs(newEdgeRecordBytes, edgeRID.R, ctxLogger)
+		},
+	)
+}
+
+func (e *Executor) updateEdgePrevID(
+	txnID common.TxnID,
+	edgesFileToken *txns.FileLockToken,
+	edgeID storage.EdgeID,
+	prevEdgeID storage.EdgeID,
+	ctxLogger common.ITxnLoggerWithContext,
+) error {
+	edgeRID, err := e.se.GetEdgeRID(txnID, edgesFileToken.GetFileID(), edgeID)
+	if err != nil {
+		return fmt.Errorf("failed to get edge RID: %w", err)
+	}
+
+	pageIdent := edgeRID.R.PageIdentity()
+	pToken := e.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page: %v", pageIdent)
 	}
@@ -792,18 +918,14 @@ func (e *Executor) updateEdgePrevID(
 			edgeRecordBytes := lockedPage.UnsafeRead(edgeRID.R.SlotNum)
 			edgeInternalFields, tail, err := parseEdgeRecordHeader(edgeRecordBytes)
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to parse edge record header: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to parse edge record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 			edgeInternalFields.PrevEdgeID = prevEdgeID
 			edgeRecordBytes, err = serializeEdgeRecordHeader(edgeInternalFields, tail)
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to serialize edge record header: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to serialize edge record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 			return lockedPage.UpdateWithLogs(edgeRecordBytes, edgeRID.R, ctxLogger)
 		},
@@ -812,18 +934,18 @@ func (e *Executor) updateEdgePrevID(
 
 func (e *Executor) updateEdgeNextID(
 	txnID common.TxnID,
-	fToken *txns.FileLockToken,
+	edgesFileToken *txns.FileLockToken,
 	edgeID storage.EdgeID,
 	nextEdgeID storage.EdgeID,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	edgeRID, err := e.se.GetEdgeRID(txnID, fToken.GetFileID(), edgeID)
+	edgeRID, err := e.se.GetEdgeRID(txnID, edgesFileToken.GetFileID(), edgeID)
 	if err != nil {
 		return fmt.Errorf("failed to get edge RID: %w", err)
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
-	pToken := e.locker.LockPage(fToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
+	pToken := e.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PAGE_LOCK_EXCLUSIVE)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page: %v", pageIdent)
 	}
@@ -842,18 +964,14 @@ func (e *Executor) updateEdgeNextID(
 			edgeRecordBytes := lockedPage.UnsafeRead(edgeRID.R.SlotNum)
 			edgeInternalFields, tail, err := parseEdgeRecordHeader(edgeRecordBytes)
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to parse edge record header: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to parse edge record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 			edgeInternalFields.NextEdgeID = nextEdgeID
 			edgeRecordBytes, err = serializeEdgeRecordHeader(edgeInternalFields, tail)
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to serialize edge record header: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to serialize edge record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 			return lockedPage.UpdateWithLogs(edgeRecordBytes, edgeRID.R, ctxLogger)
 		},
@@ -892,18 +1010,14 @@ func (e *Executor) updateEdgeDirItemID(
 			edgeRecordBytes := lockedPage.UnsafeRead(edgeRID.R.SlotNum)
 			edgeInternalFields, tail, err := parseEdgeRecordHeader(edgeRecordBytes)
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to parse edge record header: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to parse edge record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 			edgeInternalFields.DirectoryItemID = dirItemID
 			edgeRecordBytes, err = serializeEdgeRecordHeader(edgeInternalFields, tail)
 			if err != nil {
-				return common.NewNilLogRecordLocation(), fmt.Errorf(
-					"failed to serialize edge record header: %w",
-					err,
-				)
+				err = fmt.Errorf("failed to serialize edge record header: %w", err)
+				return common.NewNilLogRecordLocation(), err
 			}
 			return lockedPage.UpdateWithLogs(edgeRecordBytes, edgeRID.R, ctxLogger)
 		},
