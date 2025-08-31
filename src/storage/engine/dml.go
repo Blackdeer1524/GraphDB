@@ -59,21 +59,21 @@ func (s *StorageEngine) GetEdgeRID(
 }
 
 func (s *StorageEngine) GetDirectoryRID(
-	directoryID storage.DirItemID,
-	directoryIndex common.Index,
+	dirItemID storage.DirItemID,
+	dirSystemIndex common.Index,
 ) (storage.DirectoryIDWithRID, error) {
-	b, err := directoryID.MarshalBinary()
+	b, err := dirItemID.MarshalBinary()
 	if err != nil {
 		return storage.DirectoryIDWithRID{}, fmt.Errorf("failed to marshal directory ID: %w", err)
 	}
 
-	rid, err := directoryIndex.Get(b)
+	rid, err := dirSystemIndex.Get(b)
 	if err != nil {
 		return storage.DirectoryIDWithRID{}, fmt.Errorf("failed to get directory RID: %w", err)
 	}
 
 	res := storage.DirectoryIDWithRID{
-		D: directoryID,
+		D: dirItemID,
 		R: rid,
 	}
 
@@ -478,11 +478,11 @@ func (s *StorageEngine) insertEdgeWithDirItem(
 	dstVertexID storage.VertexID,
 	edgeFields map[string]any,
 	schema storage.Schema,
-	prevDirItemID storage.DirItemID,
-
 	edgesFileToken *txns.FileLockToken,
 	edgeSystemIndex common.Index,
 
+	prevDirItemID storage.DirItemID,
+	nextDirItemID storage.DirItemID,
 	srcVertDirToken *txns.FileLockToken,
 	srcVertDirSystemIndex common.Index,
 
@@ -514,6 +514,7 @@ func (s *StorageEngine) insertEdgeWithDirItem(
 		txnID,
 		dirItemGraphFields,
 		prevDirItemID,
+		nextDirItemID,
 		srcVertDirToken,
 		srcVertDirSystemIndex,
 		ctxLogger,
@@ -571,13 +572,15 @@ func (s *StorageEngine) InsertEdge(
 			dstVertexID,
 			edgeFields,
 			schema,
-			storage.NilDirItemID,
-
 			edgesFileToken,
 			edgeSystemIndex,
 
+			storage.NilDirItemID,
+			storage.NilDirItemID,
+
 			srcVertDirToken,
 			srcVertDirSystemIndex,
+
 			ctxLogger,
 		)
 		if err != nil {
@@ -599,8 +602,9 @@ func (s *StorageEngine) InsertEdge(
 
 	dirItem, err := s.selectDirectoryItem(
 		txnID,
-		srcVertDirToken,
 		srcVertInternalFields.DirItemID,
+		srcVertDirToken,
+		srcVertDirSystemIndex,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to select directory item: %w", err)
@@ -613,8 +617,9 @@ func (s *StorageEngine) InsertEdge(
 			}
 			dirItem, err = s.selectDirectoryItem(
 				txnID,
-				srcVertDirToken,
 				dirItem.NextItemID,
+				srcVertDirToken,
+				srcVertDirSystemIndex,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to select directory item: %w", err)
@@ -672,20 +677,34 @@ func (s *StorageEngine) InsertEdge(
 
 	_, newDirItemID, err := s.insertEdgeWithDirItem(
 		txnID,
+
 		srcVertexID,
 		dstVertexID,
-		edgesFileToken,
-		srcVertDirToken,
 		edgeFields,
 		schema,
+
+		edgesFileToken,
+		edgeSystemIndex,
+
 		dirItem.ID,
+		storage.NilDirItemID,
+
+		srcVertDirToken,
+		srcVertDirSystemIndex,
 		ctxLogger,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert edge with directory item: %w", err)
 	}
 
-	err = s.updateDirectoryItemNextID(txnID, srcVertDirToken, dirItem.ID, newDirItemID, ctxLogger)
+	err = s.updateDirectoryItemNextID(
+		txnID,
+		dirItem.ID,
+		newDirItemID,
+		srcVertDirToken,
+		srcVertDirSystemIndex,
+		ctxLogger,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to update directory item next ID: %w", err)
 	}
@@ -695,10 +714,11 @@ func (s *StorageEngine) InsertEdge(
 
 func (s *StorageEngine) selectDirectoryItem(
 	txnID common.TxnID,
-	dirToken *txns.FileLockToken,
 	dirItemID storage.DirItemID,
+	dirToken *txns.FileLockToken,
+	dirSystemIndex common.Index,
 ) (DirectoryItem, error) {
-	dirRID, err := s.GetDirectoryRID(txnID, dirToken.GetFileID(), dirItemID)
+	dirRID, err := s.GetDirectoryRID(dirItemID, dirSystemIndex)
 	if err != nil {
 		return DirectoryItem{}, fmt.Errorf("failed to get directory RID: %w", err)
 	}
@@ -723,6 +743,8 @@ func (s *StorageEngine) insertDirectoryItem(
 
 	dirItemGraphFields DirectoryItemGraphFields,
 	prevDirItemID storage.DirItemID,
+	nextDirItemID storage.DirItemID,
+
 	dirFileToken *txns.FileLockToken,
 	dirSystemIndex common.Index,
 
@@ -730,7 +752,7 @@ func (s *StorageEngine) insertDirectoryItem(
 ) (storage.DirItemID, error) {
 	dirItemInternalFields := NewDirectoryItemInternalFields(
 		storage.DirItemID(uuid.New()),
-		storage.NilDirItemID,
+		nextDirItemID,
 		prevDirItemID,
 	)
 	dirItem := DirectoryItem{
