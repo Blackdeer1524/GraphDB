@@ -13,7 +13,7 @@ func initStart() {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return app.Run(
 				cmd.Context(),
-				&app.APIEntrypoint{ConfigPath: rootCmd.Options.ConfigPath},
+				&app.ServerEntrypoint{ConfigPath: rootCmd.Options.ConfigPath},
 			)
 		},
 	})

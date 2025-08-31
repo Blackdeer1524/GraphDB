@@ -15,6 +15,8 @@ type envVars struct {
 
 	ServerHost string `required:"true" split_words:"true"`
 	ServerPort int    `required:"true" split_words:"true"`
+
+	NodesAddr []string `required:"true" split_words:"true"`
 }
 
 func mustLoadEnv() envVars {
@@ -31,6 +33,10 @@ func mustLoadEnv() envVars {
 		panic("invalid environment")
 	} else if env.Environment == "" {
 		env.Environment = EnvDev
+	}
+
+	if len(env.NodesAddr) < 1 {
+		panic("invalid nodes addr len, must be at least 1")
 	}
 
 	return env
