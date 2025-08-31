@@ -19,7 +19,7 @@ import (
 // Tests for GetVertexesOnDepth
 func TestGetVertexesOnDepth_NilStorageEngine(t *testing.T) {
 	locker := txns.NewLockManager()
-	e := New(nil, nil, locker, common.DummyLogger())
+	e := New(nil, locker, common.DummyLogger())
 
 	_, err := e.GetVertexesOnDepth(1, 0)
 	require.Error(t, err)

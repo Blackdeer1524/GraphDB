@@ -36,37 +36,54 @@ func applyOp(
 	case OpDropVertexTable:
 		err = se.DropVertexTable(op.TxnID, op.Name, logger)
 		if err == nil {
-			filePath := engine.GetTableFilePath(baseDir, op.Name)
+			filePath := engine.GetVertexTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
 			if errRemove != nil {
 				err = fmt.Errorf("failed to remove vertex table file: %w", errRemove)
 			}
 		}
 	case OpCreateEdgeTable:
-		err = se.CreateEdgesTable(op.TxnID, op.Name, nil, logger)
+		err = se.CreateEdgeTable(op.TxnID, op.Name, nil, logger)
 	case OpDropEdgeTable:
-		err = se.DropEdgesTable(op.TxnID, op.Name, logger)
+		err = se.DropEdgeTable(op.TxnID, op.Name, logger)
 		if err == nil {
-			filePath := GetEdgeTableFilePath(baseDir, op.Name)
+			filePath := engine.GetEdgeTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
 			if errRemove != nil {
 				err = fmt.Errorf("failed to remove edge table file: %w", errRemove)
 			}
 		}
-	case OpCreateIndex:
-		err = se.CreateIndex(
+	case OpCreateVertexIndex:
+		err = se.CreateVertexTableIndex(
 			op.TxnID,
 			op.Name,
 			op.Table,
-			op.TableKind,
 			op.Columns,
 			8,
 			logger,
 		)
-	case OpDropIndex:
-		err = se.DropIndex(op.TxnID, op.Name, logger)
+	case OpCreateEdgeIndex:
+		err = se.CreateEdgesTableIndex(
+			op.TxnID,
+			op.Name,
+			op.Table,
+			op.Columns,
+			8,
+			logger,
+		)
+	case OpDropVertexIndex:
+		err = se.DropVertexTableIndex(op.TxnID, op.Name, logger)
 		if err == nil {
-			filePath := GetIndexFilePath(baseDir, op.Name)
+			filePath := engine.GetVertexIndexFilePath(baseDir, op.Name)
+			errRemove := os.Remove(filePath)
+			if errRemove != nil {
+				err = fmt.Errorf("failed to remove index file: %w", errRemove)
+			}
+		}
+	case OpDropEdgeIndex:
+		err = se.DropEdgesTableIndex(op.TxnID, op.Name, logger)
+		if err == nil {
+			filePath := engine.GetEdgeIndexFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
 			if errRemove != nil {
 				err = fmt.Errorf("failed to remove index file: %w", errRemove)
@@ -96,7 +113,15 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	require.NoError(t, err)
 
 	lockMgr := txns.NewLockManager()
-	se, err := New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err := engine.New(
+		baseDir,
+		uint64(200),
+		lockMgr,
+		afero.NewOsFs(),
+		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 
 	model := newEngineSimulator()
@@ -114,13 +139,13 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 
 		if i%25 == 0 {
 			t.Logf("validate invariants at step=%d", i)
-			model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
+			model.compareWithEngineFS(t, baseDir)
 		}
 
 		i += 1
 	}
 
-	model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
+	model.compareWithEngineFS(t, baseDir)
 
 	t.Logf("fuzz ok: seed=%d, ops=%d", seed, opsCount)
 }
@@ -136,7 +161,15 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 	require.NoError(t, err)
 
 	lockMgr := txns.NewLockManager()
-	se, err := New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err := engine.New(
+		baseDir,
+		uint64(200),
+		lockMgr,
+		afero.NewOsFs(),
+		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 
 	model := newEngineSimulator()
@@ -198,7 +231,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 		model.apply(a.op, a.res)
 	}
 
-	model.compareWithEngineFS(t, baseDir, se, common.NoLogs())
+	model.compareWithEngineFS(t, baseDir)
 
 	t.Logf("fuzz ok: seed=%d, threads=%d, ops=%d", seed, numThreads, totalOps)
 }

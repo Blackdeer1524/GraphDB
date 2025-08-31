@@ -13,17 +13,18 @@ const (
 	OpDropVertexTable
 	OpCreateEdgeTable
 	OpDropEdgeTable
-	OpCreateIndex
-	OpDropIndex
+	OpCreateVertexIndex
+	OpCreateEdgeIndex
+	OpDropVertexIndex
+	OpDropEdgeIndex
 )
 
 type Operation struct {
-	Type      OpType
-	Name      string
-	Table     string
-	TableKind string
-	Columns   []string
-	TxnID     common.TxnID
+	Type    OpType
+	Name    string
+	Table   string
+	Columns []string
+	TxnID   common.TxnID
 }
 
 func (op Operation) String() string {
@@ -36,17 +37,26 @@ func (op Operation) String() string {
 		return fmt.Sprintf("CreateEdgeTable(name=%s, txn=%d)", op.Name, op.TxnID)
 	case OpDropEdgeTable:
 		return fmt.Sprintf("DropEdgeTable(name=%s, txn=%d)", op.Name, op.TxnID)
-	case OpCreateIndex:
+	case OpCreateVertexIndex:
 		return fmt.Sprintf(
-			"CreateIndex(name=%s, table=%s/%s, cols=%v, txn=%d)",
+			"CreateVertexIndex(name=%s, table=%s, cols=%v, txn=%d)",
 			op.Name,
-			op.TableKind,
 			op.Table,
 			op.Columns,
 			op.TxnID,
 		)
-	case OpDropIndex:
-		return fmt.Sprintf("DropIndex(name=%s, txn=%d)", op.Name, op.TxnID)
+	case OpCreateEdgeIndex:
+		return fmt.Sprintf(
+			"CreateEdgeIndex(name=%s, table=%s, cols=%v, txn=%d)",
+			op.Name,
+			op.Table,
+			op.Columns,
+			op.TxnID,
+		)
+	case OpDropVertexIndex:
+		return fmt.Sprintf("DropVertexIndex(name=%s, txn=%d)", op.Name, op.TxnID)
+	case OpDropEdgeIndex:
+		return fmt.Sprintf("DropEdgeIndex(name=%s, txn=%d)", op.Name, op.TxnID)
 	default:
 		return "unknown-op"
 	}

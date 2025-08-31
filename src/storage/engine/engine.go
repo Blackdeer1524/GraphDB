@@ -24,38 +24,10 @@ type StorageEngine struct {
 	indexLoader func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error)
 }
 
-// AllVerticesWithValue implements storage.StorageEngine.
-func (s *StorageEngine) AllVerticesWithValue(t common.TxnID, field string, value []byte) (storage.VerticesIter, error) {
-	panic("unimplemented")
-}
-
-// CountOfFilteredEdges implements storage.StorageEngine.
-func (s *StorageEngine) CountOfFilteredEdges(t common.TxnID, v storage.VertexID, f storage.EdgeFilter) (uint64, error) {
-	panic("unimplemented")
-}
-
-// CreateEdgeTable implements storage.StorageEngine.
-func (s *StorageEngine) CreateEdgeTable(txnID common.TxnID, name string, schema storage.Schema, logger common.ITxnLoggerWithContext) error {
-	panic("unimplemented")
-}
-
-// GetAllVertices implements storage.StorageEngine.
-func (s *StorageEngine) GetAllVertices(t common.TxnID) (storage.VerticesIter, error) {
-	panic("unimplemented")
-}
-
-// GetNeighborsWithEdgeFilter implements storage.StorageEngine.
-func (s *StorageEngine) GetNeighborsWithEdgeFilter(t common.TxnID, v storage.VertexID, filter storage.EdgeFilter) (storage.VerticesIter, error) {
-	panic("unimplemented")
-}
-
-// Neighbours implements storage.StorageEngine.
-func (s *StorageEngine) Neighbours(t common.TxnID, v storage.VertexID) (storage.NeighborIter, error) {
-	panic("unimplemented")
-}
-
 // NewAggregationAssociativeArray implements storage.StorageEngine.
-func (s *StorageEngine) NewAggregationAssociativeArray(common.TxnID) (storage.AssociativeArray[storage.VertexID, float64], error) {
+func (s *StorageEngine) NewAggregationAssociativeArray(
+	common.TxnID,
+) (storage.AssociativeArray[storage.VertexID, float64], error) {
 	panic("unimplemented")
 }
 
@@ -66,6 +38,46 @@ func (s *StorageEngine) NewBitMap(common.TxnID) (storage.BitMap, error) {
 
 // NewQueue implements storage.StorageEngine.
 func (s *StorageEngine) NewQueue(common.TxnID) (storage.Queue, error) {
+	panic("unimplemented")
+}
+
+// AllVerticesWithValue implements storage.StorageEngine.
+func (s *StorageEngine) AllVerticesWithValue(
+	t common.TxnID,
+	field string,
+	value []byte,
+) (storage.VerticesIter, error) {
+	panic("unimplemented")
+}
+
+// CountOfFilteredEdges implements storage.StorageEngine.
+func (s *StorageEngine) CountOfFilteredEdges(
+	t common.TxnID,
+	v storage.VertexID,
+	f storage.EdgeFilter,
+) (uint64, error) {
+	panic("unimplemented")
+}
+
+// GetAllVertices implements storage.StorageEngine.
+func (s *StorageEngine) GetAllVertices(t common.TxnID) (storage.VerticesIter, error) {
+	panic("unimplemented")
+}
+
+// GetNeighborsWithEdgeFilter implements storage.StorageEngine.
+func (s *StorageEngine) GetNeighborsWithEdgeFilter(
+	t common.TxnID,
+	v storage.VertexID,
+	filter storage.EdgeFilter,
+) (storage.VerticesIter, error) {
+	panic("unimplemented")
+}
+
+// Neighbours implements storage.StorageEngine.
+func (s *StorageEngine) Neighbours(
+	t common.TxnID,
+	v storage.VertexID,
+) (storage.NeighborIter, error) {
 	panic("unimplemented")
 }
 

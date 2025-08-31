@@ -8,7 +8,6 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/datastructures/inmemory"
-	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 )
 
 func (e *Executor) newTxnID() common.TxnID {
@@ -132,7 +131,8 @@ func (e *Executor) bfsWithDepth(
 // GetVertexesOnDepth is the first query from SOW. It returns all vertexes on a given depth.
 // We will use BFS on graph because DFS cannot calculate right depth on graphs (except trees).
 func (e *Executor) GetVertexesOnDepth(
-	start engine.VertexID,
+	vertexTableName string,
+	start storage.VertexID,
 	targetDepth uint32,
 ) (r []storage.VertexIDWithRID, err error) {
 	if e.se == nil {
@@ -167,7 +167,12 @@ func (e *Executor) GetVertexesOnDepth(
 
 	var st storage.VertexIDWithRID
 
-	st, err = e.se.GetVertexRID(tx, start)
+	index, err := e.se.GetVertexTableInternalIndex(tx, vertexTableName, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
+	}
+
+	st, err = e.se.GetVertexRID(tx, start, index)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get start vertex: %w", err)
 	}
@@ -354,7 +359,7 @@ func (e *Executor) SumNeighborAttributes(
 	field string,
 	filter storage.EdgeFilter,
 	pred storage.SumNeighborAttributesFilter,
-) (r storage.AssociativeArray[engine.VertexID, float64], err error) {
+) (r storage.AssociativeArray[storage.VertexID, float64], err error) {
 	if e.se == nil {
 		return nil, errors.New("storage engine is nil")
 	}
@@ -428,8 +433,8 @@ func (e *Executor) SumNeighborAttributes(
 	return r, nil
 }
 
-func (e *Executor) countCommonNeighbors(tx common.TxnID, left engine.VertexID,
-	leftNeighbors storage.AssociativeArray[engine.VertexID, struct{}]) (r uint64, err error) {
+func (e *Executor) countCommonNeighbors(tx common.TxnID, left storage.VertexID,
+	leftNeighbors storage.AssociativeArray[storage.VertexID, struct{}]) (r uint64, err error) {
 	var rightNeighborsIter storage.NeighborIter
 
 	rightNeighborsIter, err = e.se.Neighbours(tx, left)
@@ -444,10 +449,6 @@ func (e *Executor) countCommonNeighbors(tx common.TxnID, left engine.VertexID,
 	}()
 
 	for right := range rightNeighborsIter.Seq() {
-		if left >= right.V {
-			continue
-		}
-
 		if _, ok := leftNeighbors.Get(right.V); ok {
 			r++
 		}
@@ -475,7 +476,7 @@ func (e *Executor) getVertexTriangleCount(
 		}
 	}()
 
-	leftNeighbors := inmemory.NewInMemoryAssociativeArray[engine.VertexID, struct{}]()
+	leftNeighbors := inmemory.NewInMemoryAssociativeArray[storage.VertexID, struct{}]()
 
 	for l := range leftNeighborsIter.Seq() {
 		err = leftNeighbors.Set(l.V, struct{}{})
@@ -487,7 +488,7 @@ func (e *Executor) getVertexTriangleCount(
 		}
 	}
 
-	leftNeighbors.Seq(func(id engine.VertexID, s struct{}) bool {
+	leftNeighbors.Seq(func(id storage.VertexID, s struct{}) bool {
 		var add uint64
 
 		add, err = e.countCommonNeighbors(tx, id, leftNeighbors)
@@ -575,5 +576,5 @@ func (e *Executor) GetAllTriangles() (r uint64, err error) {
 		r += add
 	}
 
-	return r / 3, nil
+	return r / 6, nil
 }

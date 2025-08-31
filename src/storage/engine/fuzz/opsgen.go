@@ -11,9 +11,10 @@ type OpsGenerator struct {
 	r     *rand.Rand
 	count int
 
-	vertexTables map[string]storage.Schema
-	edgeTables   map[string]storage.Schema
-	indexes      map[string]storage.IndexMeta
+	vertexTables  map[string]storage.Schema
+	edgeTables    map[string]storage.Schema
+	vertexIndexes map[string]storage.IndexMeta
+	edgeIndexes   map[string]storage.IndexMeta
 }
 
 func NewOpsGenerator(r *rand.Rand, count int) *OpsGenerator {
@@ -21,9 +22,10 @@ func NewOpsGenerator(r *rand.Rand, count int) *OpsGenerator {
 		r:     r,
 		count: count,
 
-		vertexTables: make(map[string]storage.Schema),
-		edgeTables:   make(map[string]storage.Schema),
-		indexes:      make(map[string]storage.IndexMeta),
+		vertexTables:  make(map[string]storage.Schema),
+		edgeTables:    make(map[string]storage.Schema),
+		vertexIndexes: make(map[string]storage.IndexMeta),
+		edgeIndexes:   make(map[string]storage.IndexMeta),
 	}
 }
 
@@ -33,9 +35,7 @@ func (g *OpsGenerator) genRandomOp() Operation {
 	switch try {
 	case OpCreateVertexTable:
 		tblName := randomTableName(g.r, g.vertexTables, 2)
-
 		g.vertexTables[tblName] = randomSchema(g.r)
-
 		return Operation{
 			Type: OpCreateVertexTable,
 			Name: tblName,
@@ -43,9 +43,7 @@ func (g *OpsGenerator) genRandomOp() Operation {
 
 	case OpDropVertexTable:
 		tblName := randomTableName(g.r, g.vertexTables, 8)
-
 		delete(g.vertexTables, tblName)
-
 		return Operation{
 			Type: OpDropVertexTable,
 			Name: tblName,
@@ -53,9 +51,7 @@ func (g *OpsGenerator) genRandomOp() Operation {
 
 	case OpCreateEdgeTable:
 		tblName := randomTableName(g.r, g.edgeTables, 2)
-
 		g.edgeTables[tblName] = randomSchema(g.r)
-
 		return Operation{
 			Type: OpCreateEdgeTable,
 			Name: tblName,
@@ -63,50 +59,67 @@ func (g *OpsGenerator) genRandomOp() Operation {
 
 	case OpDropEdgeTable:
 		tblName := randomTableName(g.r, g.edgeTables, 8)
-
 		delete(g.edgeTables, tblName)
-
 		return Operation{
 			Type: OpDropVertexTable,
 			Name: tblName,
 		}
 
-	case OpCreateIndex:
+	case OpCreateVertexIndex:
 		var (
-			kind      string
 			tblName   string
 			indexName string
 		)
 
-		if len(g.vertexTables) == 0 && len(g.edgeTables) == 0 {
+		if len(g.vertexTables) == 0 {
 			return g.genRandomOp()
 		}
 
-		useVertex := len(g.vertexTables) > 0 && (len(g.edgeTables) == 0 || g.r.Intn(2) == 0)
-		if useVertex {
-			tblName, _ = getRandomMapKey(g.r, g.vertexTables)
-			indexName = randomVertexIndexNameForCreate(g.r, g.indexes, 2)
-		} else {
-			tblName, _ = getRandomMapKey(g.r, g.edgeTables)
-			indexName = randomEdgeIndexNameForCreate(g.r, g.indexes, 2)
-		}
+		tblName, _ = getRandomMapKey(g.r, g.vertexTables)
+		indexName = randomVertexIndexNameForCreate(g.r, g.vertexIndexes, 2)
 
-		g.indexes[indexName] = storage.IndexMeta{}
+		g.vertexIndexes[indexName] = storage.IndexMeta{}
 
 		return Operation{
-			Type:      OpCreateIndex,
-			Name:      indexName,
-			Table:     tblName,
-			TableKind: kind,
+			Type:  OpCreateVertexIndex,
+			Name:  indexName,
+			Table: tblName,
 		}
 
-	case OpDropIndex:
-		indexName := randomIndexNameForDrop(g.r, g.indexes, 8)
+	case OpCreateEdgeIndex:
+		var (
+			tblName   string
+			indexName string
+		)
 
-		delete(g.indexes, indexName)
+		if len(g.vertexTables) == 0 {
+			return g.genRandomOp()
+		}
+
+		tblName, _ = getRandomMapKey(g.r, g.edgeTables)
+		indexName = randomVertexIndexNameForCreate(g.r, g.edgeIndexes, 2)
+
+		g.edgeIndexes[indexName] = storage.IndexMeta{}
 
 		return Operation{
-			Type: OpCreateIndex,
+			Type:  OpCreateEdgeIndex,
+			Name:  indexName,
+			Table: tblName,
+		}
+
+	case OpDropVertexIndex:
+		indexName := randomVertexIndexNameForDrop(g.r, g.vertexIndexes, 8)
+		delete(g.vertexIndexes, indexName)
+		return Operation{
+			Type: OpDropVertexIndex,
+			Name: indexName,
+		}
+
+	case OpDropEdgeIndex:
+		indexName := randomEdgeIndexNameForDrop(g.r, g.edgeIndexes, 8)
+		delete(g.edgeIndexes, indexName)
+		return Operation{
+			Type: OpDropEdgeIndex,
 			Name: indexName,
 		}
 	}

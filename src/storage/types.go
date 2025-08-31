@@ -187,14 +187,10 @@ type StorageEngine interface {
 	AllVerticesWithValue(t common.TxnID, field string, value []byte) (VerticesIter, error)
 	CountOfFilteredEdges(t common.TxnID, v VertexID, f EdgeFilter) (uint64, error)
 	GetAllVertices(t common.TxnID) (VerticesIter, error)
-	GetNeighborsWithEdgeFilter(
-		t common.TxnID,
-		v VertexID,
-		filter EdgeFilter,
-	) (VerticesIter, error)
+	GetNeighborsWithEdgeFilter(t common.TxnID, v VertexID, filter EdgeFilter) (VerticesIter, error)
 
-	GetVertexRID(vertexID VertexID, vertexIndex Index) (VertexIDWithRID, error)
-	GetEdgeRID(edgeID EdgeID, edgeIndex Index) (EdgeIDWithRID, error)
+	GetVertexRID(txnID common.TxnID, vertexID VertexID, vertexIndex Index) (VertexIDWithRID, error)
+	GetEdgeRID(txnID common.TxnID, edgeID EdgeID, edgeIndex Index) (EdgeIDWithRID, error)
 
 	CreateVertexTable(
 		txnID common.TxnID,
@@ -202,6 +198,11 @@ type StorageEngine interface {
 		schema Schema,
 		logger common.ITxnLoggerWithContext,
 	) error
+	GetVertexTableInternalIndex(
+		txnID common.TxnID,
+		vertexTableName string,
+		logger common.ITxnLoggerWithContext,
+	) (Index, error)
 	DropVertexTable(txnID common.TxnID, name string, logger common.ITxnLoggerWithContext) error
 
 	CreateEdgeTable(
@@ -210,7 +211,18 @@ type StorageEngine interface {
 		schema Schema,
 		logger common.ITxnLoggerWithContext,
 	) error
+	GetEdgeTableInternalIndex(
+		txnID common.TxnID,
+		edgeTableName string,
+		logger common.ITxnLoggerWithContext,
+	) (Index, error)
 	DropEdgeTable(txnID common.TxnID, name string, logger common.ITxnLoggerWithContext) error
+
+	GetDirectoryIndex(
+		txnID common.TxnID,
+		vertexTableName string,
+		logger common.ITxnLoggerWithContext,
+	) (Index, error)
 
 	CreateVertexTableIndex(
 		txnID common.TxnID,

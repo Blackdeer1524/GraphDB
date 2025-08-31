@@ -16,6 +16,7 @@ func (s *StorageEngine) getPageWithFreeSpace(fileID common.FileID) (common.PageI
 }
 
 func (s *StorageEngine) GetVertexRID(
+	txnID common.TxnID,
 	vertexID storage.VertexID,
 	vertexIndex storage.Index,
 ) (storage.VertexIDWithRID, error) {
@@ -37,6 +38,7 @@ func (s *StorageEngine) GetVertexRID(
 }
 
 func (s *StorageEngine) GetEdgeRID(
+	txnID common.TxnID,
 	edgeID storage.EdgeID,
 	edgeIndex storage.Index,
 ) (storage.EdgeIDWithRID, error) {
@@ -59,6 +61,7 @@ func (s *StorageEngine) GetEdgeRID(
 }
 
 func (s *StorageEngine) GetDirectoryRID(
+	txnID common.TxnID,
 	dirItemID storage.DirItemID,
 	dirSystemIndex storage.Index,
 ) (storage.DirectoryIDWithRID, error) {
@@ -85,7 +88,7 @@ func (s *StorageEngine) getSerializedVertex(
 	vertexID storage.VertexID,
 	vertexIndex storage.Index,
 ) ([]byte, error) {
-	vertexRID, err := s.GetVertexRID(vertexID, vertexIndex)
+	vertexRID, err := s.GetVertexRID(txnID, vertexID, vertexIndex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex RID: %w", err)
 	}
@@ -202,7 +205,7 @@ func (s *StorageEngine) DeleteVertex(
 	vertexIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	vertexRID, err := s.GetVertexRID(vertexID, vertexIndex)
+	vertexRID, err := s.GetVertexRID(txnID, vertexID, vertexIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get vertex RID: %w", err)
 	}
@@ -252,7 +255,7 @@ func (s *StorageEngine) UpdateVertex(
 	vertexIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	vertexRID, err := s.GetVertexRID(vertexID, vertexIndex)
+	vertexRID, err := s.GetVertexRID(txnID, vertexID, vertexIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get vertex RID: %w", err)
 	}
@@ -309,7 +312,7 @@ func (s *StorageEngine) updateVertexDirItemID(
 	vertexIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	vertexRID, err := s.GetVertexRID(srcVertexID, vertexIndex)
+	vertexRID, err := s.GetVertexRID(txnID, srcVertexID, vertexIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get vertex RID: %w", err)
 	}
@@ -365,7 +368,7 @@ func (s *StorageEngine) SelectEdge(
 	edgeSystemIndex storage.Index,
 	schema storage.Schema,
 ) (EdgeInternalFields, map[string]any, error) {
-	edgeRID, err := s.GetEdgeRID(edgeID, edgeSystemIndex)
+	edgeRID, err := s.GetEdgeRID(txnID, edgeID, edgeSystemIndex)
 	if err != nil {
 		return EdgeInternalFields{}, nil, fmt.Errorf("failed to get edge RID: %w", err)
 	}
@@ -718,7 +721,7 @@ func (s *StorageEngine) selectDirectoryItem(
 	dirToken *txns.FileLockToken,
 	dirSystemIndex storage.Index,
 ) (DirectoryItem, error) {
-	dirRID, err := s.GetDirectoryRID(dirItemID, dirSystemIndex)
+	dirRID, err := s.GetDirectoryRID(txnID, dirItemID, dirSystemIndex)
 	if err != nil {
 		return DirectoryItem{}, fmt.Errorf("failed to get directory RID: %w", err)
 	}
@@ -835,7 +838,7 @@ func (s *StorageEngine) updateDirItemEdgeID(
 	dirSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	dirRID, err := s.GetDirectoryRID(dirItemID, dirSystemIndex)
+	dirRID, err := s.GetDirectoryRID(txnID, dirItemID, dirSystemIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get directory RID: %w", err)
 	}
@@ -882,7 +885,7 @@ func (s *StorageEngine) updateDirectoryItemNextID(
 	dirSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	dirRID, err := s.GetDirectoryRID(dirItemID, dirSystemIndex)
+	dirRID, err := s.GetDirectoryRID(txnID, dirItemID, dirSystemIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get directory RID: %w", err)
 	}
@@ -933,7 +936,7 @@ func (s *StorageEngine) updateDirectoryItem(
 		return fmt.Errorf("failed to serialize directory record: %w", err)
 	}
 
-	dirRID, err := s.GetDirectoryRID(dirItemID, dirSystemIndex)
+	dirRID, err := s.GetDirectoryRID(txnID, dirItemID, dirSystemIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get directory RID: %w", err)
 	}
@@ -969,7 +972,7 @@ func (s *StorageEngine) UpdateEdge(
 	schema storage.Schema,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	edgeRID, err := s.GetEdgeRID(edgeID, edgeSystemIndex)
+	edgeRID, err := s.GetEdgeRID(txnID, edgeID, edgeSystemIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get edge RID: %w", err)
 	}
@@ -1017,7 +1020,7 @@ func (s *StorageEngine) updateEdgePrevID(
 	edgeSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	edgeRID, err := s.GetEdgeRID(edgeID, edgeSystemIndex)
+	edgeRID, err := s.GetEdgeRID(txnID, edgeID, edgeSystemIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get edge RID: %w", err)
 	}
@@ -1064,7 +1067,7 @@ func (s *StorageEngine) updateEdgeNextID(
 	edgeSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	edgeRID, err := s.GetEdgeRID(edgeID, edgeSystemIndex)
+	edgeRID, err := s.GetEdgeRID(txnID, edgeID, edgeSystemIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get edge RID: %w", err)
 	}
@@ -1111,7 +1114,7 @@ func (s *StorageEngine) updateEdgeDirItemID(
 	edgeSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	edgeRID, err := s.GetEdgeRID(edgeID, edgeSystemIndex)
+	edgeRID, err := s.GetEdgeRID(txnID, edgeID, edgeSystemIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get edge RID: %w", err)
 	}
@@ -1159,7 +1162,7 @@ func (s *StorageEngine) DeleteEdge(
 	dirSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	edgeRID, err := s.GetEdgeRID(edgeID, edgeSystemIndex)
+	edgeRID, err := s.GetEdgeRID(txnID, edgeID, edgeSystemIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get edge RID: %w", err)
 	}

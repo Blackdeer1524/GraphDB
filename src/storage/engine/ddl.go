@@ -13,22 +13,34 @@ import (
 )
 
 func GetVertexTableFilePath(basePath, vertTableName string) string {
-	return getTableFilePath(basePath, FormVertexTableName(vertTableName))
+	return GetTableFilePath(basePath, formVertexTableName(vertTableName))
 }
 
-func getTableFilePath(basePath, prefixedName string) string {
+func GetEdgeTableFilePath(basePath, edgeTableName string) string {
+	return GetTableFilePath(basePath, formEdgeTableName(edgeTableName))
+}
+
+func GetVertexIndexFilePath(basePath, indexName string) string {
+	return getIndexFilePath(basePath, FormVertexIndexName(indexName))
+}
+
+func GetEdgeIndexFilePath(basePath, indexName string) string {
+	return getIndexFilePath(basePath, FormEdgeIndexName(indexName))
+}
+
+func GetTableFilePath(basePath, prefixedName string) string {
 	return filepath.Join(basePath, "tables", prefixedName+".tbl")
 }
 
-func GetIndexFilePath(basePath, prefixedName string) string {
+func getIndexFilePath(basePath, prefixedName string) string {
 	return filepath.Join(basePath, "indexes", prefixedName+".idx")
 }
 
-func FormVertexTableName(name string) string {
+func formVertexTableName(name string) string {
 	return "vertex_" + name
 }
 
-func FormEdgeTableName(name string) string {
+func formEdgeTableName(name string) string {
 	return "edge_" + name
 }
 
@@ -37,11 +49,11 @@ func formDirectoryTableName(name string) string {
 }
 
 func FormVertexIndexName(name string) string {
-	return "idx_" + FormVertexTableName(name)
+	return "idx_" + formVertexTableName(name)
 }
 
 func FormEdgeIndexName(name string) string {
-	return "idx_" + FormEdgeTableName(name)
+	return "idx_" + formEdgeTableName(name)
 }
 
 func formDirectoryIndexName(name string) string {
@@ -49,11 +61,11 @@ func formDirectoryIndexName(name string) string {
 }
 
 func getVertexTableInternalIndexName(vertexTableName string) string {
-	return "idx_internal_" + FormVertexTableName(vertexTableName)
+	return "idx_internal_" + formVertexTableName(vertexTableName)
 }
 
 func getEdgeTableInternalIndexName(edgeTableName string) string {
-	return "idx_internal_" + FormEdgeTableName(edgeTableName)
+	return "idx_internal_" + formEdgeTableName(edgeTableName)
 }
 
 func getDirectoryTableInternalIndexName(vertexTableName string) string {
@@ -163,7 +175,7 @@ func (s *StorageEngine) CreateVertexTable(
 	schema storage.Schema,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.createTable(txnID, FormVertexTableName(name), schema, logger)
+	err := s.createTable(txnID, formVertexTableName(name), schema, logger)
 	if err != nil {
 		return err
 	}
@@ -184,13 +196,13 @@ func (s *StorageEngine) CreateVertexTable(
 	return s.createDirectoryTable(txnID, name, logger)
 }
 
-func (s *StorageEngine) CreateEdgesTable(
+func (s *StorageEngine) CreateEdgeTable(
 	txnID common.TxnID,
 	name string,
 	schema storage.Schema,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.createTable(txnID, FormEdgeTableName(name), schema, logger)
+	err := s.createTable(txnID, formEdgeTableName(name), schema, logger)
 	if err != nil {
 		return err
 	}
@@ -261,7 +273,7 @@ func (s *StorageEngine) DropVertexTable(
 	name string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.dropTable(txnID, FormVertexTableName(name), logger)
+	err := s.dropTable(txnID, formVertexTableName(name), logger)
 	if err != nil {
 		return err
 	}
@@ -278,7 +290,7 @@ func (s *StorageEngine) DropEdgeTable(
 	name string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.dropTable(txnID, FormEdgeTableName(name), logger)
+	err := s.dropTable(txnID, formEdgeTableName(name), logger)
 	if err != nil {
 		return err
 	}
@@ -394,7 +406,7 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	return s.createIndex(
 		txnID,
 		FormVertexIndexName(indexName),
-		FormVertexTableName(tableName),
+		formVertexTableName(tableName),
 		columns,
 		keyBytesCnt,
 		logger,
@@ -412,7 +424,7 @@ func (s *StorageEngine) CreateEdgesTableIndex(
 	return s.createIndex(
 		txnID,
 		FormEdgeIndexName(indexName),
-		FormEdgeTableName(tableName),
+		formEdgeTableName(tableName),
 		columns,
 		keyBytesCnt,
 		logger,
@@ -444,6 +456,30 @@ func (s *StorageEngine) getIndex(
 	}
 
 	return s.indexLoader(indexMeta, s.locker, logger)
+}
+
+func (s *StorageEngine) GetVertexTableInternalIndex(
+	txnID common.TxnID,
+	vertexTableName string,
+	logger common.ITxnLoggerWithContext,
+) (storage.Index, error) {
+	return s.getIndex(txnID, getVertexTableInternalIndexName(vertexTableName), logger)
+}
+
+func (s *StorageEngine) GetEdgeTableInternalIndex(
+	txnID common.TxnID,
+	edgeTableName string,
+	logger common.ITxnLoggerWithContext,
+) (storage.Index, error) {
+	return s.getIndex(txnID, getEdgeTableInternalIndexName(edgeTableName), logger)
+}
+
+func (s *StorageEngine) GetDirectoryIndex(
+	txnID common.TxnID,
+	vertexTableName string,
+	logger common.ITxnLoggerWithContext,
+) (storage.Index, error) {
+	return s.getIndex(txnID, formDirectoryIndexName(vertexTableName), logger)
 }
 
 func (s *StorageEngine) dropIndex(

@@ -104,7 +104,7 @@ func randomEdgeIndexNameForCreate(
 	return engine.FormEdgeIndexName(randomString(r, 10))
 }
 
-func randomIndexNameForDrop(
+func randomVertexIndexNameForDrop(
 	r *rand.Rand,
 	existingIndexes map[string]storage.IndexMeta,
 	exist int,
@@ -117,9 +117,21 @@ func randomIndexNameForDrop(
 		}
 	}
 
-	if r.Intn(2) == 0 {
-		return engine.FormVertexIndexName(randomString(r, 10))
-	} else {
-		return engine.FormEdgeIndexName(randomString(r, 10))
+	return engine.FormVertexIndexName(randomString(r, 10))
+}
+
+func randomEdgeIndexNameForDrop(
+	r *rand.Rand,
+	existingIndexes map[string]storage.IndexMeta,
+	exist int,
+) string {
+	d := r.Intn(10)
+
+	if d < exist {
+		if name, ok := getRandomMapKey(r, existingIndexes); ok {
+			return name
+		}
 	}
+
+	return engine.FormEdgeIndexName(randomString(r, 10))
 }

@@ -137,6 +137,8 @@ type DataMockStorageEngine struct {
 	neighborsErr error
 }
 
+var _ storage.StorageEngine = &DataMockStorageEngine{}
+
 // NewDataMockStorageEngine создаёт DataMockStorageEngine с заданным графом.
 func NewDataMockStorageEngine(
 	vertices []storage.VertexID,

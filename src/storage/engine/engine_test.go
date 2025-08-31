@@ -15,7 +15,7 @@ import (
 )
 
 func Test_getTableFilePath(t *testing.T) {
-	ans := getTableFilePath("/var/lib/graphdb", "friends")
+	ans := GetTableFilePath("/var/lib/graphdb", "friends")
 
 	assert.Equal(t, "/var/lib/graphdb/tables/friends.tbl", ans)
 }
@@ -59,7 +59,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := getTableFilePath(dir, tableName)
+		tablePath := GetTableFilePath(dir, tableName)
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -114,7 +114,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := getTableFilePath(dir, FormVertexTableName(tableName))
+		tablePath := GetTableFilePath(dir, formVertexTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -139,7 +139,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := getTableFilePath(dir, FormVertexTableName(tableName))
+		tablePath := GetTableFilePath(dir, formVertexTableName(tableName))
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
@@ -178,13 +178,13 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := getTableFilePath(dir, FormEdgeTableName(tableName))
+		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
 		require.False(t, info.IsDir())
 
-		tblMeta, err := se.catalog.GetTableMeta(FormEdgeTableName(tableName))
+		tblMeta, err := se.catalog.GetTableMeta(formEdgeTableName(tableName))
 		require.NoError(t, err)
 		require.Equal(t, tableName, tblMeta.Name)
 
@@ -233,7 +233,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := getTableFilePath(dir, FormEdgeTableName(tableName))
+		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -258,7 +258,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := getTableFilePath(dir, FormEdgeTableName(tableName))
+		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
@@ -307,7 +307,7 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	tablePath := getIndexFilePath(dir, FormVertexIndexName(indexName))
+	tablePath := GetVertexIndexFilePath(dir, indexName)
 	_, err = os.Stat(tablePath)
 	require.NoError(t, err)
 
@@ -359,7 +359,7 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	indexPath := getIndexFilePath(dir, FormVertexIndexName(indexName))
+	indexPath := GetVertexIndexFilePath(dir, indexName)
 	_, err = os.Stat(indexPath)
 	require.NoError(t, err)
 
