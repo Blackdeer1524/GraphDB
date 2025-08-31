@@ -8,19 +8,21 @@ import (
 	"time"
 
 	"github.com/Blackdeer1524/GraphDB/src"
-	"github.com/Blackdeer1524/GraphDB/src/cfg"
 )
 
 type Server struct {
+	Host string
+	Port int
+
 	log  src.Logger
 	http *http.Server
-	cfg  cfg.ServerConfig
 }
 
-func NewServer(log src.Logger, cfg cfg.ServerConfig) *Server {
+func NewServer(host string, port int, log src.Logger) *Server {
 	return &Server{
-		log: log,
-		cfg: cfg,
+		Host: host,
+		Port: port,
+		log:  log,
 	}
 }
 
@@ -30,8 +32,8 @@ func (s *Server) Run() error {
 	s.http = &http.Server{
 		Addr: fmt.Sprintf(
 			"%s:%d",
-			s.cfg.ServerHost,
-			s.cfg.ServerPort,
+			s.Host,
+			s.Port,
 		),
 		Handler:           mux,
 		ReadHeaderTimeout: time.Second * 10,
@@ -39,8 +41,8 @@ func (s *Server) Run() error {
 
 	s.log.Infof(
 		"Server is running on %s:%d",
-		s.cfg.ServerHost,
-		s.cfg.ServerPort,
+		s.Host,
+		s.Port,
 	)
 
 	if err := s.http.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

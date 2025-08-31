@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/Blackdeer1524/GraphDB/src"
-	"github.com/Blackdeer1524/GraphDB/src/cfg"
 	"github.com/Blackdeer1524/GraphDB/src/delivery"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
@@ -17,22 +16,17 @@ const CloseTimeout = 15 * time.Second
 
 type APIEntrypoint struct {
 	ConfigPath string
+	Env        envVars
 
 	s   *delivery.Server
 	log src.Logger
-	cfg cfg.ServerConfig
 }
 
-func (e *APIEntrypoint) Init(ctx context.Context) error {
-	config, err := cfg.LoadConfig(e.ConfigPath)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	e.cfg = config
+func (e *APIEntrypoint) Init(_ context.Context) error {
+	e.Env = mustLoadEnv()
 
 	var log src.Logger
-	if e.cfg.Environment == cfg.EnvDev {
+	if e.Env.Environment == EnvDev {
 		log = utils.Must(zap.NewDevelopment()).Sugar()
 	} else {
 		log = utils.Must(zap.NewProduction()).Sugar()
@@ -40,12 +34,12 @@ func (e *APIEntrypoint) Init(ctx context.Context) error {
 
 	e.log = log
 
-	e.s = delivery.NewServer(log, e.cfg)
+	e.s = delivery.NewServer(e.Env.ServerHost, e.Env.ServerPort, log)
 
 	return nil
 }
 
-func (e *APIEntrypoint) Run(ctx context.Context) error {
+func (e *APIEntrypoint) Run(_ context.Context) error {
 	return e.s.Run()
 }
 
