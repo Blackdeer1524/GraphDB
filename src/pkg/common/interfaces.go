@@ -9,7 +9,7 @@ type ITxnLogger interface {
 }
 
 type ITxnLoggerWithContext interface {
-	GetTxnID() TxnID // DON'T USE THIS METHOD FOR LOCKING PURPOSES!!
+	GetTxnID() TxnID // WARN: DON'T USE THIS METHOD FOR LOCKING PURPOSES!!
 	AppendBegin() error
 	AppendInsert(recordID RecordID, value []byte) (LogRecordLocInfo, error)
 	AppendUpdate(recordID RecordID, before []byte, after []byte) (LogRecordLocInfo, error)
@@ -39,4 +39,10 @@ type DiskManager[T Page] interface {
 	GetPageNoNew(page T, pageIdent PageIdentity) error
 	GetPageNoNewAssumeLocked(page T, pageIdent PageIdentity) error
 	WritePageAssumeLocked(page T, pageIdent PageIdentity) error
+}
+
+type Index interface {
+	Get(key []byte) (RecordID, error)
+	Delete(key []byte) error
+	Insert(key []byte, rid RecordID) error
 }

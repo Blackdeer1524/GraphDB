@@ -23,12 +23,36 @@ func (v VertexID) IsNil() bool {
 	return v == NilVertexID
 }
 
+func (v VertexID) MarshalBinary() ([]byte, error) {
+	return uuid.UUID(v).MarshalBinary()
+}
+
+func (v *VertexID) UnmarshalBinary(data []byte) error {
+	return (*uuid.UUID)(v).UnmarshalBinary(data)
+}
+
 func (e EdgeID) IsNil() bool {
 	return e == NilEdgeID
 }
 
+func (v EdgeID) MarshalBinary() ([]byte, error) {
+	return uuid.UUID(v).MarshalBinary()
+}
+
+func (v *EdgeID) UnmarshalBinary(data []byte) error {
+	return (*uuid.UUID)(v).UnmarshalBinary(data)
+}
+
 func (d DirItemID) IsNil() bool {
 	return d == NilDirItemID
+}
+
+func (v DirItemID) MarshalBinary() ([]byte, error) {
+	return uuid.UUID(v).MarshalBinary()
+}
+
+func (v *DirItemID) UnmarshalBinary(data []byte) error {
+	return (*uuid.UUID)(v).UnmarshalBinary(data)
 }
 
 type VertexWithDepthAndRID struct {

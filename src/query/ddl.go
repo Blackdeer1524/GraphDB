@@ -11,7 +11,7 @@ import (
 func (e *Executor) CreateVertexType(name string, schema storage.Schema) (err error) {
 	txnID := e.newTxnID()
 
-	_ = e.locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
+	_ = e.locker.LockCatalog(txnID, txns.GranularLockExclusive)
 	defer e.locker.Unlock(txnID)
 
 	logger := e.logger.WithContext(txnID)
@@ -45,7 +45,7 @@ func (e *Executor) CreateVertexType(name string, schema storage.Schema) (err err
 func (e *Executor) CreateEdgeType(name string, schema storage.Schema) (err error) {
 	txnID := e.newTxnID()
 
-	_ = e.locker.LockCatalog(txnID, txns.GRANULAR_LOCK_EXCLUSIVE)
+	_ = e.locker.LockCatalog(txnID, txns.GranularLockExclusive)
 	defer e.locker.Unlock(txnID)
 
 	logger := e.logger.WithContext(txnID)

@@ -845,7 +845,7 @@ func TestLoggerRollback(t *testing.T) {
 
 			cToken := locker.LockCatalog(
 				txnID,
-				txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
+				txns.GranularLockIntentionExclusive,
 			)
 			if cToken == nil {
 				assert.NoError(t, logger.AppendAbort())
@@ -860,7 +860,7 @@ func TestLoggerRollback(t *testing.T) {
 				tToken := locker.LockFile(
 					cToken,
 					common.FileID(info.key.FileID),
-					txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
+					txns.GranularLockIntentionExclusive,
 				)
 				if tToken == nil {
 					assert.NoError(t, logger.AppendAbort())
@@ -871,7 +871,7 @@ func TestLoggerRollback(t *testing.T) {
 				ptoken := locker.LockPage(
 					tToken,
 					common.PageID(info.key.PageID),
-					txns.PAGE_LOCK_EXCLUSIVE,
+					txns.PageLockExclusive,
 				)
 				if ptoken == nil {
 					assert.NoError(t, logger.AppendAbort())
@@ -908,7 +908,7 @@ func TestLoggerRollback(t *testing.T) {
 				tToken := locker.LockFile(
 					cToken,
 					common.FileID(info.key.FileID),
-					txns.GRANULAR_LOCK_INTENTION_EXCLUSIVE,
+					txns.GranularLockIntentionExclusive,
 				)
 				if tToken == nil {
 					assert.NoError(t, logger.AppendAbort())
@@ -919,7 +919,7 @@ func TestLoggerRollback(t *testing.T) {
 				ptoken := locker.LockPage(
 					tToken,
 					common.PageID(info.key.PageID),
-					txns.PAGE_LOCK_EXCLUSIVE,
+					txns.PageLockExclusive,
 				)
 				if ptoken == nil {
 					assert.NoError(t, logger.AppendAbort())

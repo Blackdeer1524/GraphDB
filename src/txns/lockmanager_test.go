@@ -20,7 +20,7 @@ func TestManagerBasicOperation(t *testing.T) {
 	req := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    1,
 		objectId: 100,
-		lockMode: PAGE_LOCK_SHARED,
+		lockMode: PageLockShared,
 	}
 	notifier := m.Lock(req)
 	expectClosedChannel(t, notifier, "Initial lock should be granted")
@@ -57,7 +57,7 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 			req := TxnLockRequest[PageLockMode, common.PageID]{
 				txnID:    common.TxnID(id), //nolint:gosec
 				objectId: recordID,
-				lockMode: PAGE_LOCK_SHARED,
+				lockMode: PageLockShared,
 			}
 
 			notifier := m.Lock(req)
@@ -103,7 +103,7 @@ func TestManagerUnlockPanicScenarios(t *testing.T) {
 		req := TxnLockRequest[PageLockMode, common.PageID]{
 			txnID:    1,
 			objectId: 200,
-			lockMode: PAGE_LOCK_EXCLUSIVE,
+			lockMode: PageLockExclusive,
 		}
 		notifier := m.Lock(req)
 		expectClosedChannel(t, notifier, "Lock should be granted")
@@ -122,7 +122,7 @@ func TestManagerLockContention(t *testing.T) {
 	req1 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    5,
 		objectId: recordID,
-		lockMode: PAGE_LOCK_EXCLUSIVE,
+		lockMode: PageLockExclusive,
 	}
 	notifier1 := m.Lock(req1)
 	expectClosedChannel(t, notifier1, "First exclusive lock should be granted")
@@ -131,7 +131,7 @@ func TestManagerLockContention(t *testing.T) {
 	req2 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    4,
 		objectId: recordID,
-		lockMode: PAGE_LOCK_EXCLUSIVE,
+		lockMode: PageLockExclusive,
 	}
 	notifier2 := m.Lock(req2)
 	expectOpenChannel(t, notifier2, "Second exclusive lock should block")
@@ -140,7 +140,7 @@ func TestManagerLockContention(t *testing.T) {
 	req3 := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    3,
 		objectId: recordID,
-		lockMode: PAGE_LOCK_SHARED,
+		lockMode: PageLockShared,
 	}
 	notifier3 := m.Lock(req3)
 	expectOpenChannel(t, notifier3, "Shared lock should block behind exclusive")
@@ -168,7 +168,7 @@ func TestManagerUnlockRetry(t *testing.T) {
 	req := TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    1,
 		objectId: recordID,
-		lockMode: PAGE_LOCK_EXCLUSIVE,
+		lockMode: PageLockExclusive,
 	}
 	notifier := m.Lock(req)
 	expectClosedChannel(t, notifier, "Lock should be granted")
@@ -209,7 +209,7 @@ func TestManagerUnlockAll(t *testing.T) {
 	notifier1x := m.Lock(TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    runningTxn,
 		objectId: 1,
-		lockMode: PAGE_LOCK_EXCLUSIVE,
+		lockMode: PageLockExclusive,
 	})
 	expectClosedChannel(
 		t,
@@ -220,7 +220,7 @@ func TestManagerUnlockAll(t *testing.T) {
 	notifier0s := m.Lock(TxnLockRequest[PageLockMode, common.PageID]{
 		txnID:    waitingTxn,
 		objectId: 1,
-		lockMode: PAGE_LOCK_SHARED,
+		lockMode: PageLockShared,
 	})
 	expectOpenChannel(t, notifier0s, "Txn 0 should be enqueued on record 1")
 
@@ -265,8 +265,8 @@ func TestManagerConcurrency(t *testing.T) {
 	defer cancel()
 
 	lockModes := []PageLockMode{
-		PAGE_LOCK_SHARED,
-		PAGE_LOCK_EXCLUSIVE,
+		PageLockShared,
+		PageLockExclusive,
 	}
 
 	go func() {
@@ -295,7 +295,7 @@ func TestManagerConcurrency(t *testing.T) {
 						upgradeReq := TxnLockRequest[PageLockMode, common.PageID]{
 							txnID:    txn,
 							objectId: objectID,
-							lockMode: PAGE_LOCK_EXCLUSIVE,
+							lockMode: PageLockExclusive,
 						}
 
 						if !waitWithDeadline(ctx, m.Upgrade(upgradeReq)) {

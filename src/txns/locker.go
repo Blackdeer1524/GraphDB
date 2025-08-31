@@ -11,7 +11,7 @@ import (
 
 type ILockManager interface {
 	LockCatalog(txnID common.TxnID, lockMode GranularLockMode) *CatalogLockToken
-	LockFile(t *CatalogLockToken, fileID common.FileID, lockMode GranularLockMode) *FileLockToken
+	LockFile(t *CatalogLockToken, fileName string, fileID common.FileID, lockMode GranularLockMode) *FileLockToken
 	LockPage(ft *FileLockToken, pageID common.PageID, lockMode PageLockMode) *PageLockToken
 	Unlock(txnID common.TxnID)
 	UpgradeCatalogLock(t *CatalogLockToken, lockMode GranularLockMode) bool
@@ -64,7 +64,7 @@ func NewNilCatalogLockToken(txnID common.TxnID) *CatalogLockToken {
 	return &CatalogLockToken{
 		wasSetUp: false,
 		txnID:    txnID,
-		lockMode: GRANULAR_LOCK_SHARED,
+		lockMode: GranularLockShared,
 	}
 }
 
@@ -94,18 +94,20 @@ type FileLockToken struct {
 	wasSetUp bool
 
 	txnID    common.TxnID
+	fileName string
 	fileID   common.FileID
 	lockMode GranularLockMode
 
 	ct *CatalogLockToken
 }
 
-func NewNilFileLockToken(ct *CatalogLockToken, fileID common.FileID) *FileLockToken {
+func NewNilFileLockToken(ct *CatalogLockToken, fileName string, fileID common.FileID) *FileLockToken {
 	return &FileLockToken{
 		wasSetUp: false,
 		txnID:    ct.txnID,
+		fileName: fileName,
 		fileID:   fileID,
-		lockMode: GRANULAR_LOCK_SHARED,
+		lockMode: GranularLockShared,
 		ct:       ct,
 	}
 }
@@ -116,6 +118,10 @@ func (t *FileLockToken) IsNil() bool {
 
 func (f *FileLockToken) GetFileID() common.FileID {
 	return f.fileID
+}
+
+func (f *FileLockToken) GetFileName() string {
+	return f.fileName
 }
 
 func (t *FileLockToken) String() string {
@@ -131,6 +137,7 @@ func (t *FileLockToken) String() string {
 }
 
 func newFileLockToken(
+	fileName string,
 	fileID common.FileID,
 	lockMode GranularLockMode,
 	ct *CatalogLockToken,
@@ -139,6 +146,7 @@ func newFileLockToken(
 		wasSetUp: true,
 		txnID:    ct.txnID,
 		fileID:   fileID,
+		fileName: fileName,
 		lockMode: lockMode,
 		ct:       ct,
 	}
@@ -175,7 +183,7 @@ func NewNilPageLockToken(ft *FileLockToken, pageIdent common.PageIdentity) *Page
 	return &PageLockToken{
 		wasSetUp: false,
 		txnID:    ft.txnID,
-		lockMode: PAGE_LOCK_SHARED,
+		lockMode: PageLockShared,
 		ft:       ft,
 		pageID:   pageIdent,
 	}
@@ -216,22 +224,23 @@ func (l *LockManager) LockCatalog(
 
 func (l *LockManager) LockFile(
 	t *CatalogLockToken,
+	fileName string,
 	fileID common.FileID,
 	lockMode GranularLockMode,
 ) *FileLockToken {
 	switch lockMode {
-	case GRANULAR_LOCK_INTENTION_SHARED,
-		GRANULAR_LOCK_INTENTION_EXCLUSIVE,
-		GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+	case GranularLockIntentionShared,
+		GranularLockIntentionExclusive,
+		GranularLockSharedIntentionExclusive:
 		if !l.UpgradeCatalogLock(t, lockMode) {
 			return nil
 		}
-	case GRANULAR_LOCK_SHARED:
-		if !l.UpgradeCatalogLock(t, GRANULAR_LOCK_INTENTION_SHARED) {
+	case GranularLockShared:
+		if !l.UpgradeCatalogLock(t, GranularLockIntentionShared) {
 			return nil
 		}
-	case GRANULAR_LOCK_EXCLUSIVE:
-		if !l.UpgradeCatalogLock(t, GRANULAR_LOCK_INTENTION_EXCLUSIVE) {
+	case GranularLockExclusive:
+		if !l.UpgradeCatalogLock(t, GranularLockIntentionExclusive) {
 			return nil
 		}
 	default:
@@ -248,7 +257,7 @@ func (l *LockManager) LockFile(
 		return nil
 	}
 	<-n
-	return newFileLockToken(fileID, lockMode, t)
+	return newFileLockToken(fileName, fileID, lockMode, t)
 }
 
 func (l *LockManager) LockPage(
@@ -257,12 +266,12 @@ func (l *LockManager) LockPage(
 	lockMode PageLockMode,
 ) *PageLockToken {
 	switch lockMode {
-	case PAGE_LOCK_SHARED:
-		if !l.UpgradeFileLock(ft, GRANULAR_LOCK_INTENTION_SHARED) {
+	case PageLockShared:
+		if !l.UpgradeFileLock(ft, GranularLockIntentionShared) {
 			return nil
 		}
-	case PAGE_LOCK_EXCLUSIVE:
-		if !l.UpgradeFileLock(ft, GRANULAR_LOCK_INTENTION_EXCLUSIVE) {
+	case PageLockExclusive:
+		if !l.UpgradeFileLock(ft, GranularLockIntentionExclusive) {
 			return nil
 		}
 	}
@@ -331,18 +340,18 @@ func (l *LockManager) UpgradeFileLock(
 	}
 
 	switch lockMode {
-	case GRANULAR_LOCK_INTENTION_SHARED,
-		GRANULAR_LOCK_INTENTION_EXCLUSIVE,
-		GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+	case GranularLockIntentionShared,
+		GranularLockIntentionExclusive,
+		GranularLockSharedIntentionExclusive:
 		if !l.UpgradeCatalogLock(ft.ct, lockMode) {
 			return false
 		}
-	case GRANULAR_LOCK_SHARED:
-		if !l.UpgradeCatalogLock(ft.ct, GRANULAR_LOCK_INTENTION_SHARED) {
+	case GranularLockShared:
+		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionShared) {
 			return false
 		}
-	case GRANULAR_LOCK_EXCLUSIVE:
-		if !l.UpgradeCatalogLock(ft.ct, GRANULAR_LOCK_INTENTION_EXCLUSIVE) {
+	case GranularLockExclusive:
+		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionExclusive) {
 			return false
 		}
 	default:
@@ -357,7 +366,7 @@ func (l *LockManager) UpgradeFileLock(
 	}
 
 	if ft.IsNil() {
-		innerFt := l.LockFile(ft.ct, ft.fileID, lockMode)
+		innerFt := l.LockFile(ft.ct, ft.fileName, ft.fileID, lockMode)
 		if innerFt == nil {
 			return false
 		}
@@ -374,22 +383,22 @@ func (l *LockManager) UpgradeFileLock(
 }
 
 func (l *LockManager) UpgradePageLock(pt *PageLockToken) bool {
-	if !pt.IsNil() && pt.lockMode.Equal(PAGE_LOCK_EXCLUSIVE) {
+	if !pt.IsNil() && pt.lockMode.Equal(PageLockExclusive) {
 		return true
 	}
 
-	if !l.UpgradeFileLock(pt.ft, GRANULAR_LOCK_INTENTION_EXCLUSIVE) {
+	if !l.UpgradeFileLock(pt.ft, GranularLockIntentionExclusive) {
 		return false
 	}
 
 	req := TxnLockRequest[PageLockMode, common.PageIdentity]{
 		txnID:    pt.txnID,
 		objectId: pt.pageID,
-		lockMode: PAGE_LOCK_EXCLUSIVE,
+		lockMode: PageLockExclusive,
 	}
 
 	if pt.IsNil() {
-		innerPt := l.LockPage(pt.ft, pt.pageID.PageID, PAGE_LOCK_EXCLUSIVE)
+		innerPt := l.LockPage(pt.ft, pt.pageID.PageID, PageLockExclusive)
 		if innerPt == nil {
 			return false
 		}

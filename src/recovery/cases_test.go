@@ -154,7 +154,7 @@ func TestBankTransactions(t *testing.T) {
 
 		ctoken := locker.LockCatalog(
 			txnID,
-			txns.GRANULAR_LOCK_INTENTION_SHARED,
+			txns.GranularLockIntentionShared,
 		)
 		require.NotNil(t, ctoken)
 		defer locker.Unlock(txnID)
@@ -163,7 +163,7 @@ func TestBankTransactions(t *testing.T) {
 		ttoken := locker.LockFile(
 			ctoken,
 			common.FileID(me.FileID),
-			txns.GRANULAR_LOCK_INTENTION_SHARED,
+			txns.GranularLockIntentionShared,
 		)
 		if ttoken == nil {
 			t.Logf("[%d] failed to lock file %d", txnID, me.FileID)
@@ -179,7 +179,7 @@ func TestBankTransactions(t *testing.T) {
 		myPageToken := locker.LockPage(
 			ttoken,
 			common.PageID(me.PageID),
-			txns.PAGE_LOCK_SHARED,
+			txns.PageLockShared,
 		)
 		if myPageToken == nil {
 			t.Logf("[%d] failed to lock page %d", txnID, me.PageID)
@@ -212,7 +212,7 @@ func TestBankTransactions(t *testing.T) {
 		firstPageToken := locker.LockPage(
 			ttoken,
 			common.PageID(first.PageID),
-			txns.PAGE_LOCK_SHARED,
+			txns.PageLockShared,
 		)
 		if firstPageToken == nil {
 			t.Logf("[%d] failed to lock first page %d", txnID, first.PageID)

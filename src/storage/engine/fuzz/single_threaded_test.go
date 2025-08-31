@@ -13,15 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
-	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-// applyOp is a convenient wrapper to apply an operation to the engine.
+// applyOp is a convenient wrapper to apply an operation to the
 // It uses the model as a schema provider for create operations.
 func applyOp(
-	se *engine.StorageEngine,
+	se *StorageEngine,
 	op Operation,
 	baseDir string,
 	logger common.ITxnLoggerWithContext,
@@ -35,7 +34,7 @@ func applyOp(
 	case OpDropVertexTable:
 		err = se.DropVertexTable(op.TxnID, op.Name, logger)
 		if err == nil {
-			filePath := engine.GetVertexTableFilePath(baseDir, op.Name)
+			filePath := GetVertexTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
 			if errRemove != nil {
 				err = fmt.Errorf("failed to remove vertex table file: %w", errRemove)
@@ -46,7 +45,7 @@ func applyOp(
 	case OpDropEdgeTable:
 		err = se.DropEdgesTable(op.TxnID, op.Name, logger)
 		if err == nil {
-			filePath := engine.GetEdgeTableFilePath(baseDir, op.Name)
+			filePath := GetEdgeTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
 			if errRemove != nil {
 				err = fmt.Errorf("failed to remove edge table file: %w", errRemove)
@@ -65,7 +64,7 @@ func applyOp(
 	case OpDropIndex:
 		err = se.DropIndex(op.TxnID, op.Name, logger)
 		if err == nil {
-			filePath := engine.GetIndexFilePath(baseDir, op.Name)
+			filePath := GetIndexFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
 			if errRemove != nil {
 				err = fmt.Errorf("failed to remove index file: %w", errRemove)
@@ -95,7 +94,7 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 	require.NoError(t, err)
 
 	lockMgr := txns.NewLockManager()
-	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err := New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	model := newEngineSimulator()
@@ -135,7 +134,7 @@ func TestFuzz_MultiThreaded(t *testing.T) {
 	require.NoError(t, err)
 
 	lockMgr := txns.NewLockManager()
-	se, err := engine.New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err := New(baseDir, uint64(200), lockMgr, afero.NewOsFs())
 	require.NoError(t, err)
 
 	model := newEngineSimulator()

@@ -20,26 +20,16 @@ type GranularLock[Lock any] interface {
 }
 
 var (
-	PAGE_LOCK_SHARED    PageLockMode = PageLockMode{0}
-	PAGE_LOCK_EXCLUSIVE PageLockMode = PageLockMode{1}
+	PageLockShared    PageLockMode = PageLockMode{0}
+	PageLockExclusive PageLockMode = PageLockMode{1}
 )
 
 var (
-	GRANULAR_LOCK_INTENTION_SHARED GranularLockMode = GranularLockMode{
-		0,
-	}
-	GRANULAR_LOCK_INTENTION_EXCLUSIVE GranularLockMode = GranularLockMode{
-		1,
-	}
-	GRANULAR_LOCK_SHARED GranularLockMode = GranularLockMode{
-		2,
-	}
-	GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE GranularLockMode = GranularLockMode{
-		3,
-	}
-	GRANULAR_LOCK_EXCLUSIVE GranularLockMode = GranularLockMode{
-		4,
-	}
+	GranularLockIntentionShared          GranularLockMode = GranularLockMode{0}
+	GranularLockIntentionExclusive       GranularLockMode = GranularLockMode{1}
+	GranularLockShared                   GranularLockMode = GranularLockMode{2}
+	GranularLockSharedIntentionExclusive GranularLockMode = GranularLockMode{3}
+	GranularLockExclusive                GranularLockMode = GranularLockMode{4}
 )
 
 var (
@@ -49,9 +39,9 @@ var (
 
 func (m PageLockMode) String() string {
 	switch m {
-	case PAGE_LOCK_SHARED:
+	case PageLockShared:
 		return "SHARED"
-	case PAGE_LOCK_EXCLUSIVE:
+	case PageLockExclusive:
 		return "EXCLUSIVE"
 	default:
 		return fmt.Sprintf("PageLockMode(%d)", m.v)
@@ -60,15 +50,15 @@ func (m PageLockMode) String() string {
 
 func (m GranularLockMode) String() string {
 	switch m {
-	case GRANULAR_LOCK_INTENTION_SHARED:
+	case GranularLockIntentionShared:
 		return "INTENTION_SHARED"
-	case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+	case GranularLockIntentionExclusive:
 		return "INTENTION_EXCLUSIVE"
-	case GRANULAR_LOCK_SHARED:
+	case GranularLockShared:
 		return "SHARED"
-	case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+	case GranularLockSharedIntentionExclusive:
 		return "SHARED_INTENTION_EXCLUSIVE"
-	case GRANULAR_LOCK_EXCLUSIVE:
+	case GranularLockExclusive:
 		return "EXCLUSIVE"
 	default:
 		return fmt.Sprintf("GranularLockMode(%d)", m.v)
@@ -76,7 +66,7 @@ func (m GranularLockMode) String() string {
 }
 
 func (m PageLockMode) Compatible(other PageLockMode) bool {
-	if m == PAGE_LOCK_SHARED && other == PAGE_LOCK_SHARED {
+	if m == PageLockShared && other == PageLockShared {
 		return true
 	}
 	return false
@@ -84,14 +74,14 @@ func (m PageLockMode) Compatible(other PageLockMode) bool {
 
 func (m PageLockMode) Upgradable(to PageLockMode) bool {
 	switch m {
-	case PAGE_LOCK_SHARED:
+	case PageLockShared:
 		switch to {
-		case PAGE_LOCK_SHARED:
+		case PageLockShared:
 			return false
-		case PAGE_LOCK_EXCLUSIVE:
+		case PageLockExclusive:
 			return true
 		}
-	case PAGE_LOCK_EXCLUSIVE:
+	case PageLockExclusive:
 		return false
 	}
 	return false
@@ -104,69 +94,69 @@ func (m PageLockMode) Equal(other PageLockMode) bool {
 // https://www.geeksforgeeks.org/dbms/multiple-granularity-locking-in-dbms/
 func (m GranularLockMode) Compatible(other GranularLockMode) bool {
 	switch m {
-	case GRANULAR_LOCK_INTENTION_SHARED:
+	case GranularLockIntentionShared:
 		switch other {
-		case GRANULAR_LOCK_INTENTION_SHARED:
+		case GranularLockIntentionShared:
 			return true
-		case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+		case GranularLockIntentionExclusive:
 			return true
-		case GRANULAR_LOCK_SHARED:
+		case GranularLockShared:
 			return true
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		case GranularLockSharedIntentionExclusive:
 			return true
-		case GRANULAR_LOCK_EXCLUSIVE:
+		case GranularLockExclusive:
 			return false
 		}
-	case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+	case GranularLockIntentionExclusive:
 		switch other {
-		case GRANULAR_LOCK_INTENTION_SHARED:
+		case GranularLockIntentionShared:
 			return true
-		case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+		case GranularLockIntentionExclusive:
 			return true
-		case GRANULAR_LOCK_SHARED:
+		case GranularLockShared:
 			return false
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		case GranularLockSharedIntentionExclusive:
 			return false
-		case GRANULAR_LOCK_EXCLUSIVE:
+		case GranularLockExclusive:
 			return false
 		}
-	case GRANULAR_LOCK_SHARED:
+	case GranularLockShared:
 		switch other {
-		case GRANULAR_LOCK_INTENTION_SHARED:
+		case GranularLockIntentionShared:
 			return true
-		case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+		case GranularLockIntentionExclusive:
 			return false
-		case GRANULAR_LOCK_SHARED:
+		case GranularLockShared:
 			return true
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		case GranularLockSharedIntentionExclusive:
 			return false
-		case GRANULAR_LOCK_EXCLUSIVE:
+		case GranularLockExclusive:
 			return false
 		}
-	case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+	case GranularLockSharedIntentionExclusive:
 		switch other {
-		case GRANULAR_LOCK_INTENTION_SHARED:
+		case GranularLockIntentionShared:
 			return true
-		case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+		case GranularLockIntentionExclusive:
 			return false
-		case GRANULAR_LOCK_SHARED:
+		case GranularLockShared:
 			return false
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		case GranularLockSharedIntentionExclusive:
 			return false
-		case GRANULAR_LOCK_EXCLUSIVE:
+		case GranularLockExclusive:
 			return false
 		}
-	case GRANULAR_LOCK_EXCLUSIVE:
+	case GranularLockExclusive:
 		switch other {
-		case GRANULAR_LOCK_INTENTION_SHARED:
+		case GranularLockIntentionShared:
 			return false
-		case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+		case GranularLockIntentionExclusive:
 			return false
-		case GRANULAR_LOCK_SHARED:
+		case GranularLockShared:
 			return false
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		case GranularLockSharedIntentionExclusive:
 			return false
-		case GRANULAR_LOCK_EXCLUSIVE:
+		case GranularLockExclusive:
 			return false
 		}
 	}
@@ -177,38 +167,38 @@ func (m GranularLockMode) Compatible(other GranularLockMode) bool {
 
 func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 	switch m {
-	case GRANULAR_LOCK_INTENTION_SHARED:
+	case GranularLockIntentionShared:
 		switch to {
-		case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+		case GranularLockIntentionExclusive:
 			return true
-		case GRANULAR_LOCK_SHARED:
+		case GranularLockShared:
 			return true
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		case GranularLockSharedIntentionExclusive:
 			return true
-		case GRANULAR_LOCK_EXCLUSIVE:
+		case GranularLockExclusive:
 			return true
 		default:
 			return false
 		}
-	case GRANULAR_LOCK_INTENTION_EXCLUSIVE:
+	case GranularLockIntentionExclusive:
 		return false // Cannot upgrade from intention exclusive in 2PL
-	case GRANULAR_LOCK_SHARED:
+	case GranularLockShared:
 		switch to {
-		case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+		case GranularLockSharedIntentionExclusive:
 			return true
-		case GRANULAR_LOCK_EXCLUSIVE:
+		case GranularLockExclusive:
 			return true
 		default:
 			return false
 		}
-	case GRANULAR_LOCK_SHARED_INTENTION_EXCLUSIVE:
+	case GranularLockSharedIntentionExclusive:
 		switch to {
-		case GRANULAR_LOCK_EXCLUSIVE:
+		case GranularLockExclusive:
 			return true
 		default:
 			return false
 		}
-	case GRANULAR_LOCK_EXCLUSIVE:
+	case GranularLockExclusive:
 		return false // Already exclusive, cannot upgrade
 	default:
 		return false

@@ -9,7 +9,6 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 )
 
 type engineSimulator struct {
@@ -78,21 +77,21 @@ func (m *engineSimulator) apply(op Operation, res OpResult) {
 func (m *engineSimulator) compareWithEngineFS(
 	t *testing.T,
 	baseDir string,
-	se *engine.StorageEngine,
+	se *StorageEngine,
 	l common.ITxnLoggerWithContext,
 ) {
 	for tbl := range m.VertexTables {
-		_, err := os.Stat(engine.GetVertexTableFilePath(baseDir, tbl))
+		_, err := os.Stat(GetVertexTableFilePath(baseDir, tbl))
 		require.NoError(t, err, "vertex table file is missing: %s", tbl)
 	}
 
 	for tbl := range m.EdgeTables {
-		_, err := os.Stat(engine.GetEdgeTableFilePath(baseDir, tbl))
+		_, err := os.Stat(GetEdgeTableFilePath(baseDir, tbl))
 		require.NoError(t, err, "edge table file is missing: %s", tbl)
 	}
 
 	for idx := range m.Indexes {
-		_, err := os.Stat(engine.GetIndexFilePath(baseDir, idx))
+		_, err := os.Stat(GetIndexFilePath(baseDir, idx))
 		require.NoError(t, err, "index file is missing: %s", idx)
 	}
 
