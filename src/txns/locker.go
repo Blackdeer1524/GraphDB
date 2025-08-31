@@ -11,7 +11,7 @@ import (
 
 type ILockManager interface {
 	LockCatalog(txnID common.TxnID, lockMode GranularLockMode) *CatalogLockToken
-	LockFile(t *CatalogLockToken, fileName string, fileID common.FileID, lockMode GranularLockMode) *FileLockToken
+	LockFile(t *CatalogLockToken, fileID common.FileID, lockMode GranularLockMode) *FileLockToken
 	LockPage(ft *FileLockToken, pageID common.PageID, lockMode PageLockMode) *PageLockToken
 	Unlock(txnID common.TxnID)
 	UpgradeCatalogLock(t *CatalogLockToken, lockMode GranularLockMode) bool
@@ -94,18 +94,16 @@ type FileLockToken struct {
 	wasSetUp bool
 
 	txnID    common.TxnID
-	fileName string
 	fileID   common.FileID
 	lockMode GranularLockMode
 
 	ct *CatalogLockToken
 }
 
-func NewNilFileLockToken(ct *CatalogLockToken, fileName string, fileID common.FileID) *FileLockToken {
+func NewNilFileLockToken(ct *CatalogLockToken, fileID common.FileID) *FileLockToken {
 	return &FileLockToken{
 		wasSetUp: false,
 		txnID:    ct.txnID,
-		fileName: fileName,
 		fileID:   fileID,
 		lockMode: GranularLockShared,
 		ct:       ct,
@@ -118,10 +116,6 @@ func (t *FileLockToken) IsNil() bool {
 
 func (f *FileLockToken) GetFileID() common.FileID {
 	return f.fileID
-}
-
-func (f *FileLockToken) GetFileName() string {
-	return f.fileName
 }
 
 func (t *FileLockToken) String() string {
@@ -137,7 +131,6 @@ func (t *FileLockToken) String() string {
 }
 
 func newFileLockToken(
-	fileName string,
 	fileID common.FileID,
 	lockMode GranularLockMode,
 	ct *CatalogLockToken,
@@ -146,7 +139,6 @@ func newFileLockToken(
 		wasSetUp: true,
 		txnID:    ct.txnID,
 		fileID:   fileID,
-		fileName: fileName,
 		lockMode: lockMode,
 		ct:       ct,
 	}
@@ -224,7 +216,6 @@ func (l *LockManager) LockCatalog(
 
 func (l *LockManager) LockFile(
 	t *CatalogLockToken,
-	fileName string,
 	fileID common.FileID,
 	lockMode GranularLockMode,
 ) *FileLockToken {
@@ -257,7 +248,7 @@ func (l *LockManager) LockFile(
 		return nil
 	}
 	<-n
-	return newFileLockToken(fileName, fileID, lockMode, t)
+	return newFileLockToken(fileID, lockMode, t)
 }
 
 func (l *LockManager) LockPage(
@@ -366,7 +357,7 @@ func (l *LockManager) UpgradeFileLock(
 	}
 
 	if ft.IsNil() {
-		innerFt := l.LockFile(ft.ct, ft.fileName, ft.fileID, lockMode)
+		innerFt := l.LockFile(ft.ct, ft.fileID, lockMode)
 		if innerFt == nil {
 			return false
 		}
