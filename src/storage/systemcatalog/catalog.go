@@ -47,15 +47,15 @@ func catalogVersionPageRecordID() common.RecordID {
 }
 
 type Data struct {
-	Metadata storage.Metadata         `json:"metadata"`
-	Tables   map[string]storage.Table `json:"tables"`
-	Indexes  map[string]storage.Index `json:"indexes"`
+	Metadata storage.Metadata             `json:"metadata"`
+	Tables   map[string]storage.TableMeta `json:"tables"`
+	Indexes  map[string]storage.IndexMeta `json:"indexes"`
 }
 
 func NewData(
 	metadata storage.Metadata,
-	tables map[string]storage.Table,
-	indexes map[string]storage.Index,
+	tables map[string]storage.TableMeta,
+	indexes map[string]storage.IndexMeta,
 ) *Data {
 	return &Data{
 		Metadata: metadata,
@@ -65,12 +65,12 @@ func NewData(
 }
 
 func (d *Data) Copy() Data {
-	tables := make(map[string]storage.Table)
+	tables := make(map[string]storage.TableMeta)
 	for k, v := range d.Tables {
 		tables[k] = v.Copy()
 	}
 
-	indexes := make(map[string]storage.Index)
+	indexes := make(map[string]storage.IndexMeta)
 	for k, v := range d.Indexes {
 		indexes[k] = v.Copy()
 	}
@@ -97,6 +97,8 @@ type Manager struct {
 
 	mu *sync.RWMutex
 }
+
+var _ storage.SystemCatalog = &Manager{}
 
 func GetSystemCatalogVersionFileName(basePath string) string {
 	return filepath.Join(basePath, currentVersionFile)
@@ -174,7 +176,7 @@ func InitSystemCatalog(basePath string, fs afero.Fs) error {
 
 	scFilename := getSystemCatalogFilename(basePath, zeroVersion)
 
-	d := NewData(storage.Metadata{}, map[string]storage.Table{}, map[string]storage.Index{})
+	d := NewData(storage.Metadata{}, map[string]storage.TableMeta{}, map[string]storage.IndexMeta{})
 	data, err := json.Marshal(d)
 	if err != nil {
 		return fmt.Errorf("failed to marshal to json: %w", err)
@@ -373,10 +375,10 @@ func (m *Manager) GetNewFileID() uint64 {
 	return m.maxFileID
 }
 
-func (m *Manager) GetTableMeta(name string) (storage.Table, error) {
+func (m *Manager) GetTableMeta(name string) (storage.TableMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
-		return storage.Table{}, fmt.Errorf("failed to update system catalog data: %w", err)
+		return storage.TableMeta{}, fmt.Errorf("failed to update system catalog data: %w", err)
 	}
 
 	m.mu.RLock()
@@ -384,7 +386,7 @@ func (m *Manager) GetTableMeta(name string) (storage.Table, error) {
 
 	table, exists := m.data.Tables[name]
 	if !exists {
-		return storage.Table{}, ErrEntityNotFound
+		return storage.TableMeta{}, ErrEntityNotFound
 	}
 
 	return table, nil
@@ -404,7 +406,7 @@ func (m *Manager) TableExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) AddTable(req storage.Table) error {
+func (m *Manager) AddTable(req storage.TableMeta) error {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return fmt.Errorf("failed to update system catalog data: %w", err)
@@ -442,7 +444,7 @@ func (m *Manager) DropTable(name string) error {
 	return nil
 }
 
-func (m *Manager) GetIndexes(name string) ([]storage.Index, error) {
+func (m *Manager) GetIndexes(name string) ([]storage.IndexMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return nil, fmt.Errorf("failed to update system catalog data: %w", err)
@@ -456,7 +458,7 @@ func (m *Manager) GetIndexes(name string) ([]storage.Index, error) {
 		return nil, ErrEntityNotFound
 	}
 
-	indexes := make([]storage.Index, 0)
+	indexes := make([]storage.IndexMeta, 0)
 
 	for _, index := range m.data.Indexes {
 		if index.TableName == name {
@@ -481,10 +483,10 @@ func (m *Manager) IndexExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) GetIndexMeta(name string) (storage.Index, error) {
+func (m *Manager) GetIndexMeta(name string) (storage.IndexMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
-		return storage.Index{}, fmt.Errorf("failed to update system catalog data: %w", err)
+		return storage.IndexMeta{}, fmt.Errorf("failed to update system catalog data: %w", err)
 	}
 
 	m.mu.RLock()
@@ -492,13 +494,13 @@ func (m *Manager) GetIndexMeta(name string) (storage.Index, error) {
 
 	index, exists := m.data.Indexes[name]
 	if !exists {
-		return storage.Index{}, ErrEntityNotFound
+		return storage.IndexMeta{}, ErrEntityNotFound
 	}
 
 	return index, nil
 }
 
-func (m *Manager) AddIndex(index storage.Index) error {
+func (m *Manager) AddIndex(index storage.IndexMeta) error {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return fmt.Errorf("failed to update system catalog data: %w", err)

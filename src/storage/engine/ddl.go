@@ -12,48 +12,52 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-func GetTableFilePath(basePath, name string) string {
-	return filepath.Join(basePath, "tables", name+".tbl")
+func GetVertexTableFilePath(basePath, vertTableName string) string {
+	return getTableFilePath(basePath, FormVertexTableName(vertTableName))
 }
 
-func GetIndexFilePath(basePath, name string) string {
-	return filepath.Join(basePath, "indexes", name+".idx")
+func getTableFilePath(basePath, prefixedName string) string {
+	return filepath.Join(basePath, "tables", prefixedName+".tbl")
 }
 
-func getVertexTableName(name string) string {
+func GetIndexFilePath(basePath, prefixedName string) string {
+	return filepath.Join(basePath, "indexes", prefixedName+".idx")
+}
+
+func FormVertexTableName(name string) string {
 	return "vertex_" + name
 }
 
-func getEdgeTableName(name string) string {
+func FormEdgeTableName(name string) string {
 	return "edge_" + name
 }
 
-func getDirectoryTableName(name string) string {
+func formDirectoryTableName(name string) string {
 	return "directory_" + name
 }
 
-func getVertexIndexName(name string) string {
-	return "idx_" + getVertexTableName(name)
+func FormVertexIndexName(name string) string {
+	return "idx_" + FormVertexTableName(name)
 }
 
-func getEdgeIndexName(name string) string {
-	return "idx_" + getEdgeTableName(name)
+func FormEdgeIndexName(name string) string {
+	return "idx_" + FormEdgeTableName(name)
 }
 
-func getDirectoryIndexName(name string) string {
-	return "idx_" + getDirectoryTableName(name)
+func formDirectoryIndexName(name string) string {
+	return "idx_" + formDirectoryTableName(name)
 }
 
 func getVertexTableInternalIndexName(vertexTableName string) string {
-	return "idx_internal_" + getVertexTableName(vertexTableName)
+	return "idx_internal_" + FormVertexTableName(vertexTableName)
 }
 
 func getEdgeTableInternalIndexName(edgeTableName string) string {
-	return "idx_internal_" + getEdgeTableName(edgeTableName)
+	return "idx_internal_" + FormEdgeTableName(edgeTableName)
 }
 
 func getDirectoryTableInternalIndexName(vertexTableName string) string {
-	return "idx_internal_" + getDirectoryTableName(vertexTableName)
+	return "idx_internal_" + formDirectoryTableName(vertexTableName)
 }
 
 func (s *StorageEngine) createTable(
@@ -126,7 +130,7 @@ func (s *StorageEngine) createTable(
 	}()
 
 	// update info in metadata
-	tblCreateReq := storage.Table{
+	tblCreateReq := storage.TableMeta{
 		Name:       name,
 		PathToFile: tableFilePath,
 		FileID:     fileID,
@@ -159,7 +163,7 @@ func (s *StorageEngine) CreateVertexTable(
 	schema storage.Schema,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.createTable(txnID, getVertexTableName(name), schema, logger)
+	err := s.createTable(txnID, FormVertexTableName(name), schema, logger)
 	if err != nil {
 		return err
 	}
@@ -186,7 +190,7 @@ func (s *StorageEngine) CreateEdgesTable(
 	schema storage.Schema,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.createTable(txnID, getEdgeTableName(name), schema, logger)
+	err := s.createTable(txnID, FormEdgeTableName(name), schema, logger)
 	if err != nil {
 		return err
 	}
@@ -209,7 +213,7 @@ func (s *StorageEngine) createDirectoryTable(
 ) error {
 	err := s.createTable(
 		txnID,
-		getDirectoryTableName(vertexTableName),
+		formDirectoryTableName(vertexTableName),
 		storage.Schema{},
 		logger,
 	)
@@ -257,11 +261,11 @@ func (s *StorageEngine) DropVertexTable(
 	name string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.dropTable(txnID, getVertexTableName(name), logger)
+	err := s.dropTable(txnID, FormVertexTableName(name), logger)
 	if err != nil {
 		return err
 	}
-	err = s.dropTable(txnID, getDirectoryTableName(name), logger)
+	err = s.dropTable(txnID, formDirectoryTableName(name), logger)
 	if err != nil {
 		return err
 	}
@@ -269,12 +273,12 @@ func (s *StorageEngine) DropVertexTable(
 	return s.dropIndex(txnID, getDirectoryTableInternalIndexName(name), logger)
 }
 
-func (s *StorageEngine) DropEdgesTable(
+func (s *StorageEngine) DropEdgeTable(
 	txnID common.TxnID,
 	name string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.dropTable(txnID, getEdgeTableName(name), logger)
+	err := s.dropTable(txnID, FormEdgeTableName(name), logger)
 	if err != nil {
 		return err
 	}
@@ -298,7 +302,7 @@ func (s *StorageEngine) createIndex(
 
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
-	tableFilePath := GetIndexFilePath(basePath, name)
+	tableFilePath := getIndexFilePath(basePath, name)
 
 	// Existence of the file is not the proof of existence of the index (we don't remove file on
 	// drop),
@@ -350,7 +354,7 @@ func (s *StorageEngine) createIndex(
 
 	// update info in metadata
 
-	idxCreateReq := storage.Index{
+	idxCreateReq := storage.IndexMeta{
 		Name:        name,
 		PathToFile:  tableFilePath,
 		FileID:      fileID,
@@ -389,8 +393,8 @@ func (s *StorageEngine) CreateVertexTableIndex(
 ) error {
 	return s.createIndex(
 		txnID,
-		indexName,
-		getVertexTableName(tableName),
+		FormVertexIndexName(indexName),
+		FormVertexTableName(tableName),
 		columns,
 		keyBytesCnt,
 		logger,
@@ -407,8 +411,8 @@ func (s *StorageEngine) CreateEdgesTableIndex(
 ) error {
 	return s.createIndex(
 		txnID,
-		indexName,
-		getEdgeTableName(tableName),
+		FormEdgeIndexName(indexName),
+		FormEdgeTableName(tableName),
 		columns,
 		keyBytesCnt,
 		logger,
@@ -419,7 +423,7 @@ func (s *StorageEngine) getIndex(
 	txnID common.TxnID,
 	indexName string,
 	logger common.ITxnLoggerWithContext,
-) (common.Index, error) {
+) (storage.Index, error) {
 	ctoken := s.locker.LockCatalog(txnID, txns.GranularLockShared)
 	if ctoken == nil {
 		return nil, errors.New("unable to get system catalog lock")
@@ -472,7 +476,7 @@ func (s *StorageEngine) DropVertexTableIndex(
 	indexName string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	return s.dropIndex(txnID, getVertexIndexName(indexName), logger)
+	return s.dropIndex(txnID, FormVertexIndexName(indexName), logger)
 }
 
 func (s *StorageEngine) DropEdgesTableIndex(
@@ -480,5 +484,5 @@ func (s *StorageEngine) DropEdgesTableIndex(
 	name string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	return s.dropIndex(txnID, getEdgeIndexName(name), logger)
+	return s.dropIndex(txnID, FormEdgeIndexName(name), logger)
 }

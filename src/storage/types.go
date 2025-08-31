@@ -175,3 +175,92 @@ type AssociativeArray[K comparable, V any] interface {
 	Set(k K, v V) error
 	Seq(yield func(K, V) bool)
 }
+
+type StorageEngine interface {
+	NewQueue(common.TxnID) (Queue, error)
+	NewAggregationAssociativeArray(
+		common.TxnID,
+	) (AssociativeArray[VertexID, float64], error)
+	NewBitMap(common.TxnID) (BitMap, error)
+	Neighbours(t common.TxnID, v VertexID) (NeighborIter, error)
+
+	AllVerticesWithValue(t common.TxnID, field string, value []byte) (VerticesIter, error)
+	CountOfFilteredEdges(t common.TxnID, v VertexID, f EdgeFilter) (uint64, error)
+	GetAllVertices(t common.TxnID) (VerticesIter, error)
+	GetNeighborsWithEdgeFilter(
+		t common.TxnID,
+		v VertexID,
+		filter EdgeFilter,
+	) (VerticesIter, error)
+
+	GetVertexRID(vertexID VertexID, vertexIndex Index) (VertexIDWithRID, error)
+	GetEdgeRID(edgeID EdgeID, edgeIndex Index) (EdgeIDWithRID, error)
+
+	CreateVertexTable(
+		txnID common.TxnID,
+		name string,
+		schema Schema,
+		logger common.ITxnLoggerWithContext,
+	) error
+	DropVertexTable(txnID common.TxnID, name string, logger common.ITxnLoggerWithContext) error
+
+	CreateEdgeTable(
+		txnID common.TxnID,
+		name string,
+		schema Schema,
+		logger common.ITxnLoggerWithContext,
+	) error
+	DropEdgeTable(txnID common.TxnID, name string, logger common.ITxnLoggerWithContext) error
+
+	CreateVertexTableIndex(
+		txnID common.TxnID,
+		indexName string,
+		tableName string,
+		columns []string,
+		keyBytesCnt uint32,
+		logger common.ITxnLoggerWithContext,
+	) error
+	DropVertexTableIndex(
+		txnID common.TxnID,
+		indexName string,
+		logger common.ITxnLoggerWithContext,
+	) error
+
+	CreateEdgesTableIndex(
+		txnID common.TxnID,
+		indexName string,
+		tableName string,
+		columns []string,
+		keyBytesCnt uint32,
+		logger common.ITxnLoggerWithContext,
+	) error
+	DropEdgesTableIndex(
+		txnID common.TxnID,
+		indexName string,
+		logger common.ITxnLoggerWithContext,
+	) error
+}
+
+type SystemCatalog interface {
+	GetNewFileID() uint64
+	GetBasePath() string
+
+	GetTableMeta(name string) (TableMeta, error)
+	TableExists(name string) (bool, error)
+	AddTable(req TableMeta) error
+	DropTable(name string) error
+
+	GetIndexMeta(name string) (IndexMeta, error)
+	IndexExists(name string) (bool, error)
+	AddIndex(req IndexMeta) error
+	DropIndex(name string) error
+
+	Save(logger common.ITxnLoggerWithContext) error
+	CurrentVersion() uint64
+}
+
+type Index interface {
+	Get(key []byte) (common.RecordID, error)
+	Delete(key []byte) error
+	Insert(key []byte, rid common.RecordID) error
+}

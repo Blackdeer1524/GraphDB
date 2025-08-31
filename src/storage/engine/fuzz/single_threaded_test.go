@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
@@ -20,7 +22,7 @@ import (
 // applyOp is a convenient wrapper to apply an operation to the
 // It uses the model as a schema provider for create operations.
 func applyOp(
-	se *StorageEngine,
+	se storage.StorageEngine,
 	op Operation,
 	baseDir string,
 	logger common.ITxnLoggerWithContext,
@@ -34,7 +36,7 @@ func applyOp(
 	case OpDropVertexTable:
 		err = se.DropVertexTable(op.TxnID, op.Name, logger)
 		if err == nil {
-			filePath := GetVertexTableFilePath(baseDir, op.Name)
+			filePath := engine.GetTableFilePath(baseDir, op.Name)
 			errRemove := os.Remove(filePath)
 			if errRemove != nil {
 				err = fmt.Errorf("failed to remove vertex table file: %w", errRemove)

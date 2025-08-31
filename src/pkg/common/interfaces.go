@@ -40,9 +40,3 @@ type DiskManager[T Page] interface {
 	GetPageNoNewAssumeLocked(page T, pageIdent PageIdentity) error
 	WritePageAssumeLocked(page T, pageIdent PageIdentity) error
 }
-
-type Index interface {
-	Get(key []byte) (RecordID, error)
-	Delete(key []byte) error
-	Insert(key []byte, rid RecordID) error
-}

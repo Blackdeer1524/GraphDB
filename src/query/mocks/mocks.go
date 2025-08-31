@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"iter"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/datastructures/inmemory"
-	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 )
 
 // Mock implementations
@@ -39,19 +39,19 @@ func (m *mockQueue) Close() error {
 
 // mockVisited is a simple map-based visited set.
 type mockVisited struct {
-	visited map[engine.VertexID]bool
+	visited map[storage.VertexID]bool
 }
 
 func newMockVisited() *mockVisited {
-	return &mockVisited{visited: make(map[engine.VertexID]bool)}
+	return &mockVisited{visited: make(map[storage.VertexID]bool)}
 }
 
-func (m *mockVisited) Get(v engine.VertexID) (bool, error) {
+func (m *mockVisited) Get(v storage.VertexID) (bool, error) {
 	val, ok := m.visited[v]
 	return ok && val, nil
 }
 
-func (m *mockVisited) Set(v engine.VertexID, val bool) error {
+func (m *mockVisited) Set(v storage.VertexID, val bool) error {
 	m.visited[v] = val
 	return nil
 }
@@ -129,8 +129,8 @@ func (m *mockNeighborsIterator) Close() error {
 
 // MockTransactionManager
 type DataMockStorageEngine struct {
-	vertices     map[engine.VertexID]common.RecordID
-	neighbors    map[engine.VertexID][]storage.VertexIDWithRID
+	vertices     map[storage.VertexID]common.RecordID
+	neighbors    map[storage.VertexID][]storage.VertexIDWithRID
 	queueErr     error
 	bitMapErr    error
 	getRIDErr    error
@@ -139,20 +139,20 @@ type DataMockStorageEngine struct {
 
 // NewDataMockStorageEngine создаёт DataMockStorageEngine с заданным графом.
 func NewDataMockStorageEngine(
-	vertices []engine.VertexID,
-	edges [][]engine.VertexID,
+	vertices []storage.VertexID,
+	edges [][]storage.VertexID,
 	neighborsErr, queueErr, bitMapErr, getRIDErr error,
 ) *DataMockStorageEngine {
 	se := &DataMockStorageEngine{
-		vertices:     make(map[engine.VertexID]common.RecordID),
-		neighbors:    make(map[engine.VertexID][]storage.VertexIDWithRID),
+		vertices:     make(map[storage.VertexID]common.RecordID),
+		neighbors:    make(map[storage.VertexID][]storage.VertexIDWithRID),
 		neighborsErr: neighborsErr,
 		queueErr:     queueErr,
 		bitMapErr:    bitMapErr,
 		getRIDErr:    getRIDErr,
 	}
 	for _, v := range vertices {
-		se.vertices[v] = common.RecordID{PageID: common.PageID(v * 100)}
+		se.vertices[v] = common.RecordID{PageID: common.PageID(uuid.UUID(v).ID())}
 	}
 	for _, edge := range edges {
 		if len(edge) != 2 {
@@ -161,11 +161,17 @@ func NewDataMockStorageEngine(
 		u, v := edge[0], edge[1]
 		se.neighbors[u] = append(
 			se.neighbors[u],
-			storage.VertexIDWithRID{V: v, R: common.RecordID{PageID: common.PageID(v * 100)}},
+			storage.VertexIDWithRID{
+				V: v,
+				R: common.RecordID{PageID: common.PageID(uuid.UUID(v).ID())},
+			},
 		)
 		se.neighbors[v] = append(
 			se.neighbors[v],
-			storage.VertexIDWithRID{V: u, R: common.RecordID{PageID: common.PageID(u * 100)}},
+			storage.VertexIDWithRID{
+				V: u,
+				R: common.RecordID{PageID: common.PageID(uuid.UUID(u).ID())},
+			},
 		)
 	}
 	return se
@@ -173,13 +179,13 @@ func NewDataMockStorageEngine(
 
 func (m *DataMockStorageEngine) NewAggregationAssociativeArray(
 	common.TxnID,
-) (storage.AssociativeArray[engine.VertexID, float64], error) {
-	return inmemory.NewInMemoryAssociativeArray[engine.VertexID, float64](), nil
+) (storage.AssociativeArray[storage.VertexID, float64], error) {
+	return inmemory.NewInMemoryAssociativeArray[storage.VertexID, float64](), nil
 }
 
 func (m *DataMockStorageEngine) GetNeighborsWithEdgeFilter(
 	t common.TxnID,
-	v engine.VertexID,
+	v storage.VertexID,
 	filter storage.EdgeFilter,
 ) (storage.VerticesIter, error) {
 	return &MockAllVerticesIter{}, nil
@@ -206,7 +212,7 @@ func (m *DataMockStorageEngine) GetAllVertices(t common.TxnID) (storage.Vertices
 
 func (m *DataMockStorageEngine) CountOfFilteredEdges(
 	t common.TxnID,
-	v engine.VertexID,
+	v storage.VertexID,
 	f storage.EdgeFilter,
 ) (uint64, error) {
 	return 0, nil
@@ -236,7 +242,7 @@ func (m *DataMockStorageEngine) NewBitMap(_ common.TxnID) (storage.BitMap, error
 
 func (m *DataMockStorageEngine) GetVertexRID(
 	_ common.TxnID,
-	v engine.VertexID,
+	v storage.VertexID,
 ) (storage.VertexIDWithRID, error) {
 	if m.getRIDErr != nil {
 		return storage.VertexIDWithRID{}, m.getRIDErr
@@ -250,7 +256,7 @@ func (m *DataMockStorageEngine) GetVertexRID(
 
 func (m *DataMockStorageEngine) Neighbours(
 	_ common.TxnID,
-	v engine.VertexID,
+	v storage.VertexID,
 ) (storage.NeighborIter, error) {
 	if m.neighborsErr != nil {
 		return nil, m.neighborsErr
@@ -269,14 +275,14 @@ type MockStorageEngine struct {
 
 func (m *MockStorageEngine) NewAggregationAssociativeArray(
 	t common.TxnID,
-) (storage.AssociativeArray[engine.VertexID, float64], error) {
+) (storage.AssociativeArray[storage.VertexID, float64], error) {
 	args := m.Called(t)
-	return args.Get(0).(storage.AssociativeArray[engine.VertexID, float64]), args.Error(1)
+	return args.Get(0).(storage.AssociativeArray[storage.VertexID, float64]), args.Error(1)
 }
 
 func (m *MockStorageEngine) GetNeighborsWithEdgeFilter(
 	t common.TxnID,
-	v engine.VertexID,
+	v storage.VertexID,
 	filter storage.EdgeFilter,
 ) (storage.VerticesIter, error) {
 	args := m.Called(t, v, filter)
@@ -290,7 +296,7 @@ func (m *MockStorageEngine) GetAllVertices(t common.TxnID) (storage.VerticesIter
 
 func (m *MockStorageEngine) CountOfFilteredEdges(
 	t common.TxnID,
-	v engine.VertexID,
+	v storage.VertexID,
 	f storage.EdgeFilter,
 ) (uint64, error) {
 	args := m.Called(t, v, f)
@@ -318,7 +324,7 @@ func (m *MockStorageEngine) NewBitMap(t common.TxnID) (storage.BitMap, error) {
 
 func (m *MockStorageEngine) GetVertexRID(
 	t common.TxnID,
-	v engine.VertexID,
+	v storage.VertexID,
 ) (storage.VertexIDWithRID, error) {
 	args := m.Called(t, v)
 	return args.Get(0).(storage.VertexIDWithRID), args.Error(1)
@@ -326,7 +332,7 @@ func (m *MockStorageEngine) GetVertexRID(
 
 func (m *MockStorageEngine) Neighbours(
 	t common.TxnID,
-	v engine.VertexID,
+	v storage.VertexID,
 ) (storage.NeighborIter, error) {
 	args := m.Called(t, v)
 	return args.Get(0).(storage.NeighborIter), args.Error(1)

@@ -14,40 +14,69 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-type SystemCatalog interface {
-	GetNewFileID() uint64
-	GetBasePath() string
-
-	GetTableMeta(name string) (storage.Table, error)
-	TableExists(name string) (bool, error)
-	AddTable(req storage.Table) error
-	DropTable(name string) error
-
-	GetIndexMeta(name string) (storage.Index, error)
-	IndexExists(name string) (bool, error)
-	AddIndex(req storage.Index) error
-	DropIndex(name string) error
-
-	Save(logger common.ITxnLoggerWithContext) error
-	CurrentVersion() uint64
-}
-
 type StorageEngine struct {
-	catalog SystemCatalog
+	catalog storage.SystemCatalog
 	pool    bufferpool.BufferPool
 	diskMgr *disk.Manager
 	locker  *txns.LockManager
 	fs      afero.Fs
 
-	indexLoader func(indexMeta storage.Index, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (common.Index, error)
+	indexLoader func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error)
 }
+
+// AllVerticesWithValue implements storage.StorageEngine.
+func (s *StorageEngine) AllVerticesWithValue(t common.TxnID, field string, value []byte) (storage.VerticesIter, error) {
+	panic("unimplemented")
+}
+
+// CountOfFilteredEdges implements storage.StorageEngine.
+func (s *StorageEngine) CountOfFilteredEdges(t common.TxnID, v storage.VertexID, f storage.EdgeFilter) (uint64, error) {
+	panic("unimplemented")
+}
+
+// CreateEdgeTable implements storage.StorageEngine.
+func (s *StorageEngine) CreateEdgeTable(txnID common.TxnID, name string, schema storage.Schema, logger common.ITxnLoggerWithContext) error {
+	panic("unimplemented")
+}
+
+// GetAllVertices implements storage.StorageEngine.
+func (s *StorageEngine) GetAllVertices(t common.TxnID) (storage.VerticesIter, error) {
+	panic("unimplemented")
+}
+
+// GetNeighborsWithEdgeFilter implements storage.StorageEngine.
+func (s *StorageEngine) GetNeighborsWithEdgeFilter(t common.TxnID, v storage.VertexID, filter storage.EdgeFilter) (storage.VerticesIter, error) {
+	panic("unimplemented")
+}
+
+// Neighbours implements storage.StorageEngine.
+func (s *StorageEngine) Neighbours(t common.TxnID, v storage.VertexID) (storage.NeighborIter, error) {
+	panic("unimplemented")
+}
+
+// NewAggregationAssociativeArray implements storage.StorageEngine.
+func (s *StorageEngine) NewAggregationAssociativeArray(common.TxnID) (storage.AssociativeArray[storage.VertexID, float64], error) {
+	panic("unimplemented")
+}
+
+// NewBitMap implements storage.StorageEngine.
+func (s *StorageEngine) NewBitMap(common.TxnID) (storage.BitMap, error) {
+	panic("unimplemented")
+}
+
+// NewQueue implements storage.StorageEngine.
+func (s *StorageEngine) NewQueue(common.TxnID) (storage.Queue, error) {
+	panic("unimplemented")
+}
+
+var _ storage.StorageEngine = &StorageEngine{}
 
 func New(
 	catalogBasePath string,
 	poolSize uint64,
 	locker *txns.LockManager,
 	fs afero.Fs,
-	indexLoader func(indexMeta storage.Index, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (common.Index, error),
+	indexLoader func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error),
 ) (*StorageEngine, error) {
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
 	if err != nil {
@@ -82,12 +111,12 @@ func New(
 }
 
 func newInjectedEngine(
-	sysCat SystemCatalog,
+	sysCat storage.SystemCatalog,
 	pool bufferpool.BufferPool,
 	diskMgr *disk.Manager,
 	locker *txns.LockManager,
 	fs afero.Fs,
-	indexLoader func(indexMeta storage.Index, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (common.Index, error),
+	indexLoader func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error),
 ) *StorageEngine {
 	return &StorageEngine{
 		catalog:     sysCat,

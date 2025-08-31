@@ -9,6 +9,7 @@ import (
 )
 
 func (e *Executor) CreateVertexType(name string, schema storage.Schema) (err error) {
+
 	txnID := e.newTxnID()
 
 	_ = e.locker.LockCatalog(txnID, txns.GranularLockExclusive)
@@ -32,14 +33,7 @@ func (e *Executor) CreateVertexType(name string, schema storage.Schema) (err err
 		}
 	}()
 
-	if err = e.se.CreateVertexTable(txnID, name, schema, logger); err != nil {
-		return err
-	}
-	if err = e.se.CreateDirectoryTable(txnID, name, logger); err != nil {
-		return err
-	}
-
-	return nil
+	return e.se.CreateVertexTable(e.newTxnID(), name, schema, logger)
 }
 
 func (e *Executor) CreateEdgeType(name string, schema storage.Schema) (err error) {
@@ -66,9 +60,5 @@ func (e *Executor) CreateEdgeType(name string, schema storage.Schema) (err error
 		}
 	}()
 
-	if err = e.se.CreateEdgeTable(txnID, name, schema, logger); err != nil {
-		return err
-	}
-
-	return nil
+	return e.se.CreateEdgeTable(txnID, name, schema, logger)
 }

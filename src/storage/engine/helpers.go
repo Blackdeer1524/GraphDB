@@ -242,7 +242,6 @@ func _serializeRecord(data map[string]any, schema storage.Schema) ([]byte, error
 	}
 
 	return buf.Bytes(), nil
-
 }
 
 func serializeVertexRecord(

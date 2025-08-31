@@ -36,23 +36,19 @@ func Test_GetFileIDToPathMap(t *testing.T) {
 	sCat := &Manager{
 		mu: new(sync.RWMutex),
 		data: &Data{
-			VertexTables: map[string]storage.VertexTable{
+			Tables: map[string]storage.TableMeta{
 				"test1": {
 					FileID: 1,
 				},
 				"test2": {
 					FileID: 9,
 				},
-			},
-			EdgeTables: map[string]storage.EdgeTable{
 				"test3": {
 					FileID: 2,
 				},
 				"test4": {
 					FileID: 10,
 				},
-			},
-			Indexes: map[string]storage.Index{
 				"test5": {
 					FileID: 3,
 				},
@@ -81,10 +77,9 @@ func TestManager_Save_CreatesNewVersionFile(t *testing.T) {
 		basePath: dir,
 		fs:       afero.NewOsFs(),
 		data: &Data{
-			Metadata:     storage.Metadata{},
-			VertexTables: map[string]storage.VertexTable{},
-			EdgeTables:   map[string]storage.EdgeTable{},
-			Indexes:      map[string]storage.Index{},
+			Metadata: storage.Metadata{},
+			Tables:   map[string]storage.TableMeta{},
+			Indexes:  map[string]storage.IndexMeta{},
 		},
 		currentVersion:     0,
 		currentVersionPage: p,
@@ -119,10 +114,9 @@ func TestManager_Save_Twice_IncrementsVersion(t *testing.T) {
 		basePath: dir,
 		fs:       afero.NewOsFs(),
 		data: &Data{
-			Metadata:     storage.Metadata{},
-			VertexTables: map[string]storage.VertexTable{},
-			EdgeTables:   map[string]storage.EdgeTable{},
-			Indexes:      map[string]storage.Index{},
+			Metadata: storage.Metadata{},
+			Tables:   map[string]storage.TableMeta{},
+			Indexes:  map[string]storage.IndexMeta{},
 		},
 		currentVersion:     0,
 		currentVersionPage: p,
@@ -158,13 +152,12 @@ func TestManager_updateSystemCatalogData(t *testing.T) {
 			Version: "v228",
 			Name:    "TestCatalog",
 		},
-		VertexTables: map[string]storage.VertexTable{
+		Tables: map[string]storage.TableMeta{
 			"User": {
 				Name: "User",
 			},
 		},
-		EdgeTables: map[string]storage.EdgeTable{},
-		Indexes:    map[string]storage.Index{},
+		Indexes: map[string]storage.IndexMeta{},
 	}
 
 	filename := getSystemCatalogFilename(dir, 1)
@@ -190,7 +183,7 @@ func TestManager_updateSystemCatalogData(t *testing.T) {
 
 	require.Equal(t, uint64(1), m.currentVersion)
 
-	_, ok := m.data.VertexTables["User"]
+	_, ok := m.data.Tables["User"]
 	require.True(t, ok)
 
 	require.Equal(t, "v228", m.data.Metadata.Version)
@@ -204,13 +197,12 @@ func TestManager_updateSystemCatalogData_NoUpdate(t *testing.T) {
 			Version: "v228",
 			Name:    "TestCatalog",
 		},
-		VertexTables: map[string]storage.VertexTable{
+		Tables: map[string]storage.TableMeta{
 			"User": {
 				Name: "User",
 			},
 		},
-		EdgeTables: map[string]storage.EdgeTable{},
-		Indexes:    map[string]storage.Index{},
+		Indexes: map[string]storage.IndexMeta{},
 	}
 
 	filename := getSystemCatalogFilename(dir, 1)

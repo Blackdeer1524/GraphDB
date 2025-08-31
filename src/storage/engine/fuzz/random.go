@@ -1,14 +1,16 @@
 package fuzz
 
 import (
+	"cmp"
 	"math/rand"
+	"slices"
 	"strconv"
 
-	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 )
 
-func getRandomMapKey[K comparable, V any](r *rand.Rand, m map[K]V) (K, bool) {
+func getRandomMapKey[K cmp.Ordered, V any](r *rand.Rand, m map[K]V) (K, bool) {
 	if len(m) == 0 {
 		var zero K
 
@@ -20,7 +22,8 @@ func getRandomMapKey[K comparable, V any](r *rand.Rand, m map[K]V) (K, bool) {
 		keys = append(keys, k)
 	}
 
-	return keys[r.Intn(len(keys))], true
+	orderedKeys := slices.Sorted(slices.Values(keys))
+	return orderedKeys[r.Intn(len(orderedKeys))], true
 }
 
 func randomString(r *rand.Rand, n int) string {
@@ -54,19 +57,24 @@ func randomSchema(r *rand.Rand) storage.Schema {
 
 	for i := 0; i < numCols; i++ {
 		colName := "col" + strconv.Itoa(i)
-		types := []string{"int", "string", "float", "bool"} // add your supported types
-		schema = append(schema, utils.Pair[string, storage.Column]{
-			First:  colName,
-			Second: storage.Column{Type: types[r.Intn(len(types))]},
+		types := []storage.ColumnType{
+			storage.ColumnTypeInt64,
+			storage.ColumnTypeUint64,
+			storage.ColumnTypeFloat64,
+			storage.ColumnTypeUUID,
+		} // add your supported types
+		schema = append(schema, storage.Column{
+			Name: colName,
+			Type: types[r.Intn(len(types))],
 		})
 	}
 
 	return schema
 }
 
-func randomIndexNameForCreate(
+func randomVertexIndexNameForCreate(
 	r *rand.Rand,
-	existingTables map[string]storage.Index,
+	existingTables map[string]storage.IndexMeta,
 	exist int,
 ) string {
 	d := r.Intn(10)
@@ -77,12 +85,28 @@ func randomIndexNameForCreate(
 		}
 	}
 
-	return "idx_" + randomString(r, 10)
+	return engine.FormVertexIndexName(randomString(r, 10))
+}
+
+func randomEdgeIndexNameForCreate(
+	r *rand.Rand,
+	existingTables map[string]storage.IndexMeta,
+	exist int,
+) string {
+	d := r.Intn(10)
+
+	if d < exist {
+		if name, ok := getRandomMapKey(r, existingTables); ok {
+			return name
+		}
+	}
+
+	return engine.FormEdgeIndexName(randomString(r, 10))
 }
 
 func randomIndexNameForDrop(
 	r *rand.Rand,
-	existingIndexes map[string]storage.Index,
+	existingIndexes map[string]storage.IndexMeta,
 	exist int,
 ) string {
 	d := r.Intn(10)
@@ -93,5 +117,9 @@ func randomIndexNameForDrop(
 		}
 	}
 
-	return "idx_" + randomString(r, 10)
+	if r.Intn(2) == 0 {
+		return engine.FormVertexIndexName(randomString(r, 10))
+	} else {
+		return engine.FormEdgeIndexName(randomString(r, 10))
+	}
 }

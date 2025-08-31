@@ -16,18 +16,18 @@ type Column struct {
 
 type Schema []Column
 
-type Table struct {
+type TableMeta struct {
 	Name       string `json:"name"`
 	PathToFile string `json:"path_to_file"`
 	FileID     uint64 `json:"file_id"`
 	Schema     Schema `json:"schema"`
 }
 
-func (v *Table) Copy() Table {
+func (v *TableMeta) Copy() TableMeta {
 	schemaCopy := make(Schema, len(v.Schema))
 	copy(schemaCopy, v.Schema)
 
-	return Table{
+	return TableMeta{
 		Name:       v.Name,
 		PathToFile: v.PathToFile,
 		FileID:     v.FileID,
@@ -35,7 +35,7 @@ func (v *Table) Copy() Table {
 	}
 }
 
-type Index struct {
+type IndexMeta struct {
 	Name        string   `json:"name"`
 	PathToFile  string   `json:"path_to_file"`
 	FileID      uint64   `json:"id"`
@@ -44,11 +44,11 @@ type Index struct {
 	KeyBytesCnt uint32   `json:"key_bytes_cnt"`
 }
 
-func (i *Index) Copy() Index {
+func (i *IndexMeta) Copy() IndexMeta {
 	columnsCopy := make([]string, len(i.Columns))
 	copy(columnsCopy, i.Columns)
 
-	return Index{
+	return IndexMeta{
 		Name:        i.Name,
 		PathToFile:  i.PathToFile,
 		FileID:      i.FileID,

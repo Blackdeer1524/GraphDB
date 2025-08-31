@@ -15,13 +15,13 @@ import (
 )
 
 func Test_getTableFilePath(t *testing.T) {
-	ans := GetTableFilePath("/var/lib/graphdb", "friends")
+	ans := getTableFilePath("/var/lib/graphdb", "friends")
 
 	assert.Equal(t, "/var/lib/graphdb/tables/friends.tbl", ans)
 }
 
 func Test_getIndexFilePath(t *testing.T) {
-	ans := GetIndexFilePath("/var/lib/graphdb", "idx_user_name")
+	ans := getIndexFilePath("/var/lib/graphdb", "idx_user_name")
 
 	assert.Equal(t, "/var/lib/graphdb/indexes/idx_user_name.idx", ans)
 }
@@ -41,7 +41,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 		uint64(200),
 		lockMgr,
 		afero.NewOsFs(),
-		func(indexMeta storage.Index, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (common.Index, error) {
+		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
 			return nil, nil
 		},
 	)
@@ -59,7 +59,7 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, tableName)
+		tablePath := getTableFilePath(dir, tableName)
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -95,7 +95,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		uint64(200),
 		lockMgr,
 		afero.NewOsFs(),
-		func(indexMeta storage.Index, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (common.Index, error) {
+		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
 			return nil, nil
 		},
 	)
@@ -114,7 +114,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, tableName)
+		tablePath := getTableFilePath(dir, FormVertexTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -139,7 +139,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, tableName)
+		tablePath := getTableFilePath(dir, FormVertexTableName(tableName))
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
@@ -154,13 +154,21 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 	var se *StorageEngine
 
 	lockMgr := txns.NewLockManager()
-	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err = New(
+		dir,
+		uint64(200),
+		lockMgr,
+		afero.NewOsFs(),
+		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 
 	tableName := "IsFriendWith"
 	schema := storage.Schema{
-		{First: "from", Second: storage.Column{Type: "int"}},
-		{First: "to", Second: storage.Column{Type: "int"}},
+		{Name: "from", Type: storage.ColumnTypeInt64},
+		{Name: "to", Type: storage.ColumnTypeInt64},
 	}
 
 	func() {
@@ -170,13 +178,13 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetEdgeTableFilePath(dir, tableName)
+		tablePath := getTableFilePath(dir, FormEdgeTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
 		require.False(t, info.IsDir())
 
-		tblMeta, err := se.catalog.GetEdgeTableMeta(tableName)
+		tblMeta, err := se.catalog.GetTableMeta(FormEdgeTableName(tableName))
 		require.NoError(t, err)
 		require.Equal(t, tableName, tblMeta.Name)
 
@@ -201,13 +209,21 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 	var se *StorageEngine
 
 	lockMgr := txns.NewLockManager()
-	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err = New(
+		dir,
+		uint64(200),
+		lockMgr,
+		afero.NewOsFs(),
+		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 
 	tableName := "IsFriendWith"
 	schema := storage.Schema{
-		{First: "from", Second: storage.Column{Type: "int"}},
-		{First: "to", Second: storage.Column{Type: "int"}},
+		{Name: "from", Type: storage.ColumnTypeInt64},
+		{Name: "to", Type: storage.ColumnTypeInt64},
 	}
 
 	func() {
@@ -217,19 +233,19 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetEdgeTableFilePath(dir, tableName)
+		tablePath := getTableFilePath(dir, FormEdgeTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
 		require.False(t, info.IsDir())
 
-		err = se.DropEdgesTable(firstTxnID, tableName, common.NoLogs())
+		err = se.DropEdgeTable(firstTxnID, tableName, common.NoLogs())
 		require.NoError(t, err)
 
 		_, err = os.Stat(tablePath)
 		require.NoError(t, err)
 
-		err = se.DropEdgesTable(firstTxnID, tableName, common.NoLogs())
+		err = se.DropEdgeTable(firstTxnID, tableName, common.NoLogs())
 		require.Error(t, err)
 
 		require.Equal(t, uint64(2), se.catalog.CurrentVersion())
@@ -242,7 +258,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetEdgeTableFilePath(dir, tableName)
+		tablePath := getTableFilePath(dir, FormEdgeTableName(tableName))
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
@@ -257,13 +273,21 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 	var se *StorageEngine
 
 	lockMgr := txns.NewLockManager()
-	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err = New(
+		dir,
+		uint64(200),
+		lockMgr,
+		afero.NewOsFs(),
+		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
-		{First: "id", Second: storage.Column{Type: "int"}},
-		{First: "name", Second: storage.Column{Type: "string"}},
+		{Name: "id", Type: storage.ColumnTypeInt64},
+		{Name: "name", Type: storage.ColumnTypeUUID},
 	}
 
 	firstTxnID := common.TxnID(1)
@@ -272,24 +296,22 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 	require.NoError(t, err)
 
-	indexName := "idx_user_name"
-
-	err = se.CreateIndex(
+	indexName := "user_name"
+	err = se.CreateVertexTableIndex(
 		firstTxnID,
 		indexName,
 		tableName,
-		"vertex",
 		[]string{"name"},
 		8,
 		common.NoLogs(),
 	)
 	require.NoError(t, err)
 
-	tablePath := GetIndexFilePath(dir, indexName)
+	tablePath := getIndexFilePath(dir, FormVertexIndexName(indexName))
 	_, err = os.Stat(tablePath)
 	require.NoError(t, err)
 
-	_, err = se.catalog.GetIndexMeta(indexName)
+	_, err = se.catalog.GetIndexMeta(FormVertexIndexName(indexName))
 	require.NoError(t, err)
 }
 
@@ -302,13 +324,21 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	var se *StorageEngine
 
 	lockMgr := txns.NewLockManager()
-	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err = New(
+		dir,
+		uint64(200),
+		lockMgr,
+		afero.NewOsFs(),
+		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
-		{First: "id", Second: storage.Column{Type: "int"}},
-		{First: "name", Second: storage.Column{Type: "string"}},
+		{Name: "id", Type: storage.ColumnTypeInt64},
+		{Name: "name", Type: storage.ColumnTypeUUID},
 	}
 
 	firstTxnID := common.TxnID(1)
@@ -317,37 +347,35 @@ func TestStorageEngine_DropIndex(t *testing.T) {
 	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 	require.NoError(t, err)
 
-	indexName := "idx_user_name"
+	indexName := "user_name"
 
-	err = se.CreateIndex(
+	err = se.CreateVertexTableIndex(
 		firstTxnID,
 		indexName,
 		tableName,
-		"vertex",
 		[]string{"name"},
 		8,
 		common.NoLogs(),
 	)
 	require.NoError(t, err)
 
-	indexPath := GetIndexFilePath(dir, indexName)
+	indexPath := getIndexFilePath(dir, FormVertexIndexName(indexName))
 	_, err = os.Stat(indexPath)
 	require.NoError(t, err)
 
 	_, err = se.catalog.GetIndexMeta(indexName)
 	require.NoError(t, err)
 
-	err = se.DropIndex(firstTxnID, indexName, common.NoLogs())
+	err = se.DropVertexTableIndex(firstTxnID, indexName, common.NoLogs())
 	require.NoError(t, err)
 
 	_, err = os.Stat(indexPath)
 	require.NoError(t, err)
 
-	err = se.CreateIndex(
+	err = se.CreateVertexTableIndex(
 		firstTxnID,
 		indexName,
 		tableName,
-		"vertex",
 		[]string{"name"},
 		8,
 		common.NoLogs(),
