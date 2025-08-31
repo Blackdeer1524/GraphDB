@@ -439,7 +439,7 @@ func (s *StorageEngine) getIndex(
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}
 
-	return s.indexLoader(indexMeta, logger)
+	return s.indexLoader(indexMeta, s.locker, logger)
 }
 
 func (s *StorageEngine) dropIndex(
@@ -482,4 +482,3 @@ func (s *StorageEngine) DropEdgesTableIndex(
 ) error {
 	return s.dropIndex(txnID, getEdgeIndexName(name), logger)
 }
-

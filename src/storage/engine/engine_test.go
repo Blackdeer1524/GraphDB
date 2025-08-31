@@ -14,16 +14,10 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-func Test_getVertexTableFilePath(t *testing.T) {
-	ans := GetVertexTableFilePath("/var/lib/graphdb", "friends")
+func Test_getTableFilePath(t *testing.T) {
+	ans := GetTableFilePath("/var/lib/graphdb", "friends")
 
-	assert.Equal(t, "/var/lib/graphdb/tables/vertex/friends.tbl", ans)
-}
-
-func Test_getEdgeTableFilePath(t *testing.T) {
-	ans := GetEdgeTableFilePath("/var/lib/graphdb", "friends")
-
-	assert.Equal(t, "/var/lib/graphdb/tables/edge/friends.tbl", ans)
+	assert.Equal(t, "/var/lib/graphdb/tables/friends.tbl", ans)
 }
 
 func Test_getIndexFilePath(t *testing.T) {
@@ -42,13 +36,21 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 
 	var se *StorageEngine
 
-	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err = New(
+		dir,
+		uint64(200),
+		lockMgr,
+		afero.NewOsFs(),
+		func(indexMeta storage.Index, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (common.Index, error) {
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
-		{First: "id", Second: storage.Column{Type: "int"}},
-		{First: "name", Second: storage.Column{Type: "string"}},
+		{Name: "id", Type: storage.ColumnTypeInt64},
+		{Name: "name", Type: storage.ColumnTypeUUID},
 	}
 
 	func() {
@@ -57,13 +59,13 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetVertexTableFilePath(dir, tableName)
+		tablePath := GetTableFilePath(dir, tableName)
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
 		require.False(t, info.IsDir())
 
-		tblMeta, err := se.catalog.GetVertexTableMeta(tableName)
+		tblMeta, err := se.catalog.GetTableMeta(tableName)
 		require.NoError(t, err)
 		require.Equal(t, tableName, tblMeta.Name)
 
@@ -88,13 +90,21 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 	var se *StorageEngine
 
 	lockMgr := txns.NewLockManager()
-	se, err = New(dir, uint64(200), lockMgr, afero.NewOsFs())
+	se, err = New(
+		dir,
+		uint64(200),
+		lockMgr,
+		afero.NewOsFs(),
+		func(indexMeta storage.Index, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (common.Index, error) {
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 
 	tableName := "User"
 	schema := storage.Schema{
-		{First: "id", Second: storage.Column{Type: "int"}},
-		{First: "name", Second: storage.Column{Type: "string"}},
+		{Name: "id", Type: storage.ColumnTypeInt64},
+		{Name: "name", Type: storage.ColumnTypeUUID},
 	}
 
 	func() {
@@ -104,7 +114,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetVertexTableFilePath(dir, tableName)
+		tablePath := GetTableFilePath(dir, tableName)
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -129,7 +139,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetVertexTableFilePath(dir, tableName)
+		tablePath := GetTableFilePath(dir, tableName)
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
