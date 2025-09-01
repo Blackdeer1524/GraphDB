@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"unsafe"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
@@ -36,40 +37,32 @@ func getIndexFilePath(basePath, prefixedName string) string {
 	return filepath.Join(basePath, "indexes", prefixedName+".idx")
 }
 
-func formVertexTableName(name string) string {
-	return "vertex_" + name
+func formVertexTableName(vertexName string) string {
+	return "vertex_" + vertexName
 }
 
-func formEdgeTableName(name string) string {
-	return "edge_" + name
+func formEdgeTableName(tableName string) string {
+	return "edge_" + tableName
 }
 
-func formDirectoryTableName(name string) string {
-	return "directory_" + name
+func formDirectoryTableName(vertexTableName string) string {
+	return "directory_" + vertexTableName
 }
 
-func FormVertexIndexName(name string) string {
-	return "idx_" + formVertexTableName(name)
+func FormVertexIndexName(vertexTableName string) string {
+	return "idx_" + formVertexTableName(vertexTableName)
 }
 
-func FormEdgeIndexName(name string) string {
-	return "idx_" + formEdgeTableName(name)
+func FormEdgeIndexName(tableName string) string {
+	return "idx_" + formEdgeTableName(tableName)
 }
 
-func formDirectoryIndexName(name string) string {
-	return "idx_" + formDirectoryTableName(name)
+func getDirIndexName(vertTableID common.FileID) string {
+	return "idx_internal_dir_" + strconv.Itoa(int(vertTableID))
 }
 
-func getVertexTableInternalIndexName(vertexTableName string) string {
-	return "idx_internal_" + formVertexTableName(vertexTableName)
-}
-
-func getEdgeTableInternalIndexName(edgeTableName string) string {
-	return "idx_internal_" + formEdgeTableName(edgeTableName)
-}
-
-func getDirectoryTableInternalIndexName(vertexTableName string) string {
-	return "idx_internal_" + formDirectoryTableName(vertexTableName)
+func getTableInternalIndexName(tableID common.FileID) string {
+	return "idx_internal_" + strconv.Itoa(int(tableID))
 }
 
 func (s *StorageEngine) createTable(
@@ -77,10 +70,10 @@ func (s *StorageEngine) createTable(
 	name string,
 	schema storage.Schema,
 	logger common.ITxnLoggerWithContext,
-) error {
+) (common.FileID, error) {
 	needToRollback := true
 	if s.locker.LockCatalog(txnID, txns.GranularLockExclusive) == nil {
-		return errors.New("unable to get system catalog lock")
+		return 0, errors.New("unable to get system catalog lock")
 	}
 
 	basePath := s.catalog.GetBasePath()
@@ -92,11 +85,11 @@ func (s *StorageEngine) createTable(
 	// and it is why we do not check if the table exists in file system.
 	ok, err := s.catalog.TableExists(name)
 	if err != nil {
-		return fmt.Errorf("unable to check if table exists: %w", err)
+		return 0, fmt.Errorf("unable to check if table exists: %w", err)
 	}
 
 	if ok {
-		return fmt.Errorf("table %s already exists", name)
+		return 0, fmt.Errorf("table %s already exists", name)
 	}
 
 	fileExists := true
@@ -106,14 +99,14 @@ func (s *StorageEngine) createTable(
 		fileExists = false
 
 		if !os.IsNotExist(err) {
-			return fmt.Errorf("unable to check if file exists: %w", err)
+			return 0, fmt.Errorf("unable to check if file exists: %w", err)
 		}
 	}
 
 	if fileExists {
 		err = s.fs.Remove(tableFilePath)
 		if err != nil {
-			return fmt.Errorf("unable to remove file: %w", err)
+			return 0, fmt.Errorf("unable to remove file: %w", err)
 		}
 	}
 
@@ -121,17 +114,17 @@ func (s *StorageEngine) createTable(
 
 	err = s.fs.MkdirAll(dir, 0o755)
 	if err != nil {
-		return fmt.Errorf("unable to create directory %s: %w", dir, err)
+		return 0, fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
 	file, err := s.fs.Create(tableFilePath)
 	if err != nil {
-		return fmt.Errorf("unable to create directory: %w", err)
+		return 0, fmt.Errorf("unable to create directory: %w", err)
 	}
 
 	err = file.Sync()
 	if err != nil {
-		return fmt.Errorf("unable to sync file: %w", err)
+		return 0, fmt.Errorf("unable to sync file: %w", err)
 	}
 
 	_ = file.Close()
@@ -151,7 +144,7 @@ func (s *StorageEngine) createTable(
 
 	err = s.catalog.AddTable(tblCreateReq)
 	if err != nil {
-		return fmt.Errorf("unable to add table to catalog: %w", err)
+		return 0, fmt.Errorf("unable to add table to catalog: %w", err)
 	}
 	defer func() {
 		if needToRollback {
@@ -161,12 +154,12 @@ func (s *StorageEngine) createTable(
 
 	err = s.catalog.Save(logger)
 	if err != nil {
-		return fmt.Errorf("unable to save catalog: %w", err)
+		return 0, fmt.Errorf("unable to save catalog: %w", err)
 	}
 
 	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
 	needToRollback = false
-	return nil
+	return fileID, nil
 }
 
 func (s *StorageEngine) CreateVertexTable(
@@ -175,7 +168,7 @@ func (s *StorageEngine) CreateVertexTable(
 	schema storage.Schema,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.createTable(txnID, formVertexTableName(name), schema, logger)
+	vTableFileID, err := s.createTable(txnID, formVertexTableName(name), schema, logger)
 	if err != nil {
 		return err
 	}
@@ -183,7 +176,7 @@ func (s *StorageEngine) CreateVertexTable(
 	const vIDSize = uint32(unsafe.Sizeof(storage.VertexID{}))
 	err = s.createIndex(
 		txnID,
-		getVertexTableInternalIndexName(name),
+		getTableInternalIndexName(vTableFileID),
 		name,
 		[]string{"ID"},
 		vIDSize,
@@ -193,7 +186,7 @@ func (s *StorageEngine) CreateVertexTable(
 	if err != nil {
 		return err
 	}
-	return s.createDirectoryTable(txnID, name, logger)
+	return s.createDirectoryTable(txnID, name, vTableFileID, logger)
 }
 
 func (s *StorageEngine) CreateEdgeTable(
@@ -202,7 +195,7 @@ func (s *StorageEngine) CreateEdgeTable(
 	schema storage.Schema,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.createTable(txnID, formEdgeTableName(name), schema, logger)
+	fileID, err := s.createTable(txnID, formEdgeTableName(name), schema, logger)
 	if err != nil {
 		return err
 	}
@@ -210,7 +203,7 @@ func (s *StorageEngine) CreateEdgeTable(
 	const eIdSize = uint32(unsafe.Sizeof(storage.EdgeID{}))
 	return s.createIndex(
 		txnID,
-		getEdgeTableInternalIndexName(name),
+		getTableInternalIndexName(fileID),
 		name,
 		[]string{"ID"},
 		eIdSize,
@@ -220,12 +213,13 @@ func (s *StorageEngine) CreateEdgeTable(
 
 func (s *StorageEngine) createDirectoryTable(
 	txnID common.TxnID,
-	vertexTableName string,
+	vertTableName string,
+	vertTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.createTable(
+	_, err := s.createTable(
 		txnID,
-		formDirectoryTableName(vertexTableName),
+		formDirectoryTableName(vertTableName),
 		storage.Schema{},
 		logger,
 	)
@@ -237,8 +231,8 @@ func (s *StorageEngine) createDirectoryTable(
 	const dirIDSize = uint32(unsafe.Sizeof(storage.DirItemID{}))
 	return s.createIndex(
 		txnID,
-		getDirectoryTableInternalIndexName(vertexTableName),
-		vertexTableName,
+		getDirIndexName(vertTableFileID),
+		vertTableName,
 		[]string{"ID"},
 		dirIDSize,
 		logger,
@@ -268,21 +262,50 @@ func (s *StorageEngine) dropTable(
 	return nil
 }
 
-func (s *StorageEngine) DropVertexTable(
+func (s *StorageEngine) dropDirectoryTable(
 	txnID common.TxnID,
-	name string,
+	vertTableName string,
+	vertTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.dropTable(txnID, formVertexTableName(name), logger)
+	dirTableName := formDirectoryTableName(vertTableName)
+	err := s.dropTable(txnID, dirTableName, logger)
 	if err != nil {
 		return err
 	}
-	err = s.dropTable(txnID, formDirectoryTableName(name), logger)
+	err = s.dropIndex(txnID, getDirIndexName(vertTableFileID), logger)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *StorageEngine) DropVertexTable(
+	txnID common.TxnID,
+	vertTableName string,
+	logger common.ITxnLoggerWithContext,
+) error {
+	fullVertTableName := formVertexTableName(vertTableName)
+	err := s.dropTable(txnID, fullVertTableName, logger)
 	if err != nil {
 		return err
 	}
 
-	return s.dropIndex(txnID, getDirectoryTableInternalIndexName(name), logger)
+	vertTableMeta, err := s.catalog.GetTableMeta(fullVertTableName)
+	if err != nil {
+		return fmt.Errorf("unable to get table meta: %w", err)
+	}
+
+	err = s.dropIndex(txnID, getTableInternalIndexName(vertTableMeta.FileID), logger)
+	if err != nil {
+		return fmt.Errorf("unable to drop system index: %w", err)
+	}
+
+	err = s.dropDirectoryTable(txnID, vertTableName, vertTableMeta.FileID, logger)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *StorageEngine) DropEdgeTable(
@@ -290,12 +313,18 @@ func (s *StorageEngine) DropEdgeTable(
 	name string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.dropTable(txnID, formEdgeTableName(name), logger)
+	edgeTableName := formEdgeTableName(name)
+	err := s.dropTable(txnID, edgeTableName, logger)
 	if err != nil {
 		return err
 	}
 
-	return s.dropIndex(txnID, getEdgeTableInternalIndexName(name), logger)
+	edgeTableMeta, err := s.catalog.GetTableMeta(edgeTableName)
+	if err != nil {
+		return err
+	}
+
+	return s.dropIndex(txnID, getTableInternalIndexName(edgeTableMeta.FileID), logger)
 }
 
 func (s *StorageEngine) createIndex(
@@ -460,26 +489,26 @@ func (s *StorageEngine) getIndex(
 
 func (s *StorageEngine) GetVertexTableInternalIndex(
 	txnID common.TxnID,
-	vertexTableName string,
+	vertexTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.getIndex(txnID, getVertexTableInternalIndexName(vertexTableName), logger)
+	return s.getIndex(txnID, getTableInternalIndexName(vertexTableFileID), logger)
 }
 
 func (s *StorageEngine) GetEdgeTableInternalIndex(
 	txnID common.TxnID,
-	edgeTableName string,
+	edgeTableID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.getIndex(txnID, getEdgeTableInternalIndexName(edgeTableName), logger)
+	return s.getIndex(txnID, getTableInternalIndexName(edgeTableID), logger)
 }
 
 func (s *StorageEngine) GetDirectoryIndex(
 	txnID common.TxnID,
-	vertexTableName string,
+	vertTableID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.getIndex(txnID, formDirectoryIndexName(vertexTableName), logger)
+	return s.getIndex(txnID, getDirIndexName(vertTableID), logger)
 }
 
 func (s *StorageEngine) dropIndex(

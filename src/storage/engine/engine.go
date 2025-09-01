@@ -108,10 +108,6 @@ func New(
 	)
 
 	bpManager := bufferpool.New(poolSize, &bufferpool.LRUReplacer{}, diskMgr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bufferpool: %w", err)
-	}
-
 	sysCat, err := systemcatalog.New(catalogBasePath, fs, bpManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create systemcatalog: %w", err)

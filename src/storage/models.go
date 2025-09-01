@@ -1,5 +1,7 @@
 package storage
 
+import "github.com/Blackdeer1524/GraphDB/src/pkg/common"
+
 type ColumnType string
 
 const (
@@ -17,10 +19,10 @@ type Column struct {
 type Schema []Column
 
 type TableMeta struct {
-	Name       string `json:"name"`
-	PathToFile string `json:"path_to_file"`
-	FileID     uint64 `json:"file_id"`
-	Schema     Schema `json:"schema"`
+	Name       string        `json:"name"`
+	PathToFile string        `json:"path_to_file"`
+	FileID     common.FileID `json:"file_id"`
+	Schema     Schema        `json:"schema"`
 }
 
 func (v *TableMeta) Copy() TableMeta {
@@ -36,12 +38,12 @@ func (v *TableMeta) Copy() TableMeta {
 }
 
 type IndexMeta struct {
-	Name        string   `json:"name"`
-	PathToFile  string   `json:"path_to_file"`
-	FileID      uint64   `json:"id"`
-	TableName   string   `json:"table_name"`
-	Columns     []string `json:"columns"`
-	KeyBytesCnt uint32   `json:"key_bytes_cnt"`
+	Name        string        `json:"name"`
+	PathToFile  string        `json:"path_to_file"`
+	FileID      common.FileID `json:"id"`
+	TableName   string        `json:"table_name"`
+	Columns     []string      `json:"columns"`
+	KeyBytesCnt uint32        `json:"key_bytes_cnt"`
 }
 
 func (i *IndexMeta) Copy() IndexMeta {

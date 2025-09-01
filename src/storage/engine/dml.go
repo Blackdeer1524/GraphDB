@@ -193,8 +193,10 @@ func (s *StorageEngine) InsertVertex(
 	if err != nil {
 		return fmt.Errorf("failed to marshal vertex ID: %w", err)
 	}
-	vertexIndex.Insert(marshalledID, vertexRID)
-
+	err = vertexIndex.Insert(marshalledID, vertexRID)
+	if err != nil {
+		return fmt.Errorf("failed to insert vertex record: %w", err)
+	}
 	return err
 }
 

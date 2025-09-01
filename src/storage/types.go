@@ -200,7 +200,7 @@ type StorageEngine interface {
 	) error
 	GetVertexTableInternalIndex(
 		txnID common.TxnID,
-		vertexTableName string,
+		vertexTableID common.FileID,
 		logger common.ITxnLoggerWithContext,
 	) (Index, error)
 	DropVertexTable(txnID common.TxnID, name string, logger common.ITxnLoggerWithContext) error
@@ -213,14 +213,14 @@ type StorageEngine interface {
 	) error
 	GetEdgeTableInternalIndex(
 		txnID common.TxnID,
-		edgeTableName string,
+		edgeTableID common.FileID,
 		logger common.ITxnLoggerWithContext,
 	) (Index, error)
 	DropEdgeTable(txnID common.TxnID, name string, logger common.ITxnLoggerWithContext) error
 
 	GetDirectoryIndex(
 		txnID common.TxnID,
-		vertexTableName string,
+		vertexTableID common.FileID,
 		logger common.ITxnLoggerWithContext,
 	) (Index, error)
 
@@ -254,7 +254,7 @@ type StorageEngine interface {
 }
 
 type SystemCatalog interface {
-	GetNewFileID() uint64
+	GetNewFileID() common.FileID
 	GetBasePath() string
 
 	GetTableMeta(name string) (TableMeta, error)

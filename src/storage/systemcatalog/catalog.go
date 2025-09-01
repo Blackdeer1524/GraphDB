@@ -367,12 +367,12 @@ func (m *Manager) Save(logger common.ITxnLoggerWithContext) (err error) {
 	return err
 }
 
-func (m *Manager) GetNewFileID() uint64 {
+func (m *Manager) GetNewFileID() common.FileID {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.maxFileID++
-	return m.maxFileID
+	return common.FileID(m.maxFileID)
 }
 
 func (m *Manager) GetTableMeta(name string) (storage.TableMeta, error) {
@@ -574,14 +574,14 @@ func calcMaxFileID(data *Data) uint64 {
 	maxFileID := uint64(0)
 
 	for _, v := range data.Tables {
-		if v.FileID > maxFileID {
-			maxFileID = v.FileID
+		if uint64(v.FileID) > maxFileID {
+			maxFileID = uint64(v.FileID)
 		}
 	}
 
 	for _, v := range data.Indexes {
-		if v.FileID > maxFileID {
-			maxFileID = v.FileID
+		if uint64(v.FileID) > maxFileID {
+			maxFileID = uint64(v.FileID)
 		}
 	}
 

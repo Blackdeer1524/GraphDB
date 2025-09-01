@@ -11,22 +11,6 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 )
 
-func getVertexDirectoryID(vertexData []byte) (storage.DirItemID, error) {
-	reader := bytes.NewReader(vertexData)
-	_, err := reader.Seek(36, io.SeekCurrent) // skip vertexID
-	if err != nil {
-		return storage.DirItemID{}, fmt.Errorf("failed to seek: %w", err)
-	}
-
-	directoryID := make([]byte, 36)
-	_, err = io.ReadFull(reader, directoryID)
-	if err != nil {
-		return storage.DirItemID{}, fmt.Errorf("failed to read directory ID: %w", err)
-	}
-
-	return storage.DirItemID(directoryID), nil
-}
-
 func parseRecord(reader *bytes.Reader, schema storage.Schema) (map[string]any, error) {
 	res := make(map[string]any, len(schema))
 	for _, colInfo := range schema {

@@ -175,7 +175,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		firstTxnID := common.TxnID(1)
 		defer lockMgr.Unlock(firstTxnID)
 
-		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
+		err = se.CreateEdgeTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
@@ -195,7 +195,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		secondTxnID := common.TxnID(2)
 		defer lockMgr.Unlock(secondTxnID)
 
-		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
+		err = se.CreateEdgeTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.Error(t, err)
 	}()
 }
@@ -230,7 +230,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		firstTxnID := common.TxnID(1)
 		defer lockMgr.Unlock(firstTxnID)
 
-		err = se.CreateEdgesTable(firstTxnID, tableName, schema, common.NoLogs())
+		err = se.CreateEdgeTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
@@ -255,7 +255,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		secondTxnID := common.TxnID(2)
 		defer lockMgr.Unlock(secondTxnID)
 
-		err = se.CreateEdgesTable(secondTxnID, tableName, schema, common.NoLogs())
+		err = se.CreateEdgeTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
 		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
