@@ -166,8 +166,9 @@ func (e *Executor) GetVertexesOnDepth(
 	}()
 
 	var st storage.VertexIDWithRID
+	
 
-	index, err := e.se.GetVertexTableInternalIndex(tx, vertexTableName, logger)
+	index, err := e.se.GetVertexTableInternalIndex(tx, , logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}

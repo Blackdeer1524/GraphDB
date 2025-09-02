@@ -85,7 +85,7 @@ func randomVertexIndexNameForCreate(
 		}
 	}
 
-	return engine.FormVertexIndexName(randomString(r, 10))
+	return engine.GetVertexIndexName(randomString(r, 10))
 }
 
 func randomEdgeIndexNameForCreate(
@@ -101,7 +101,7 @@ func randomEdgeIndexNameForCreate(
 		}
 	}
 
-	return engine.FormEdgeIndexName(randomString(r, 10))
+	return engine.GetEdgeIndexName(randomString(r, 10))
 }
 
 func randomVertexIndexNameForDrop(
@@ -117,7 +117,7 @@ func randomVertexIndexNameForDrop(
 		}
 	}
 
-	return engine.FormVertexIndexName(randomString(r, 10))
+	return engine.GetVertexIndexName(randomString(r, 10))
 }
 
 func randomEdgeIndexNameForDrop(
@@ -133,5 +133,5 @@ func randomEdgeIndexNameForDrop(
 		}
 	}
 
-	return engine.FormEdgeIndexName(randomString(r, 10))
+	return engine.GetEdgeIndexName(randomString(r, 10))
 }

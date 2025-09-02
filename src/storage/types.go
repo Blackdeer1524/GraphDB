@@ -178,9 +178,7 @@ type AssociativeArray[K comparable, V any] interface {
 
 type StorageEngine interface {
 	NewQueue(common.TxnID) (Queue, error)
-	NewAggregationAssociativeArray(
-		common.TxnID,
-	) (AssociativeArray[VertexID, float64], error)
+	NewAggregationAssociativeArray(common.TxnID) (AssociativeArray[VertexID, float64], error)
 	NewBitMap(common.TxnID) (BitMap, error)
 	Neighbours(t common.TxnID, v VertexID) (NeighborIter, error)
 
@@ -255,6 +253,7 @@ type StorageEngine interface {
 
 type SystemCatalog interface {
 	GetNewFileID() common.FileID
+	GetNewFileIDPair() (common.FileID, common.FileID)
 	GetBasePath() string
 
 	GetTableMeta(name string) (TableMeta, error)

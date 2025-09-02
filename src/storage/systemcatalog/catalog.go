@@ -375,6 +375,14 @@ func (m *Manager) GetNewFileID() common.FileID {
 	return common.FileID(m.maxFileID)
 }
 
+func (m *Manager) GetNewFileIDPair() (common.FileID, common.FileID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.maxFileID += 2
+	return common.FileID(m.maxFileID - 1), common.FileID(m.maxFileID)
+}
+
 func (m *Manager) GetTableMeta(name string) (storage.TableMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {

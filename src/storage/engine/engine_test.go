@@ -114,7 +114,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, formVertexTableName(tableName))
+		tablePath := GetTableFilePath(dir, getVertexTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -139,7 +139,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, formVertexTableName(tableName))
+		tablePath := GetTableFilePath(dir, getVertexTableName(tableName))
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
@@ -178,13 +178,13 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		err = se.CreateEdgeTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
+		tablePath := GetTableFilePath(dir, getEdgeTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
 		require.False(t, info.IsDir())
 
-		tblMeta, err := se.catalog.GetTableMeta(formEdgeTableName(tableName))
+		tblMeta, err := se.catalog.GetTableMeta(getEdgeTableName(tableName))
 		require.NoError(t, err)
 		require.Equal(t, tableName, tblMeta.Name)
 
@@ -233,7 +233,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		err = se.CreateEdgeTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
+		tablePath := GetTableFilePath(dir, getEdgeTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -258,7 +258,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		err = se.CreateEdgeTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, formEdgeTableName(tableName))
+		tablePath := GetTableFilePath(dir, getEdgeTableName(tableName))
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
@@ -311,7 +311,7 @@ func TestStorageEngine_CreateIndex(t *testing.T) {
 	_, err = os.Stat(tablePath)
 	require.NoError(t, err)
 
-	_, err = se.catalog.GetIndexMeta(FormVertexIndexName(indexName))
+	_, err = se.catalog.GetIndexMeta(GetVertexIndexName(indexName))
 	require.NoError(t, err)
 }
 
