@@ -47,27 +47,51 @@ func catalogVersionPageRecordID() common.RecordID {
 }
 
 type Data struct {
-	Metadata storage.Metadata             `json:"metadata"`
-	Tables   map[string]storage.TableMeta `json:"tables"`
-	Indexes  map[string]storage.IndexMeta `json:"indexes"`
+	Metadata                storage.Metadata                   `json:"metadata"`
+	VertexTables            map[string]storage.VertexTableMeta `json:"vertex_tables"`
+	EdgeTables              map[string]storage.EdgeTableMeta   `json:"edge_tables"`
+	FileIDToVertexTableName map[common.FileID]string           `json:"file_id_to_vertex_table_name"`
+	FileIDToEdgeTableName   map[common.FileID]string           `json:"file_id_to_edge_table_name"`
+	Indexes                 map[string]storage.IndexMeta       `json:"indexes"`
 }
 
 func NewData(
 	metadata storage.Metadata,
-	tables map[string]storage.TableMeta,
+	vertexTables map[string]storage.VertexTableMeta,
+	edgeTables map[string]storage.EdgeTableMeta,
+	fileIDToVertexTableName map[common.FileID]string,
+	fileIDToEdgeTableName map[common.FileID]string,
 	indexes map[string]storage.IndexMeta,
 ) *Data {
 	return &Data{
-		Metadata: metadata,
-		Tables:   tables,
-		Indexes:  indexes,
+		Metadata:                metadata,
+		VertexTables:            vertexTables,
+		EdgeTables:              edgeTables,
+		FileIDToVertexTableName: fileIDToVertexTableName,
+		FileIDToEdgeTableName:   fileIDToEdgeTableName,
+		Indexes:                 indexes,
 	}
 }
 
 func (d *Data) Copy() Data {
-	tables := make(map[string]storage.TableMeta)
-	for k, v := range d.Tables {
-		tables[k] = v.Copy()
+	vertexTables := make(map[string]storage.VertexTableMeta)
+	for k, v := range d.VertexTables {
+		vertexTables[k] = v.Copy()
+	}
+
+	edgeTables := make(map[string]storage.EdgeTableMeta)
+	for k, v := range d.EdgeTables {
+		edgeTables[k] = v.Copy()
+	}
+
+	fileIDToVertexTableName := make(map[common.FileID]string)
+	for k, v := range d.FileIDToVertexTableName {
+		fileIDToVertexTableName[k] = v
+	}
+
+	fileIDToEdgeTableName := make(map[common.FileID]string)
+	for k, v := range d.FileIDToEdgeTableName {
+		fileIDToEdgeTableName[k] = v
 	}
 
 	indexes := make(map[string]storage.IndexMeta)
@@ -76,9 +100,12 @@ func (d *Data) Copy() Data {
 	}
 
 	return Data{
-		Metadata: d.Metadata.Copy(),
-
-		Indexes: indexes,
+		Metadata:                d.Metadata.Copy(),
+		VertexTables:            vertexTables,
+		EdgeTables:              edgeTables,
+		FileIDToVertexTableName: fileIDToVertexTableName,
+		FileIDToEdgeTableName:   fileIDToEdgeTableName,
+		Indexes:                 indexes,
 	}
 }
 
@@ -176,7 +203,14 @@ func InitSystemCatalog(basePath string, fs afero.Fs) error {
 
 	scFilename := getSystemCatalogFilename(basePath, zeroVersion)
 
-	d := NewData(storage.Metadata{}, map[string]storage.TableMeta{}, map[string]storage.IndexMeta{})
+	d := NewData(
+		storage.Metadata{},
+		map[string]storage.VertexTableMeta{},
+		map[string]storage.EdgeTableMeta{},
+		map[common.FileID]string{},
+		map[common.FileID]string{},
+		map[string]storage.IndexMeta{},
+	)
 	data, err := json.Marshal(d)
 	if err != nil {
 		return fmt.Errorf("failed to marshal to json: %w", err)
@@ -383,38 +417,73 @@ func (m *Manager) GetNewFileIDPair() (common.FileID, common.FileID) {
 	return common.FileID(m.maxFileID - 1), common.FileID(m.maxFileID)
 }
 
-func (m *Manager) GetTableMeta(name string) (storage.TableMeta, error) {
+func (m *Manager) GetVertexTableMeta(name string) (storage.VertexTableMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
-		return storage.TableMeta{}, fmt.Errorf("failed to update system catalog data: %w", err)
+		err = fmt.Errorf("failed to update system catalog data: %w", err)
+		return storage.VertexTableMeta{}, err
 	}
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	table, exists := m.data.Tables[name]
+	table, exists := m.data.VertexTables[name]
 	if !exists {
-		return storage.TableMeta{}, ErrEntityNotFound
+		return storage.VertexTableMeta{}, ErrEntityNotFound
 	}
 
 	return table, nil
 }
 
-func (m *Manager) TableExists(name string) (bool, error) {
+func (m *Manager) GetEdgeTableMeta(name string) (storage.EdgeTableMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
-		return false, fmt.Errorf("failed to update system catalog data: %w", err)
+		err = fmt.Errorf("failed to update system catalog data: %w", err)
+		return storage.EdgeTableMeta{}, err
 	}
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	_, exists := m.data.Tables[name]
+	table, exists := m.data.EdgeTables[name]
+	if !exists {
+		return storage.EdgeTableMeta{}, ErrEntityNotFound
+	}
+
+	return table, nil
+}
+
+func (m *Manager) VertexTableExists(name string) (bool, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		err = fmt.Errorf("failed to update system catalog data: %w", err)
+		return false, err
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.VertexTables[name]
 
 	return exists, nil
 }
 
-func (m *Manager) AddTable(req storage.TableMeta) error {
+func (m *Manager) EdgeTableExists(name string) (bool, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		err = fmt.Errorf("failed to update system catalog data: %w", err)
+		return false, err
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.EdgeTables[name]
+
+	return exists, nil
+}
+
+func (m *Manager) AddVertexTable(req storage.VertexTableMeta) error {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return fmt.Errorf("failed to update system catalog data: %w", err)
@@ -423,12 +492,31 @@ func (m *Manager) AddTable(req storage.TableMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, exists := m.data.Tables[req.Name]
+	_, exists := m.data.VertexTables[req.Name]
 	if exists {
 		return ErrEntityExists
 	}
 
-	m.data.Tables[req.Name] = req
+	m.data.VertexTables[req.Name] = req
+
+	return nil
+}
+
+func (m *Manager) AddEdgeTable(req storage.EdgeTableMeta) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, exists := m.data.EdgeTables[req.Name]
+	if exists {
+		return ErrEntityExists
+	}
+
+	m.data.EdgeTables[req.Name] = req
 
 	return nil
 }
@@ -469,7 +557,7 @@ func (m *Manager) GetIndexes(name string) ([]storage.IndexMeta, error) {
 	indexes := make([]storage.IndexMeta, 0)
 
 	for _, index := range m.data.Indexes {
-		if index.TableName == name {
+		if index.FullTableName == name {
 			indexes = append(indexes, index)
 		}
 	}
@@ -521,9 +609,9 @@ func (m *Manager) AddIndex(index storage.IndexMeta) error {
 		return ErrEntityExists
 	}
 
-	_, ok := m.data.Tables[index.TableName]
+	_, ok := m.data.Tables[index.FullTableName]
 	if !ok {
-		return fmt.Errorf("table %s not found", index.TableName)
+		return fmt.Errorf("table %s not found", index.FullTableName)
 	}
 
 	m.data.Indexes[index.Name] = index

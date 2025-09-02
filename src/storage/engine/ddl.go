@@ -6,7 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"unsafe"
+
+	"github.com/spf13/afero"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
@@ -61,34 +62,10 @@ func getTableInternalIndexName(tableID common.FileID) string {
 	return "idx_internal_" + strconv.Itoa(int(tableID))
 }
 
-func (s *StorageEngine) createTable(
-	txnID common.TxnID,
-	fullTableName string,
-	tableFileID common.FileID,
-	schema storage.Schema,
-	_ *txns.CatalogLockToken,
-	logger common.ITxnLoggerWithContext,
-) error {
-	needToRollback := true
-
-	basePath := s.catalog.GetBasePath()
-	tableFilePath := GetTableFilePath(basePath, fullTableName)
-
-	// Existence of the file is not the proof of existence of the table
-	// (we don't remove file on drop),
-	// and it is why we do not check if the table exists in file system.
-	ok, err := s.catalog.TableExists(fullTableName)
-	if err != nil {
-		return fmt.Errorf("unable to check if table exists: %w", err)
-	}
-
-	if ok {
-		return fmt.Errorf("table %s already exists", fullTableName)
-	}
-
+func prepareFSforTable(fs afero.Fs, tableFilePath string) error {
 	fileExists := true
 
-	_, err = s.fs.Stat(tableFilePath)
+	_, err := fs.Stat(tableFilePath)
 	if err != nil {
 		fileExists = false
 
@@ -98,7 +75,7 @@ func (s *StorageEngine) createTable(
 	}
 
 	if fileExists {
-		err = s.fs.Remove(tableFilePath)
+		err = fs.Remove(tableFilePath)
 		if err != nil {
 			return fmt.Errorf("unable to remove file: %w", err)
 		}
@@ -106,12 +83,12 @@ func (s *StorageEngine) createTable(
 
 	dir := filepath.Dir(tableFilePath)
 
-	err = s.fs.MkdirAll(dir, 0o755)
+	err = fs.MkdirAll(dir, 0o755)
 	if err != nil {
 		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
-	file, err := s.fs.Create(tableFilePath)
+	file, err := fs.Create(tableFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to create directory: %w", err)
 	}
@@ -122,6 +99,38 @@ func (s *StorageEngine) createTable(
 	}
 
 	_ = file.Close()
+	return nil
+}
+
+func (s *StorageEngine) CreateVertexTable(
+	txnID common.TxnID,
+	tableName string,
+	schema storage.Schema,
+	cToken *txns.CatalogLockToken,
+	logger common.ITxnLoggerWithContext,
+) error {
+	needToRollback := true
+
+	basePath := s.catalog.GetBasePath()
+	tableFilePath := GetTableFilePath(basePath, tableName)
+	tableFileID := s.catalog.GetNewFileID()
+
+	// Existence of the file is not the proof of existence of the table
+	// (we don't remove file on drop),
+	// and it is why we do not check if the table exists in file system.
+	ok, err := s.catalog.VertexTableExists(tableName)
+	if err != nil {
+		return fmt.Errorf("unable to check if table exists: %w", err)
+	}
+	if ok {
+		return fmt.Errorf("table %s already exists", tableName)
+	}
+
+	err = prepareFSforTable(s.fs, tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to prepare file system for table: %w", err)
+	}
+
 	defer func() {
 		if needToRollback {
 			_ = s.fs.Remove(tableFilePath)
@@ -129,20 +138,88 @@ func (s *StorageEngine) createTable(
 	}()
 
 	// update info in metadata
-	tblCreateReq := storage.TableMeta{
-		Name:       fullTableName,
+	tblCreateReq := storage.VertexTableMeta{
+		Name:       tableName,
 		PathToFile: tableFilePath,
 		FileID:     tableFileID,
 		Schema:     schema,
 	}
 
-	err = s.catalog.AddTable(tblCreateReq)
+	err = s.catalog.AddVertexTable(tblCreateReq)
 	if err != nil {
 		return fmt.Errorf("unable to add table to catalog: %w", err)
 	}
 	defer func() {
 		if needToRollback {
-			_ = s.catalog.DropTable(fullTableName)
+			_ = s.catalog.DropVertexTable(tableName)
+		}
+	}()
+
+	err = s.catalog.Save(logger)
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+
+	s.diskMgr.InsertToFileMap(common.FileID(tableFileID), tableFilePath)
+
+	err = s.createDirectoryTable(txnID, tableName, tableFileID, cToken, logger)
+	if err != nil {
+		return fmt.Errorf("unable to create directory table: %w", err)
+	}
+
+	needToRollback = false
+	return nil
+}
+
+func (s *StorageEngine) createDirectoryTable(
+	txnID common.TxnID,
+	vertexTableName string,
+	vertexTableFileID common.FileID,
+	_ *txns.CatalogLockToken,
+	logger common.ITxnLoggerWithContext,
+) error {
+	needToRollback := true
+
+	basePath := s.catalog.GetBasePath()
+	tableFilePath := GetTableFilePath(basePath, vertexTableName)
+	tableFileID := s.catalog.GetNewFileID()
+
+	// Existence of the file is not the proof of existence of the table
+	// (we don't remove file on drop),
+	// and it is why we do not check if the table exists in file system.
+	ok, err := s.catalog.DirectoryTableExists(vertexTableName)
+	if err != nil {
+		return fmt.Errorf("unable to check if table exists: %w", err)
+	}
+	if ok {
+		return fmt.Errorf("table %s already exists", vertexTableName)
+	}
+
+	err = prepareFSforTable(s.fs, tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to prepare file system for table: %w", err)
+	}
+
+	defer func() {
+		if needToRollback {
+			_ = s.fs.Remove(tableFilePath)
+		}
+	}()
+
+	// update info in metadata
+	tblCreateReq := storage.DirectoryTableMeta{
+		PathToFile:        tableFilePath,
+		FileID:            tableFileID,
+		VertexTableFileID: vertexTableFileID,
+	}
+
+	err = s.catalog.AddDirectoryTable(tblCreateReq)
+	if err != nil {
+		return fmt.Errorf("unable to add table to catalog: %w", err)
+	}
+	defer func() {
+		if needToRollback {
+			_ = s.catalog.DropDirectoryTable(vertexTableName)
 		}
 	}()
 
@@ -156,124 +233,69 @@ func (s *StorageEngine) createTable(
 	return nil
 }
 
-func (s *StorageEngine) CreateVertexTable(
-	txnID common.TxnID,
-	tableName string,
-	schema storage.Schema,
-	logger common.ITxnLoggerWithContext,
-) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
-		return errors.New("unable to get system catalog X-lock")
-	}
-	defer s.locker.Unlock(txnID)
-
-	vertexTableName := getVertexTableName(tableName)
-	vTableFileID, dirTableFileID := s.catalog.GetNewFileIDPair()
-	err := s.createTable(
-		txnID,
-		vertexTableName,
-		vTableFileID,
-		schema,
-		cToken,
-		logger,
-	)
-	if err != nil {
-		return err
-	}
-
-	const vIDSize = uint32(unsafe.Sizeof(storage.VertexID{}))
-	err = s.createIndex(
-		txnID,
-		getTableInternalIndexName(vTableFileID),
-		vertexTableName,
-		[]string{"ID"},
-		vIDSize,
-		cToken,
-		logger,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create vertex table index: %w", err)
-	}
-
-	dirTableName := getDirectoryTableName(tableName)
-	err = s.createTable(
-		txnID,
-		dirTableName,
-		dirTableFileID,
-		storage.Schema{},
-		cToken,
-		logger,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create directory table: %w", err)
-	}
-
-	const dirIDSize = uint32(unsafe.Sizeof(storage.DirItemID{}))
-	return s.createIndex(
-		txnID,
-		getTableInternalIndexName(dirTableFileID),
-		dirTableName,
-		[]string{"ID"},
-		dirIDSize,
-		cToken,
-		logger,
-	)
-}
-
 func (s *StorageEngine) CreateEdgeTable(
 	txnID common.TxnID,
 	tableName string,
 	schema storage.Schema,
+	srcVertexTableFileID common.FileID,
+	dstVertexTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
-		return errors.New("unable to get system catalog X-lock")
-	}
+	needToRollback := true
 
-	edgeTableName := getEdgeTableName(tableName)
-	edgeTableFileID := s.catalog.GetNewFileID()
-	err := s.createTable(
-		txnID,
-		edgeTableName,
-		edgeTableFileID,
-		schema,
-		cToken,
-		logger,
-	)
+	basePath := s.catalog.GetBasePath()
+	tableFilePath := GetTableFilePath(basePath, tableName)
+	tableFileID := s.catalog.GetNewFileID()
+
+	// Existence of the file is not the proof of existence of the table
+	// (we don't remove file on drop),
+	// and it is why we do not check if the table exists in file system.
+	ok, err := s.catalog.EdgeTableExists(tableName)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to check if table exists: %w", err)
+	}
+	if ok {
+		return fmt.Errorf("table %s already exists", tableName)
 	}
 
-	const eIdSize = uint32(unsafe.Sizeof(storage.EdgeID{}))
-	return s.createIndex(
-		txnID,
-		getTableInternalIndexName(edgeTableFileID),
-		edgeTableName,
-		[]string{"ID"},
-		eIdSize,
-		cToken,
-		logger,
-	)
-}
-
-func (s *StorageEngine) dropTable(
-	txnID common.TxnID,
-	name string,
-	_ *txns.CatalogLockToken,
-	logger common.ITxnLoggerWithContext,
-) error {
-	// do not delete file, just remove from catalog
-	err := s.catalog.DropTable(name)
+	err = prepareFSforTable(s.fs, tableFilePath)
 	if err != nil {
-		return fmt.Errorf("unable to drop vertex table: %w", err)
+		return fmt.Errorf("unable to prepare file system for table: %w", err)
 	}
+
+	defer func() {
+		if needToRollback {
+			_ = s.fs.Remove(tableFilePath)
+		}
+	}()
+
+	// update info in metadata
+	tblCreateReq := storage.EdgeTableMeta{
+		PathToFile:      tableFilePath,
+		FileID:          tableFileID,
+		Schema:          schema,
+		Name:            tableName,
+		SrcVertexFileID: srcVertexTableFileID,
+		DstVertexFileID: dstVertexTableFileID,
+	}
+
+	err = s.catalog.AddEdgeTable(tblCreateReq)
+	if err != nil {
+		return fmt.Errorf("unable to add table to catalog: %w", err)
+	}
+	defer func() {
+		if needToRollback {
+			_ = s.catalog.DropEdgeTable(tableName)
+		}
+	}()
 
 	err = s.catalog.Save(logger)
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
+
+	s.diskMgr.InsertToFileMap(common.FileID(tableFileID), tableFilePath)
+	needToRollback = false
 	return nil
 }
 
@@ -282,15 +304,13 @@ func (s *StorageEngine) DropVertexTable(
 	vertTableName string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	fullVertTableName := getVertexTableName(vertTableName)
-
 	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
 	if cToken == nil {
 		return errors.New("unable to get system catalog X-lock")
 	}
 	defer s.locker.Unlock(txnID)
 
-	err := s.dropTable(txnID, fullVertTableName, cToken, logger)
+	err := s.catalog.DropVertexTable(vertTableName)
 	if err != nil {
 		return err
 	}
@@ -410,12 +430,12 @@ func (s *StorageEngine) createIndex(
 	// update info in metadata
 
 	idxCreateReq := storage.IndexMeta{
-		Name:        name,
-		PathToFile:  tableFilePath,
-		FileID:      fileID,
-		TableName:   tableName,
-		Columns:     columns,
-		KeyBytesCnt: keyBytesCnt,
+		Name:          name,
+		PathToFile:    tableFilePath,
+		FileID:        fileID,
+		FullTableName: tableName,
+		Columns:       columns,
+		KeyBytesCnt:   keyBytesCnt,
 	}
 
 	err = s.catalog.AddIndex(idxCreateReq)

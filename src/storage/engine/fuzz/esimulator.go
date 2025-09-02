@@ -47,7 +47,7 @@ func (m *engineSimulator) apply(op Operation, res OpResult) {
 		delete(m.VertexTables, op.Name)
 		indexesToDelete := make([]string, 0)
 		for idx, meta := range m.VertexIndexes {
-			if meta.TableName == op.Name {
+			if meta.FullTableName == op.Name {
 				indexesToDelete = append(indexesToDelete, idx)
 			}
 		}
@@ -62,7 +62,7 @@ func (m *engineSimulator) apply(op Operation, res OpResult) {
 		delete(m.EdgeTables, op.Name)
 		indexesToDelete := make([]string, 0)
 		for idx, meta := range m.EdgeIndexes {
-			if meta.TableName == op.Name {
+			if meta.FullTableName == op.Name {
 				indexesToDelete = append(indexesToDelete, idx)
 			}
 		}
@@ -71,7 +71,7 @@ func (m *engineSimulator) apply(op Operation, res OpResult) {
 		}
 	case OpCreateVertexIndex:
 		m.VertexIndexes[op.Name] = storage.IndexMeta{
-			TableName: op.Table,
+			FullTableName: op.Table,
 			Columns:   append([]string(nil), op.Columns...),
 		}
 	case OpDropVertexIndex:

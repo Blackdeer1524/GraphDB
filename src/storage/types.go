@@ -87,7 +87,7 @@ func (v *VertexIDWithRID) UnmarshalBinary(data []byte) error {
 var ErrQueueEmpty = errors.New("queue is empty")
 
 type NeighborIter interface {
-	Seq() iter.Seq[*VertexIDWithRID]
+	Seq() iter.Seq[VertexIDWithRID]
 	Close() error
 }
 
@@ -151,18 +151,17 @@ func (tq *TypedQueue[T]) Close() error {
 var ErrNoVertexesInGraph = errors.New("no vertexes")
 
 type Vertex struct {
-	ID   VertexID
+	VertexInternalFields
 	Data map[string]any
 }
 
 type VerticesIter interface {
-	Seq() iter.Seq[*Vertex]
+	Seq() iter.Seq[Vertex]
 	Close() error
 }
 
 type Edge struct {
-	Src  VertexID
-	Dst  VertexID
+	EdgeInternalFields
 	Data map[string]any
 }
 
@@ -180,12 +179,17 @@ type StorageEngine interface {
 	NewQueue(common.TxnID) (Queue, error)
 	NewAggregationAssociativeArray(common.TxnID) (AssociativeArray[VertexID, float64], error)
 	NewBitMap(common.TxnID) (BitMap, error)
-	Neighbours(t common.TxnID, v VertexID) (NeighborIter, error)
+	Neighbours(t common.TxnID, v VertexID, vertTableID common.FileID) (NeighborIter, error)
 
 	AllVerticesWithValue(t common.TxnID, field string, value []byte) (VerticesIter, error)
 	CountOfFilteredEdges(t common.TxnID, v VertexID, f EdgeFilter) (uint64, error)
-	GetAllVertices(t common.TxnID) (VerticesIter, error)
-	GetNeighborsWithEdgeFilter(t common.TxnID, v VertexID, filter EdgeFilter) (VerticesIter, error)
+	GetAllVertices(t common.TxnID, vertTableID common.FileID) (VerticesIter, error)
+	GetNeighborsWithEdgeFilter(
+		t common.TxnID,
+		vertTableID common.FileID,
+		v VertexID,
+		filter EdgeFilter,
+	) (VerticesIter, error)
 
 	GetVertexRID(txnID common.TxnID, vertexID VertexID, vertexIndex Index) (VertexIDWithRID, error)
 	GetEdgeRID(txnID common.TxnID, edgeID EdgeID, edgeIndex Index) (EdgeIDWithRID, error)
@@ -253,18 +257,29 @@ type StorageEngine interface {
 
 type SystemCatalog interface {
 	GetNewFileID() common.FileID
-	GetNewFileIDPair() (common.FileID, common.FileID)
 	GetBasePath() string
 
-	GetTableMeta(name string) (TableMeta, error)
-	TableExists(name string) (bool, error)
-	AddTable(req TableMeta) error
-	DropTable(name string) error
+	GetVertexTableMeta(name string) (VertexTableMeta, error)
+	VertexTableExists(name string) (bool, error)
+	AddVertexTable(req VertexTableMeta) error
+	DropVertexTable(name string) error
+	GetVertexTableNameByFileID(fileID common.FileID) (string, error)
 
-	GetIndexMeta(name string) (IndexMeta, error)
-	IndexExists(name string) (bool, error)
+	GetEdgeTableMeta(name string) (EdgeTableMeta, error)
+	EdgeTableExists(name string) (bool, error)
+	AddEdgeTable(req EdgeTableMeta) error
+	DropEdgeTable(name string) error
+	GetEdgeTableNameByFileID(fileID common.FileID) (string, error)
+
+	GetDirectoryTableMeta(fullName string) (DirectoryTableMeta, error)
+	DirectoryTableExists(fullName string) (bool, error)
+	AddDirectoryTable(req DirectoryTableMeta) error
+	DropDirectoryTable(fullName string) error
+
+	GetIndexMeta(fullName string) (IndexMeta, error)
+	IndexExists(fullName string) (bool, error)
 	AddIndex(req IndexMeta) error
-	DropIndex(name string) error
+	DropIndex(fullName string) error
 
 	Save(logger common.ITxnLoggerWithContext) error
 	CurrentVersion() uint64

@@ -109,17 +109,17 @@ func (s *StorageEngine) SelectVertex(
 	vertexID storage.VertexID,
 	vertexIndex storage.Index,
 	schema storage.Schema,
-) (VertexInternalFields, map[string]any, error) {
+) (storage.VertexInternalFields, map[string]any, error) {
 	data, err := s.getSerializedVertex(txnID, vertexID, vertexIndex)
 	if err != nil {
 		err = fmt.Errorf("failed to get serialized vertex: %w", err)
-		return VertexInternalFields{}, nil, err
+		return storage.VertexInternalFields{}, nil, err
 	}
 
 	vertexInternalFields, record, err := parseVertexRecord(data, schema)
 	if err != nil {
 		err = fmt.Errorf("failed to parse vertex record: %w", err)
-		return VertexInternalFields{}, nil, err
+		return storage.VertexInternalFields{}, nil, err
 	}
 
 	return vertexInternalFields, record, nil
@@ -154,7 +154,7 @@ func (s *StorageEngine) InsertVertex(
 	}
 	defer s.pool.Unpin(pageIdent)
 
-	internalFields := NewVertexInternalFields(
+	internalFields := storage.NewVertexInternalFields(
 		storage.VertexID(uuid.New()),
 		storage.NilDirItemID,
 	)
@@ -369,10 +369,10 @@ func (s *StorageEngine) SelectEdge(
 	edgeFileToken *txns.FileLockToken,
 	edgeSystemIndex storage.Index,
 	schema storage.Schema,
-) (EdgeInternalFields, map[string]any, error) {
+) (storage.EdgeInternalFields, map[string]any, error) {
 	edgeRID, err := s.GetEdgeRID(txnID, edgeID, edgeSystemIndex)
 	if err != nil {
-		return EdgeInternalFields{}, nil, fmt.Errorf("failed to get edge RID: %w", err)
+		return storage.EdgeInternalFields{}, nil, fmt.Errorf("failed to get edge RID: %w", err)
 	}
 
 	pToken := s.locker.LockPage(
@@ -382,13 +382,13 @@ func (s *StorageEngine) SelectEdge(
 	)
 	if pToken == nil {
 		err = fmt.Errorf("failed to lock page: %v", edgeRID.R.PageIdentity())
-		return EdgeInternalFields{}, nil, err
+		return storage.EdgeInternalFields{}, nil, err
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
 	pg, err := s.pool.GetPageNoCreate(pageIdent)
 	if err != nil {
-		return EdgeInternalFields{}, nil, fmt.Errorf("failed to get page: %w", err)
+		return storage.EdgeInternalFields{}, nil, fmt.Errorf("failed to get page: %w", err)
 	}
 	defer s.pool.Unpin(pageIdent)
 
@@ -416,7 +416,7 @@ func (s *StorageEngine) insertEdgeHelper(
 		return storage.NilEdgeID, fmt.Errorf("failed to lock page: %w", err)
 	}
 
-	edgeInternalFields := NewEdgeInternalFields(
+	edgeInternalFields := storage.NewEdgeInternalFields(
 		storage.EdgeID(uuid.New()),
 		dirItemID,
 		srcVertexID,
@@ -510,7 +510,7 @@ func (s *StorageEngine) insertEdgeWithDirItem(
 		return storage.NilEdgeID, storage.NilDirItemID, err
 	}
 
-	dirItemGraphFields := NewDirectoryItemGraphFields(
+	dirItemGraphFields := storage.NewDirectoryItemGraphFields(
 		srcVertexID,
 		edgesFileToken.GetFileID(),
 		newEdgeID,
@@ -722,21 +722,21 @@ func (s *StorageEngine) selectDirectoryItem(
 	dirItemID storage.DirItemID,
 	dirToken *txns.FileLockToken,
 	dirSystemIndex storage.Index,
-) (DirectoryItem, error) {
+) (storage.DirectoryItem, error) {
 	dirRID, err := s.GetDirectoryRID(txnID, dirItemID, dirSystemIndex)
 	if err != nil {
-		return DirectoryItem{}, fmt.Errorf("failed to get directory RID: %w", err)
+		return storage.DirectoryItem{}, fmt.Errorf("failed to get directory RID: %w", err)
 	}
 
 	pageIdent := dirRID.R.PageIdentity()
 	pToken := s.locker.LockPage(dirToken, pageIdent.PageID, txns.PageLockShared)
 	if pToken == nil {
-		return DirectoryItem{}, fmt.Errorf("failed to lock page: %v", pageIdent)
+		return storage.DirectoryItem{}, fmt.Errorf("failed to lock page: %v", pageIdent)
 	}
 
 	pg, err := s.pool.GetPageNoCreate(pageIdent)
 	if err != nil {
-		return DirectoryItem{}, fmt.Errorf("failed to get page: %w", err)
+		return storage.DirectoryItem{}, fmt.Errorf("failed to get page: %w", err)
 	}
 	defer s.pool.Unpin(pageIdent)
 	data := pg.LockedRead(dirRID.R.SlotNum)
@@ -746,7 +746,7 @@ func (s *StorageEngine) selectDirectoryItem(
 func (s *StorageEngine) insertDirectoryItem(
 	txnID common.TxnID,
 
-	dirItemGraphFields DirectoryItemGraphFields,
+	dirItemGraphFields storage.DirectoryItemGraphFields,
 	prevDirItemID storage.DirItemID,
 	nextDirItemID storage.DirItemID,
 
@@ -755,12 +755,12 @@ func (s *StorageEngine) insertDirectoryItem(
 
 	ctxLogger common.ITxnLoggerWithContext,
 ) (storage.DirItemID, error) {
-	dirItemInternalFields := NewDirectoryItemInternalFields(
+	dirItemInternalFields := storage.NewDirectoryItemInternalFields(
 		storage.DirItemID(uuid.New()),
 		nextDirItemID,
 		prevDirItemID,
 	)
-	dirItem := DirectoryItem{
+	dirItem := storage.DirectoryItem{
 		dirItemInternalFields,
 		dirItemGraphFields,
 	}
@@ -928,7 +928,7 @@ func (s *StorageEngine) updateDirectoryItemNextID(
 func (s *StorageEngine) updateDirectoryItem(
 	txnID common.TxnID,
 	dirItemID storage.DirItemID,
-	dirItem DirectoryItem,
+	dirItem storage.DirectoryItem,
 	dirToken *txns.FileLockToken,
 	dirSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
