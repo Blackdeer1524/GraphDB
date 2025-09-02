@@ -147,7 +147,7 @@ func parseEdgeRecordHeader(data []byte) (storage.EdgeInternalFields, []byte, err
 	return edgeInternalFields, tail, nil
 }
 
-func parseDirectoryRecord(data []byte) (DirectoryItem, error) {
+func parseDirectoryRecord(data []byte) (storage.DirectoryItem, error) {
 	reader := bytes.NewReader(data)
 	directoryInternalFields := storage.DirectoryItem{}
 	err := binary.Read(reader, binary.BigEndian, &directoryInternalFields)
@@ -313,7 +313,7 @@ func serializeEdgeRecordHeader(
 }
 
 func serializeDirectoryRecord(
-	dirItem DirectoryItem,
+	dirItem storage.DirectoryItem,
 ) ([]byte, error) {
 	buf := bytes.Buffer{}
 	err := binary.Write(&buf, binary.BigEndian, dirItem)

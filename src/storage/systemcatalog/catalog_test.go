@@ -36,7 +36,7 @@ func Test_GetFileIDToPathMap(t *testing.T) {
 	sCat := &Manager{
 		mu: new(sync.RWMutex),
 		data: &Data{
-			Tables: map[string]storage.TableMeta{
+			VertexTables: map[string]storage.VertexTableMeta{
 				"test1": {
 					FileID: 1,
 				},

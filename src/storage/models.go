@@ -61,6 +61,7 @@ func (v *EdgeTableMeta) Copy() EdgeTableMeta {
 }
 
 type DirectoryTableMeta struct {
+	Name              string        `json:"name"`
 	FileID            common.FileID `json:"file_id"`
 	PathToFile        string        `json:"path_to_file"`
 	VertexTableFileID common.FileID `json:"vertex_table_file_id"`
@@ -68,6 +69,7 @@ type DirectoryTableMeta struct {
 
 func (d *DirectoryTableMeta) Copy() DirectoryTableMeta {
 	return DirectoryTableMeta{
+		Name:              d.Name,
 		FileID:            d.FileID,
 		PathToFile:        d.PathToFile,
 		VertexTableFileID: d.VertexTableFileID,

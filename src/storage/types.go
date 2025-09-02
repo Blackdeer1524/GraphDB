@@ -271,15 +271,24 @@ type SystemCatalog interface {
 	DropEdgeTable(name string) error
 	GetEdgeTableNameByFileID(fileID common.FileID) (string, error)
 
-	GetDirectoryTableMeta(fullName string) (DirectoryTableMeta, error)
-	DirectoryTableExists(fullName string) (bool, error)
+	GetDirectoryTableMeta(name string) (DirectoryTableMeta, error)
+	DirectoryTableExists(name string) (bool, error)
 	AddDirectoryTable(req DirectoryTableMeta) error
-	DropDirectoryTable(fullName string) error
+	DropDirectoryTable(name string) error
 
-	GetIndexMeta(fullName string) (IndexMeta, error)
-	IndexExists(fullName string) (bool, error)
-	AddIndex(req IndexMeta) error
-	DropIndex(fullName string) error
+	AddVertexIndex(req IndexMeta) error
+	DropVertexIndex(name string) error
+	GetVertexIndexMeta(name string) (IndexMeta, error)
+	VertexIndexExists(name string) (bool, error)
+
+	AddEdgeIndex(req IndexMeta) error
+	DropEdgeIndex(name string) error
+	EdgeIndexExists(name string) (bool, error)
+	GetEdgeIndexMeta(name string) (IndexMeta, error)
+
+	AddDirectoryIndex(req IndexMeta) error
+	DirectoryIndexExists(name string) (bool, error)
+	DropDirectoryIndex(name string) error
 
 	Save(logger common.ITxnLoggerWithContext) error
 	CurrentVersion() uint64

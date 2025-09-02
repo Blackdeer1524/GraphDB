@@ -15,11 +15,15 @@ import (
 )
 
 func GetVertexTableFilePath(basePath, vertTableName string) string {
-	return GetTableFilePath(basePath, getVertexTableName(vertTableName))
+	return GetTableFilePath(basePath, "vertex", vertTableName)
 }
 
 func GetEdgeTableFilePath(basePath, edgeTableName string) string {
-	return GetTableFilePath(basePath, getEdgeTableName(edgeTableName))
+	return GetTableFilePath(basePath, "edge", edgeTableName)
+}
+
+func GetDirectoryTableFilePath(basePath, directoryTableName string) string {
+	return GetTableFilePath(basePath, "directory", directoryTableName)
 }
 
 func GetVertexIndexFilePath(basePath, indexName string) string {
@@ -30,8 +34,8 @@ func GetEdgeIndexFilePath(basePath, indexName string) string {
 	return getIndexFilePath(basePath, GetEdgeIndexName(indexName))
 }
 
-func GetTableFilePath(basePath, prefixedName string) string {
-	return filepath.Join(basePath, "tables", prefixedName+".tbl")
+func GetTableFilePath(basePath, tableType string, prefixedName string) string {
+	return filepath.Join(basePath, "tables", tableType, prefixedName+".tbl")
 }
 
 func getIndexFilePath(basePath, prefixedName string) string {
@@ -112,7 +116,7 @@ func (s *StorageEngine) CreateVertexTable(
 	needToRollback := true
 
 	basePath := s.catalog.GetBasePath()
-	tableFilePath := GetTableFilePath(basePath, tableName)
+	tableFilePath := GetVertexTableFilePath(basePath, tableName)
 	tableFileID := s.catalog.GetNewFileID()
 
 	// Existence of the file is not the proof of existence of the table
@@ -181,7 +185,7 @@ func (s *StorageEngine) createDirectoryTable(
 	needToRollback := true
 
 	basePath := s.catalog.GetBasePath()
-	tableFilePath := GetTableFilePath(basePath, vertexTableName)
+	tableFilePath := GetDirectoryTableFilePath(basePath, vertexTableName)
 	tableFileID := s.catalog.GetNewFileID()
 
 	// Existence of the file is not the proof of existence of the table
@@ -244,7 +248,7 @@ func (s *StorageEngine) CreateEdgeTable(
 	needToRollback := true
 
 	basePath := s.catalog.GetBasePath()
-	tableFilePath := GetTableFilePath(basePath, tableName)
+	tableFilePath := GetEdgeTableFilePath(basePath, tableName)
 	tableFileID := s.catalog.GetNewFileID()
 
 	// Existence of the file is not the proof of existence of the table
@@ -315,7 +319,7 @@ func (s *StorageEngine) DropVertexTable(
 		return err
 	}
 
-	vertTableMeta, err := s.catalog.GetTableMeta(fullVertTableName)
+	vertTableMeta, err := s.catalog.GetVertexTableMeta(vertTableName)
 	if err != nil {
 		return fmt.Errorf("unable to get table meta: %w", err)
 	}
@@ -325,8 +329,7 @@ func (s *StorageEngine) DropVertexTable(
 		return fmt.Errorf("unable to drop system index: %w", err)
 	}
 
-	dirTableName := getDirectoryTableName(vertTableName)
-	err = s.dropTable(txnID, dirTableName, cToken, logger)
+	err = s.catalog.DropDirectoryTable(vertTableName)
 	if err != nil {
 		return err
 	}
@@ -343,20 +346,18 @@ func (s *StorageEngine) DropEdgeTable(
 	name string,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	edgeTableName := getEdgeTableName(name)
-
 	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
 	if cToken == nil {
 		return errors.New("unable to get system catalog X-lock")
 	}
 	defer s.locker.Unlock(txnID)
 
-	err := s.dropTable(txnID, edgeTableName, cToken, logger)
+	err := s.catalog.DropEdgeTable(name)
 	if err != nil {
 		return err
 	}
 
-	edgeTableMeta, err := s.catalog.GetTableMeta(edgeTableName)
+	edgeTableMeta, err := s.catalog.GetEdgeTableMeta(name)
 	if err != nil {
 		return err
 	}

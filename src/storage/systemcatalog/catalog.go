@@ -47,12 +47,15 @@ func catalogVersionPageRecordID() common.RecordID {
 }
 
 type Data struct {
-	Metadata                storage.Metadata                   `json:"metadata"`
-	VertexTables            map[string]storage.VertexTableMeta `json:"vertex_tables"`
-	EdgeTables              map[string]storage.EdgeTableMeta   `json:"edge_tables"`
-	FileIDToVertexTableName map[common.FileID]string           `json:"file_id_to_vertex_table_name"`
-	FileIDToEdgeTableName   map[common.FileID]string           `json:"file_id_to_edge_table_name"`
-	Indexes                 map[string]storage.IndexMeta       `json:"indexes"`
+	Metadata                storage.Metadata                      `json:"metadata"`
+	VertexTables            map[string]storage.VertexTableMeta    `json:"vertex_tables"`
+	DirectoryTables         map[string]storage.DirectoryTableMeta `json:"directory_tables"`
+	EdgeTables              map[string]storage.EdgeTableMeta      `json:"edge_tables"`
+	FileIDToVertexTableName map[common.FileID]string              `json:"file_id_to_vertex_table_name"`
+	FileIDToEdgeTableName   map[common.FileID]string              `json:"file_id_to_edge_table_name"`
+	VertexIndexes           map[string]storage.IndexMeta          `json:"vertex_indexes"`
+	EdgeIndexes             map[string]storage.IndexMeta          `json:"edge_indexes"`
+	DirectoryIndexes        map[string]storage.IndexMeta          `json:"directory_indexes"`
 }
 
 func NewData(
@@ -61,7 +64,9 @@ func NewData(
 	edgeTables map[string]storage.EdgeTableMeta,
 	fileIDToVertexTableName map[common.FileID]string,
 	fileIDToEdgeTableName map[common.FileID]string,
-	indexes map[string]storage.IndexMeta,
+	vertexIndexes map[string]storage.IndexMeta,
+	edgeIndexes map[string]storage.IndexMeta,
+	directoryIndexes map[string]storage.IndexMeta,
 ) *Data {
 	return &Data{
 		Metadata:                metadata,
@@ -69,7 +74,9 @@ func NewData(
 		EdgeTables:              edgeTables,
 		FileIDToVertexTableName: fileIDToVertexTableName,
 		FileIDToEdgeTableName:   fileIDToEdgeTableName,
-		Indexes:                 indexes,
+		VertexIndexes:           vertexIndexes,
+		EdgeIndexes:             edgeIndexes,
+		DirectoryIndexes:        directoryIndexes,
 	}
 }
 
@@ -84,6 +91,11 @@ func (d *Data) Copy() Data {
 		edgeTables[k] = v.Copy()
 	}
 
+	directoryTables := make(map[string]storage.DirectoryTableMeta)
+	for k, v := range d.DirectoryTables {
+		directoryTables[k] = v.Copy()
+	}
+
 	fileIDToVertexTableName := make(map[common.FileID]string)
 	for k, v := range d.FileIDToVertexTableName {
 		fileIDToVertexTableName[k] = v
@@ -94,18 +106,31 @@ func (d *Data) Copy() Data {
 		fileIDToEdgeTableName[k] = v
 	}
 
-	indexes := make(map[string]storage.IndexMeta)
-	for k, v := range d.Indexes {
-		indexes[k] = v.Copy()
+	vertexIndexes := make(map[string]storage.IndexMeta)
+	for k, v := range d.VertexIndexes {
+		vertexIndexes[k] = v.Copy()
+	}
+
+	edgeIndexes := make(map[string]storage.IndexMeta)
+	for k, v := range d.EdgeIndexes {
+		edgeIndexes[k] = v.Copy()
+	}
+
+	directoryIndexes := make(map[string]storage.IndexMeta)
+	for k, v := range d.DirectoryIndexes {
+		directoryIndexes[k] = v.Copy()
 	}
 
 	return Data{
 		Metadata:                d.Metadata.Copy(),
 		VertexTables:            vertexTables,
+		DirectoryTables:         directoryTables,
 		EdgeTables:              edgeTables,
 		FileIDToVertexTableName: fileIDToVertexTableName,
 		FileIDToEdgeTableName:   fileIDToEdgeTableName,
-		Indexes:                 indexes,
+		VertexIndexes:           vertexIndexes,
+		EdgeIndexes:             edgeIndexes,
+		DirectoryIndexes:        directoryIndexes,
 	}
 }
 
@@ -126,6 +151,115 @@ type Manager struct {
 }
 
 var _ storage.SystemCatalog = &Manager{}
+
+// AddDirectoryTable implements storage.SystemCatalog.
+func (m *Manager) AddDirectoryTable(req storage.DirectoryTableMeta) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, exists := m.data.DirectoryTables[req.Name]
+	if exists {
+		return ErrEntityExists
+	}
+
+	m.data.DirectoryTables[req.Name] = req
+	return nil
+}
+
+// DirectoryTableExists implements storage.SystemCatalog.
+func (m *Manager) DirectoryTableExists(name string) (bool, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return false, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.DirectoryTables[name]
+	return exists, nil
+}
+
+// DropDirectoryTable implements storage.SystemCatalog.
+func (m *Manager) DropDirectoryTable(name string) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, exists := m.data.DirectoryTables[name]
+	if !exists {
+		return ErrEntityNotFound
+	}
+
+	delete(m.data.DirectoryTables, name)
+	return nil
+}
+
+// GetDirectoryTableMeta implements storage.SystemCatalog.
+func (m *Manager) GetDirectoryTableMeta(name string) (storage.DirectoryTableMeta, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return storage.DirectoryTableMeta{}, fmt.Errorf(
+			"failed to update system catalog data: %w",
+			err,
+		)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	table, exists := m.data.DirectoryTables[name]
+	if !exists {
+		return storage.DirectoryTableMeta{}, ErrEntityNotFound
+	}
+
+	return table, nil
+}
+
+// GetEdgeTableNameByFileID implements storage.SystemCatalog.
+func (m *Manager) GetEdgeTableNameByFileID(fileID common.FileID) (string, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return "", fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	name, exists := m.data.FileIDToEdgeTableName[fileID]
+	if !exists {
+		return "", ErrEntityNotFound
+	}
+
+	return name, nil
+}
+
+// GetVertexTableNameByFileID implements storage.SystemCatalog.
+func (m *Manager) GetVertexTableNameByFileID(fileID common.FileID) (string, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return "", fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	name, exists := m.data.FileIDToVertexTableName[fileID]
+	if !exists {
+		return "", ErrEntityNotFound
+	}
+
+	return name, nil
+}
 
 func GetSystemCatalogVersionFileName(basePath string) string {
 	return filepath.Join(basePath, currentVersionFile)
@@ -209,6 +343,8 @@ func InitSystemCatalog(basePath string, fs afero.Fs) error {
 		map[string]storage.EdgeTableMeta{},
 		map[common.FileID]string{},
 		map[common.FileID]string{},
+		map[string]storage.IndexMeta{},
+		map[string]storage.IndexMeta{},
 		map[string]storage.IndexMeta{},
 	)
 	data, err := json.Marshal(d)
@@ -409,14 +545,6 @@ func (m *Manager) GetNewFileID() common.FileID {
 	return common.FileID(m.maxFileID)
 }
 
-func (m *Manager) GetNewFileIDPair() (common.FileID, common.FileID) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.maxFileID += 2
-	return common.FileID(m.maxFileID - 1), common.FileID(m.maxFileID)
-}
-
 func (m *Manager) GetVertexTableMeta(name string) (storage.VertexTableMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
@@ -498,7 +626,6 @@ func (m *Manager) AddVertexTable(req storage.VertexTableMeta) error {
 	}
 
 	m.data.VertexTables[req.Name] = req
-
 	return nil
 }
 
@@ -517,11 +644,10 @@ func (m *Manager) AddEdgeTable(req storage.EdgeTableMeta) error {
 	}
 
 	m.data.EdgeTables[req.Name] = req
-
 	return nil
 }
 
-func (m *Manager) DropTable(name string) error {
+func (m *Manager) DropVertexTable(name string) error {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return fmt.Errorf("failed to update system catalog data: %w", err)
@@ -530,17 +656,34 @@ func (m *Manager) DropTable(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, exists := m.data.Tables[name]
+	_, exists := m.data.VertexTables[name]
 	if !exists {
 		return ErrEntityNotFound
 	}
 
-	delete(m.data.Tables, name)
-
+	delete(m.data.VertexTables, name)
 	return nil
 }
 
-func (m *Manager) GetIndexes(name string) ([]storage.IndexMeta, error) {
+func (m *Manager) DropEdgeTable(name string) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, exists := m.data.EdgeTables[name]
+	if !exists {
+		return ErrEntityNotFound
+	}
+
+	delete(m.data.EdgeTables, name)
+	return nil
+}
+
+func (m *Manager) GetVertexTableIndexes(name string) ([]storage.IndexMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return nil, fmt.Errorf("failed to update system catalog data: %w", err)
@@ -549,14 +692,14 @@ func (m *Manager) GetIndexes(name string) ([]storage.IndexMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	_, exists := m.data.Tables[name]
+	_, exists := m.data.VertexTables[name]
 	if !exists {
 		return nil, ErrEntityNotFound
 	}
 
 	indexes := make([]storage.IndexMeta, 0)
 
-	for _, index := range m.data.Indexes {
+	for _, index := range m.data.VertexIndexes {
 		if index.FullTableName == name {
 			indexes = append(indexes, index)
 		}
@@ -565,7 +708,31 @@ func (m *Manager) GetIndexes(name string) ([]storage.IndexMeta, error) {
 	return indexes, nil
 }
 
-func (m *Manager) IndexExists(name string) (bool, error) {
+func (m *Manager) GetEdgeTableIndexes(name string) ([]storage.IndexMeta, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.EdgeTables[name]
+	if !exists {
+		return nil, ErrEntityNotFound
+	}
+
+	indexes := make([]storage.IndexMeta, 0)
+	for _, index := range m.data.EdgeIndexes {
+		if index.FullTableName == name {
+			indexes = append(indexes, index)
+		}
+	}
+
+	return indexes, nil
+}
+
+func (m *Manager) VertexIndexExists(name string) (bool, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return false, fmt.Errorf("failed to update system catalog data: %w", err)
@@ -574,12 +741,37 @@ func (m *Manager) IndexExists(name string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	_, exists := m.data.Indexes[name]
-
+	_, exists := m.data.VertexIndexes[name]
 	return exists, nil
 }
 
-func (m *Manager) GetIndexMeta(name string) (storage.IndexMeta, error) {
+func (m *Manager) EdgeIndexExists(name string) (bool, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return false, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.EdgeIndexes[name]
+	return exists, nil
+}
+
+func (m *Manager) DirectoryIndexExists(name string) (bool, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return false, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	_, exists := m.data.DirectoryIndexes[name]
+	return exists, nil
+}
+
+func (m *Manager) GetVertexIndexMeta(name string) (storage.IndexMeta, error) {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return storage.IndexMeta{}, fmt.Errorf("failed to update system catalog data: %w", err)
@@ -588,7 +780,7 @@ func (m *Manager) GetIndexMeta(name string) (storage.IndexMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	index, exists := m.data.Indexes[name]
+	index, exists := m.data.VertexIndexes[name]
 	if !exists {
 		return storage.IndexMeta{}, ErrEntityNotFound
 	}
@@ -596,7 +788,24 @@ func (m *Manager) GetIndexMeta(name string) (storage.IndexMeta, error) {
 	return index, nil
 }
 
-func (m *Manager) AddIndex(index storage.IndexMeta) error {
+func (m *Manager) GetEdgeIndexMeta(name string) (storage.IndexMeta, error) {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return storage.IndexMeta{}, fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	index, exists := m.data.EdgeIndexes[name]
+	if !exists {
+		return storage.IndexMeta{}, ErrEntityNotFound
+	}
+
+	return index, nil
+}
+
+func (m *Manager) AddVertexIndex(index storage.IndexMeta) error {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return fmt.Errorf("failed to update system catalog data: %w", err)
@@ -605,21 +814,20 @@ func (m *Manager) AddIndex(index storage.IndexMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.data.Indexes[index.Name]; exists {
+	if _, exists := m.data.VertexIndexes[index.Name]; exists {
 		return ErrEntityExists
 	}
 
-	_, ok := m.data.Tables[index.FullTableName]
+	_, ok := m.data.VertexTables[index.FullTableName]
 	if !ok {
 		return fmt.Errorf("table %s not found", index.FullTableName)
 	}
 
-	m.data.Indexes[index.Name] = index
-
+	m.data.VertexIndexes[index.Name] = index
 	return nil
 }
 
-func (m *Manager) DropIndex(name string) error {
+func (m *Manager) AddEdgeIndex(index storage.IndexMeta) error {
 	err := m.updateSystemCatalogData()
 	if err != nil {
 		return fmt.Errorf("failed to update system catalog data: %w", err)
@@ -628,12 +836,87 @@ func (m *Manager) DropIndex(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.data.Indexes[name]; !exists {
+	if _, exists := m.data.EdgeIndexes[index.Name]; exists {
+		return ErrEntityExists
+	}
+
+	_, ok := m.data.EdgeTables[index.FullTableName]
+	if !ok {
+		return fmt.Errorf("table %s not found", index.FullTableName)
+	}
+
+	m.data.EdgeIndexes[index.Name] = index
+	return nil
+}
+
+func (m *Manager) AddDirectoryIndex(index storage.IndexMeta) error {
+	assert.Assert(len(index.Columns) == 1, "directory index must have exactly 1 column")
+	assert.Assert(index.Columns[0] == "ID", "directory index must have only `ID` column")
+
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.data.DirectoryIndexes[index.Name]; exists {
+		return ErrEntityExists
+	}
+
+	m.data.DirectoryIndexes[index.Name] = index
+	return nil
+}
+
+func (m *Manager) DropVertexIndex(name string) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.data.VertexIndexes[name]; !exists {
 		return ErrEntityNotFound
 	}
 
-	delete(m.data.Indexes, name)
+	delete(m.data.VertexIndexes, name)
+	return nil
+}
 
+func (m *Manager) DropEdgeIndex(name string) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.data.EdgeIndexes[name]; !exists {
+		return ErrEntityNotFound
+	}
+
+	delete(m.data.EdgeIndexes, name)
+	return nil
+}
+
+func (m *Manager) DropDirectoryIndex(name string) error {
+	err := m.updateSystemCatalogData()
+	if err != nil {
+		return fmt.Errorf("failed to update system catalog data: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.data.DirectoryIndexes[name]; !exists {
+		return ErrEntityNotFound
+	}
+
+	delete(m.data.DirectoryIndexes, name)
 	return nil
 }
 
@@ -655,11 +938,27 @@ func (m *Manager) GetFileIDToPathMap() map[common.FileID]string {
 
 	mp := make(map[common.FileID]string)
 
-	for _, v := range m.data.Indexes {
+	for _, v := range m.data.VertexTables {
 		mp[common.FileID(v.FileID)] = v.PathToFile
 	}
 
-	for _, v := range m.data.Tables {
+	for _, v := range m.data.EdgeTables {
+		mp[common.FileID(v.FileID)] = v.PathToFile
+	}
+
+	for _, v := range m.data.DirectoryTables {
+		mp[common.FileID(v.FileID)] = v.PathToFile
+	}
+
+	for _, v := range m.data.VertexIndexes {
+		mp[common.FileID(v.FileID)] = v.PathToFile
+	}
+
+	for _, v := range m.data.EdgeIndexes {
+		mp[common.FileID(v.FileID)] = v.PathToFile
+	}
+
+	for _, v := range m.data.DirectoryIndexes {
 		mp[common.FileID(v.FileID)] = v.PathToFile
 	}
 
@@ -669,13 +968,37 @@ func (m *Manager) GetFileIDToPathMap() map[common.FileID]string {
 func calcMaxFileID(data *Data) uint64 {
 	maxFileID := uint64(0)
 
-	for _, v := range data.Tables {
+	for _, v := range data.VertexTables {
 		if uint64(v.FileID) > maxFileID {
 			maxFileID = uint64(v.FileID)
 		}
 	}
 
-	for _, v := range data.Indexes {
+	for _, v := range data.EdgeTables {
+		if uint64(v.FileID) > maxFileID {
+			maxFileID = uint64(v.FileID)
+		}
+	}
+
+	for _, v := range data.DirectoryTables {
+		if uint64(v.FileID) > maxFileID {
+			maxFileID = uint64(v.FileID)
+		}
+	}
+
+	for _, v := range data.VertexIndexes {
+		if uint64(v.FileID) > maxFileID {
+			maxFileID = uint64(v.FileID)
+		}
+	}
+
+	for _, v := range data.EdgeIndexes {
+		if uint64(v.FileID) > maxFileID {
+			maxFileID = uint64(v.FileID)
+		}
+	}
+
+	for _, v := range data.DirectoryIndexes {
 		if uint64(v.FileID) > maxFileID {
 			maxFileID = uint64(v.FileID)
 		}
