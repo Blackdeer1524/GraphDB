@@ -15,7 +15,7 @@ func (s *StorageEngine) getPageWithFreeSpace(fileID common.FileID) (common.PageI
 	panic("not implemented")
 }
 
-func (s *StorageEngine) GetVertexRID(
+func GetVertexRID(
 	txnID common.TxnID,
 	vertexID storage.VertexID,
 	vertexIndex storage.Index,
@@ -37,7 +37,7 @@ func (s *StorageEngine) GetVertexRID(
 	return res, nil
 }
 
-func (s *StorageEngine) GetEdgeRID(
+func GetEdgeRID(
 	txnID common.TxnID,
 	edgeID storage.EdgeID,
 	edgeIndex storage.Index,
@@ -60,7 +60,7 @@ func (s *StorageEngine) GetEdgeRID(
 	return res, nil
 }
 
-func (s *StorageEngine) GetDirectoryRID(
+func GetDirectoryRID(
 	txnID common.TxnID,
 	dirItemID storage.DirItemID,
 	dirSystemIndex storage.Index,
