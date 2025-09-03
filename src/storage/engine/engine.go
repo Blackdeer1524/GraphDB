@@ -75,10 +75,47 @@ func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 
 // Neighbours implements storage.StorageEngine.
 func (s *StorageEngine) Neighbours(
-	t common.TxnID,
-	v storage.VertexID,
+	txnID common.TxnID,
+	vID storage.VertexID,
+	vertTableToken *txns.FileLockToken,
+	logger common.ITxnLoggerWithContext,
 ) (storage.NeighborIter, error) {
-	panic("unimplemented")
+	index, err := s.GetVertexTableInternalIndex(txnID, vertTableToken.GetFileID(), logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
+	}
+
+	vIDBytes, err := vID.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal vertex ID: %w", err)
+	}
+	vRID, err := index.Get(vIDBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get vertex RID: %w", err)
+	}
+
+	vPageIdent := vRID.PageIdentity()
+	pToken := s.locker.LockPage(vertTableToken, vPageIdent.PageID, txns.PageLockShared)
+	if pToken == nil {
+		return nil, fmt.Errorf("failed to lock page: %v", vPageIdent)
+	}
+
+	pg, err := s.pool.GetPageNoCreate(vPageIdent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get page: %w", err)
+	}
+	defer s.pool.Unpin(vPageIdent)
+
+	vertData := pg.LockedRead(vRID.SlotNum)
+	vertInternalFields, tail, err := parseVertexRecordHeader(vertData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse vertex record header: %w", err)
+	}
+
+	if vertInternalFields.DirItemID.IsNil() {
+		panic("TODO")
+		return nil, nil
+	}
 }
 
 var _ storage.StorageEngine = &StorageEngine{}

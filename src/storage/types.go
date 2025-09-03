@@ -222,7 +222,7 @@ type StorageEngine interface {
 
 	GetDirectoryIndex(
 		txnID common.TxnID,
-		vertexTableID common.FileID,
+		indexName string,
 		logger common.ITxnLoggerWithContext,
 	) (Index, error)
 
@@ -271,10 +271,10 @@ type SystemCatalog interface {
 	DropEdgeTable(name string) error
 	GetEdgeTableNameByFileID(fileID common.FileID) (string, error)
 
-	GetDirectoryTableMeta(name string) (DirectoryTableMeta, error)
-	DirectoryTableExists(name string) (bool, error)
+	GetDirectoryTableMeta(vertexTableFileID common.FileID) (DirectoryTableMeta, error)
+	DirectoryTableExists(vertexTableFileID common.FileID) (bool, error)
 	AddDirectoryTable(req DirectoryTableMeta) error
-	DropDirectoryTable(name string) error
+	DropDirectoryTable(vertexTableFileID common.FileID) error
 
 	AddVertexIndex(req IndexMeta) error
 	DropVertexIndex(name string) error
@@ -287,8 +287,9 @@ type SystemCatalog interface {
 	GetEdgeIndexMeta(name string) (IndexMeta, error)
 
 	AddDirectoryIndex(req IndexMeta) error
-	DirectoryIndexExists(name string) (bool, error)
 	DropDirectoryIndex(name string) error
+	DirectoryIndexExists(name string) (bool, error)
+	GetDirectoryIndexMeta(name string) (IndexMeta, error)
 
 	Save(logger common.ITxnLoggerWithContext) error
 	CurrentVersion() uint64

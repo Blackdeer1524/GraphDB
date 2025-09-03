@@ -61,7 +61,7 @@ func (v *EdgeTableMeta) Copy() EdgeTableMeta {
 }
 
 type DirectoryTableMeta struct {
-	Name              string        `json:"name"`
+	VertexTableID     common.FileID `json:"vertex_table_id"`
 	FileID            common.FileID `json:"file_id"`
 	PathToFile        string        `json:"path_to_file"`
 	VertexTableFileID common.FileID `json:"vertex_table_file_id"`
@@ -69,7 +69,7 @@ type DirectoryTableMeta struct {
 
 func (d *DirectoryTableMeta) Copy() DirectoryTableMeta {
 	return DirectoryTableMeta{
-		Name:              d.Name,
+		VertexTableID:     d.VertexTableID,
 		FileID:            d.FileID,
 		PathToFile:        d.PathToFile,
 		VertexTableFileID: d.VertexTableFileID,
@@ -77,12 +77,12 @@ func (d *DirectoryTableMeta) Copy() DirectoryTableMeta {
 }
 
 type IndexMeta struct {
-	Name          string        `json:"name"`
-	PathToFile    string        `json:"path_to_file"`
-	FileID        common.FileID `json:"id"`
-	FullTableName string        `json:"full_table_name"`
-	Columns       []string      `json:"columns"`
-	KeyBytesCnt   uint32        `json:"key_bytes_cnt"`
+	Name        string        `json:"name"`
+	PathToFile  string        `json:"path_to_file"`
+	FileID      common.FileID `json:"id"`
+	TableName   string        `json:"full_table_name"`
+	Columns     []string      `json:"columns"`
+	KeyBytesCnt uint32        `json:"key_bytes_cnt"`
 }
 
 func (i *IndexMeta) Copy() IndexMeta {
@@ -90,12 +90,12 @@ func (i *IndexMeta) Copy() IndexMeta {
 	copy(columnsCopy, i.Columns)
 
 	return IndexMeta{
-		Name:          i.Name,
-		PathToFile:    i.PathToFile,
-		FileID:        i.FileID,
-		FullTableName: i.FullTableName,
-		Columns:       columnsCopy,
-		KeyBytesCnt:   i.KeyBytesCnt,
+		Name:        i.Name,
+		PathToFile:  i.PathToFile,
+		FileID:      i.FileID,
+		TableName:   i.TableName,
+		Columns:     columnsCopy,
+		KeyBytesCnt: i.KeyBytesCnt,
 	}
 }
 

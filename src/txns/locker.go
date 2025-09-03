@@ -114,6 +114,10 @@ func (t *FileLockToken) IsNil() bool {
 	return !t.wasSetUp
 }
 
+func (t *FileLockToken) GetTxnID() common.TxnID {
+	return t.txnID
+}
+
 func (f *FileLockToken) GetFileID() common.FileID {
 	return f.fileID
 }
