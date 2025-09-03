@@ -238,9 +238,8 @@ func (i *vertexNeighboursIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID
 	if err != nil {
 		return iterWithError(err)
 	}
-	
 
-	dirIndex, err := i.se.GetDirectoryIndex(
+	dirIndex, err := i.se.GetDirectoryInternalIndex(
 		i.vertTableToken.GetTxnID(),
 		dirTableMeta.FileID,
 		i.logger,
@@ -249,8 +248,9 @@ func (i *vertexNeighboursIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID
 		return iterWithError(err)
 	}
 
+	cToken := txns.NewNilCatalogLockToken(i.vertTableToken.GetTxnID())
+	dirFileToken := txns.NewNilFileLockToken(cToken, dirTableMeta.FileID)
 	return func(yield func(utils.Pair[storage.VertexIDWithRID, error]) bool) {
-		newDirItemsIter(i.se, vertInternalFields.DirItemID, i.dirFileToken, i.dirIndexI)
-
+		newDirItemsIter(i.se, vertInternalFields.DirItemID, dirFileToken, dirIndex)
 	}
 }

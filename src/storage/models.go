@@ -64,7 +64,6 @@ type DirectoryTableMeta struct {
 	VertexTableID     common.FileID `json:"vertex_table_id"`
 	FileID            common.FileID `json:"file_id"`
 	PathToFile        string        `json:"path_to_file"`
-	VertexTableFileID common.FileID `json:"vertex_table_file_id"`
 }
 
 func (d *DirectoryTableMeta) Copy() DirectoryTableMeta {
@@ -72,7 +71,6 @@ func (d *DirectoryTableMeta) Copy() DirectoryTableMeta {
 		VertexTableID:     d.VertexTableID,
 		FileID:            d.FileID,
 		PathToFile:        d.PathToFile,
-		VertexTableFileID: d.VertexTableFileID,
 	}
 }
 

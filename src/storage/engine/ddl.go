@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"unsafe"
 
 	"github.com/spf13/afero"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
@@ -22,8 +24,12 @@ func GetEdgeTableFilePath(basePath, edgeTableName string) string {
 	return GetTableFilePath(basePath, "edge", edgeTableName)
 }
 
-func GetDirectoryTableFilePath(basePath, directoryTableName string) string {
-	return GetTableFilePath(basePath, "directory", directoryTableName)
+func GetDirectoryTableFilePath(basePath string, vertexTableFileID common.FileID) string {
+	return GetTableFilePath(
+		basePath,
+		"directory",
+		systemcatalog.GetDirectoryTableName(vertexTableFileID),
+	)
 }
 
 func GetVertexIndexFilePath(basePath, indexName string) string {
@@ -34,7 +40,7 @@ func GetEdgeIndexFilePath(basePath, indexName string) string {
 	return getIndexFilePath(basePath, "edge", indexName)
 }
 
-func GetDirectoryIndexFilePath(basePath, indexName string) string {
+func getDirectoryIndexFilePath(basePath, indexName string) string {
 	return getIndexFilePath(basePath, "directory", indexName)
 }
 
@@ -150,7 +156,12 @@ func (s *StorageEngine) CreateVertexTable(
 
 	s.diskMgr.InsertToFileMap(common.FileID(tableFileID), tableFilePath)
 
-	err = s.createDirectoryTable(txnID, tableName, tableFileID, cToken, logger)
+	err = s.createInternalVertexIndex(txnID, tableName, tableFileID, logger)
+	if err != nil {
+		return fmt.Errorf("unable to create internal vertex index: %w", err)
+	}
+
+	err = s.createDirectoryTable(txnID, tableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create directory table: %w", err)
 	}
@@ -161,7 +172,6 @@ func (s *StorageEngine) CreateVertexTable(
 
 func (s *StorageEngine) createDirectoryTable(
 	txnID common.TxnID,
-	vertexTableName string,
 	vertexTableFileID common.FileID,
 	_ *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
@@ -169,18 +179,18 @@ func (s *StorageEngine) createDirectoryTable(
 	needToRollback := true
 
 	basePath := s.catalog.GetBasePath()
-	tableFilePath := GetDirectoryTableFilePath(basePath, vertexTableName)
-	tableFileID := s.catalog.GetNewFileID()
+	tableFilePath := GetDirectoryTableFilePath(basePath, vertexTableFileID)
+	dirTableFileID := s.catalog.GetNewFileID()
 
 	// Existence of the file is not the proof of existence of the table
 	// (we don't remove file on drop),
 	// and it is why we do not check if the table exists in file system.
-	ok, err := s.catalog.DirectoryTableExists(vertexTableName)
+	ok, err := s.catalog.DirectoryTableExists(vertexTableFileID)
 	if err != nil {
 		return fmt.Errorf("unable to check if table exists: %w", err)
 	}
 	if ok {
-		return fmt.Errorf("table %s already exists", vertexTableName)
+		return fmt.Errorf("table %s already exists", vertexTableFileID)
 	}
 
 	err = prepareFSforTable(s.fs, tableFilePath)
@@ -196,10 +206,9 @@ func (s *StorageEngine) createDirectoryTable(
 
 	// update info in metadata
 	tblCreateReq := storage.DirectoryTableMeta{
-		Name:              vertexTableName,
-		PathToFile:        tableFilePath,
-		FileID:            tableFileID,
-		VertexTableFileID: vertexTableFileID,
+		VertexTableID: vertexTableFileID,
+		FileID:        dirTableFileID,
+		PathToFile:    tableFilePath,
 	}
 
 	err = s.catalog.AddDirectoryTable(tblCreateReq)
@@ -208,7 +217,7 @@ func (s *StorageEngine) createDirectoryTable(
 	}
 	defer func() {
 		if needToRollback {
-			_ = s.catalog.DropDirectoryTable(vertexTableName)
+			_ = s.catalog.DropDirectoryTable(vertexTableFileID)
 		}
 	}()
 
@@ -217,7 +226,13 @@ func (s *StorageEngine) createDirectoryTable(
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
-	s.diskMgr.InsertToFileMap(common.FileID(tableFileID), tableFilePath)
+	s.diskMgr.InsertToFileMap(common.FileID(dirTableFileID), tableFilePath)
+
+	err = s.createInternalDirectoryIndex(txnID, vertexTableFileID, dirTableFileID, logger)
+	if err != nil {
+		return fmt.Errorf("unable to create internal directory index: %w", err)
+	}
+
 	needToRollback = false
 	return nil
 }
@@ -314,21 +329,10 @@ func (s *StorageEngine) DropVertexTable(
 		return fmt.Errorf("unable to drop system index: %w", err)
 	}
 
-	dirTableMeta, err := s.catalog.GetDirectoryTableMeta(vertTableName)
+	err = s.dropDirectoryTable(txnID, vertTableMeta.FileID, logger)
 	if err != nil {
-		return fmt.Errorf("unable to get table meta: %w", err)
+		return fmt.Errorf("unable to drop directory table: %w", err)
 	}
-
-	err = s.catalog.DropDirectoryTable(vertTableName)
-	if err != nil {
-		return err
-	}
-
-	err = s.catalog.DropDirectoryIndex(getTableInternalIndexName(dirTableMeta.FileID))
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -361,98 +365,22 @@ func (s *StorageEngine) DropEdgeTable(
 	return nil
 }
 
-func (s *StorageEngine) createIndex(
+func (s *StorageEngine) dropDirectoryTable(
 	txnID common.TxnID,
-	name string,
-	tableName string,
-	columns []string,
-	keyBytesCnt uint32,
-	_ *txns.CatalogLockToken,
+	vertexTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	needToRollback := true
-
-	basePath := s.catalog.GetBasePath()
-	fileID := s.catalog.GetNewFileID()
-	tableFilePath := getIndexFilePath(basePath, name)
-
-	// Existence of the file is not the proof of existence of the index
-	// (we don't remove file on drop), and it is why we do not check if the
-	// index exists in file system.
-	ok, err := s.catalog.IndexExists(name)
+	err := s.catalog.DropDirectoryTable(vertexTableFileID)
 	if err != nil {
-		return fmt.Errorf("unable to check if index exists: %w", err)
+		return err
 	}
 
-	if ok {
-		return fmt.Errorf("index %s already exists", name)
-	}
-
-	fileExists := true
-
-	_, err = s.fs.Stat(tableFilePath)
+	err = s.catalog.DropDirectoryIndex(getTableInternalIndexName(vertexTableFileID))
 	if err != nil {
-		fileExists = false
-
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("unable to check if file exists: %w", err)
-		}
+		return err
 	}
 
-	if fileExists {
-		err = s.fs.Remove(tableFilePath)
-		if err != nil {
-			return fmt.Errorf("unable to remove file: %w", err)
-		}
-	}
-
-	dir := filepath.Dir(tableFilePath)
-
-	err = s.fs.MkdirAll(dir, 0o755)
-	if err != nil {
-		return fmt.Errorf("unable to create directory %s: %w", dir, err)
-	}
-
-	file, err := s.fs.Create(tableFilePath)
-	if err != nil {
-		return fmt.Errorf("unable to create file: %w", err)
-	}
-	_ = file.Close()
-	defer func() {
-		if needToRollback {
-			_ = s.fs.Remove(tableFilePath)
-		}
-	}()
-
-	// update info in metadata
-
-	idxCreateReq := storage.IndexMeta{
-		Name:        name,
-		PathToFile:  tableFilePath,
-		FileID:      fileID,
-		TableName:   tableName,
-		Columns:     columns,
-		KeyBytesCnt: keyBytesCnt,
-	}
-
-	err = s.catalog.AddIndex(idxCreateReq)
-	if err != nil {
-		return fmt.Errorf("unable to add index to catalog: %w", err)
-	}
-	defer func() {
-		if needToRollback {
-			_ = s.catalog.DropIndex(name)
-		}
-	}()
-
-	err = s.catalog.Save(logger)
-	if err != nil {
-		return fmt.Errorf("unable to save catalog: %w", err)
-	}
-
-	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
-	needToRollback = false
-	return nil
+	return s.catalog.DropDirectoryTable(vertexTableFileID)
 }
 
 func (s *StorageEngine) CreateVertexIndex(
@@ -513,6 +441,24 @@ func (s *StorageEngine) CreateVertexIndex(
 	return nil
 }
 
+func (s *StorageEngine) createInternalVertexIndex(
+	txnID common.TxnID,
+	tableName string,
+	vertexTableFileID common.FileID,
+	logger common.ITxnLoggerWithContext,
+) error {
+	columns := []string{"ID"}
+	keyBytesCnt := uint32(unsafe.Sizeof(storage.VertexID{}))
+	return s.CreateVertexIndex(
+		txnID,
+		getTableInternalIndexName(vertexTableFileID),
+		tableName,
+		columns,
+		keyBytesCnt,
+		logger,
+	)
+}
+
 func (s *StorageEngine) CreateEdgeIndex(
 	txnID common.TxnID,
 	indexName string,
@@ -569,6 +515,24 @@ func (s *StorageEngine) CreateEdgeIndex(
 	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
 	needToRollback = false
 	return nil
+}
+
+func (s *StorageEngine) createInternalEdgeIndex(
+	txnID common.TxnID,
+	tableName string,
+	edgeTableFileID common.FileID,
+	logger common.ITxnLoggerWithContext,
+) error {
+	columns := []string{"ID"}
+	keyBytesCnt := uint32(unsafe.Sizeof(storage.EdgeID{}))
+	return s.CreateEdgeIndex(
+		txnID,
+		getTableInternalIndexName(edgeTableFileID),
+		tableName,
+		columns,
+		keyBytesCnt,
+		logger,
+	)
 }
 
 func (s *StorageEngine) GetVertexInternalIndex(
@@ -648,10 +612,86 @@ func (s *StorageEngine) GetDirectoryInternalIndex(
 	dirTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.GetDirectoryIndex(txnID, getTableInternalIndexName(dirTableFileID), logger)
+	return s.getDirectoryIndex(txnID, getTableInternalIndexName(dirTableFileID), logger)
 }
 
-func (s *StorageEngine) GetDirectoryIndex(
+func (s *StorageEngine) createDirectoryIndex(
+	txnID common.TxnID,
+	indexName string,
+	vertexTableFileID common.FileID,
+	columns []string,
+	keyBytesCnt uint32,
+	logger common.ITxnLoggerWithContext,
+) error {
+	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
+	if cToken == nil {
+		return errors.New("unable to get system catalog X-lock")
+	}
+	defer s.locker.Unlock(txnID)
+
+	needToRollback := true
+	basePath := s.catalog.GetBasePath()
+	fileID := s.catalog.GetNewFileID()
+	tableFilePath := getDirectoryIndexFilePath(basePath, indexName)
+	ok, err := s.catalog.DirectoryIndexExists(indexName)
+	if err != nil {
+		return fmt.Errorf("unable to check if index exists: %w", err)
+	}
+	if ok {
+		return fmt.Errorf("index %s already exists", indexName)
+	}
+
+	prepareFSforTable(s.fs, tableFilePath)
+	defer func() {
+		if needToRollback {
+			_ = s.fs.Remove(tableFilePath)
+		}
+	}()
+	idxCreateReq := storage.IndexMeta{
+		Name:        indexName,
+		PathToFile:  tableFilePath,
+		FileID:      fileID,
+		TableName:   systemcatalog.GetDirectoryTableName(vertexTableFileID),
+		Columns:     columns,
+		KeyBytesCnt: keyBytesCnt,
+	}
+	err = s.catalog.AddDirectoryIndex(idxCreateReq)
+	if err != nil {
+		return fmt.Errorf("unable to add index to catalog: %w", err)
+	}
+	defer func() {
+		if needToRollback {
+			_ = s.catalog.DropDirectoryIndex(indexName)
+		}
+	}()
+	err = s.catalog.Save(logger)
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
+	needToRollback = false
+	return nil
+}
+
+func (s *StorageEngine) createInternalDirectoryIndex(
+	txnID common.TxnID,
+	vertexTableFileID common.FileID,
+	directoryTableFileID common.FileID,
+	logger common.ITxnLoggerWithContext,
+) error {
+	columns := []string{"ID"}
+	keyBytesCnt := uint32(unsafe.Sizeof(storage.DirItemID{}))
+	return s.createDirectoryIndex(
+		txnID,
+		getTableInternalIndexName(directoryTableFileID),
+		vertexTableFileID,
+		columns,
+		keyBytesCnt,
+		logger,
+	)
+}
+
+func (s *StorageEngine) getDirectoryIndex(
 	txnID common.TxnID,
 	indexName string,
 	logger common.ITxnLoggerWithContext,
@@ -700,7 +740,7 @@ func (s *StorageEngine) GetDirectoryTableInternalIndex(
 	dirTableID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.GetDirectoryIndex(txnID, getTableInternalIndexName(dirTableID), logger)
+	return s.getDirectoryIndex(txnID, getTableInternalIndexName(dirTableID), logger)
 }
 
 func (s *StorageEngine) DropVertexTableIndex(
@@ -729,4 +769,17 @@ func (s *StorageEngine) DropEdgesTableIndex(
 	defer s.locker.Unlock(txnID)
 
 	return s.catalog.DropEdgeIndex(indexName)
+}
+
+func (s *StorageEngine) dropDirectoryTableIndex(
+	txnID common.TxnID,
+	indexName string,
+	logger common.ITxnLoggerWithContext,
+) error {
+	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
+	if cToken == nil {
+		return errors.New("unable to get system catalog X-lock")
+	}
+	defer s.locker.Unlock(txnID)
+	return s.catalog.DropDirectoryIndex(indexName)
 }

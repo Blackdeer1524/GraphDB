@@ -1013,3 +1013,7 @@ func (m *Manager) CurrentVersion() uint64 {
 
 	return m.currentVersion
 }
+
+func GetDirectoryTableName(vertexTableFileID common.FileID) string {
+	return fmt.Sprintf("directory_%d", vertexTableFileID)
+}
