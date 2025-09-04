@@ -26,22 +26,39 @@ func (s *StorageEngine) NewQueue(common.TxnID) (storage.Queue, error) {
 // AllVerticesWithValue implements storage.StorageEngine.
 func (s *StorageEngine) AllVerticesWithValue(
 	t common.TxnID,
+	vertTableToken *txns.FileLockToken,
+	vertIndex storage.Index,
+	logger common.ITxnLoggerWithContext,
 	field string,
 	value []byte,
 ) (storage.VerticesIter, error) {
 	panic("unimplemented")
 }
 
-// CountOfFilteredEdges implements storage.StorageEngine.
 func (s *StorageEngine) CountOfFilteredEdges(
 	t common.TxnID,
 	v storage.VertexID,
-	f storage.EdgeFilter,
+	vertTableToken *txns.FileLockToken,
+	vertIndex storage.Index,
+	logger common.ITxnLoggerWithContext,
+	filter storage.EdgeFilter,
 ) (uint64, error) {
-	panic("unimplemented")
+	edgesIter := newNeighboursEdgesIter(
+		s,
+		v,
+		filter,
+		vertTableToken,
+		vertIndex,
+		logger,
+	)
+
+	count := uint64(0)
+	for range edgesIter.Seq() {
+		count++
+	}
+	return count, nil
 }
 
-// GetAllVertices implements storage.StorageEngine.
 func (s *StorageEngine) GetAllVertices(
 	t common.TxnID,
 	vertTableID common.FileID,
@@ -49,16 +66,25 @@ func (s *StorageEngine) GetAllVertices(
 	panic("unimplemented")
 }
 
-// GetNeighborsWithEdgeFilter implements storage.StorageEngine.
 func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 	t common.TxnID,
 	v storage.VertexID,
-	filter storage.EdgeFilter,
+	vertTableToken *txns.FileLockToken,
+	vertIndex storage.Index,
+	edgeFilter storage.EdgeFilter,
+	logger common.ITxnLoggerWithContext,
 ) (storage.VerticesIter, error) {
-	panic("unimplemented")
+	return newNeighbourVertexIter(
+		s,
+		v,
+		vertTableToken,
+		vertIndex,
+		storage.AllowAllVerticesFilter,
+		edgeFilter,
+		logger,
+	), nil
 }
 
-// Neighbours implements storage.StorageEngine.
 func (s *StorageEngine) Neighbours(
 	txnID common.TxnID,
 	vID storage.VertexID,
@@ -66,5 +92,12 @@ func (s *StorageEngine) Neighbours(
 	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
 ) (storage.NeighborIter, error) {
-	return newNeighboursIter(s, vID, vertTableToken, vertIndex, logger), nil
+	return newNeighbourVertexIDsIter(
+		s,
+		vID,
+		vertTableToken,
+		vertIndex,
+		storage.AllowAllEdgesFilter,
+		logger,
+	), nil
 }

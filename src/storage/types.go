@@ -163,7 +163,7 @@ type Vertex struct {
 }
 
 type VerticesIter interface {
-	Seq() iter.Seq[Vertex]
+	Seq() iter.Seq[utils.Pair[Vertex, error]]
 	Close() error
 }
 
@@ -173,6 +173,16 @@ type Edge struct {
 }
 
 type EdgeFilter func(*Edge) bool
+
+var AllowAllEdgesFilter EdgeFilter = func(_ *Edge) bool {
+	return true
+}
+
+type VertexFilter func(*Vertex) bool
+
+var AllowAllVerticesFilter VertexFilter = func(_ *Vertex) bool {
+	return true
+}
 
 type SumNeighborAttributesFilter func(float64) bool
 

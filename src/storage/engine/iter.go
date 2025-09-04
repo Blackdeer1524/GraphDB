@@ -223,19 +223,31 @@ func (d *dirItemsIter) Seq() iter.Seq[utils.Pair[storage.DirectoryItem, error]] 
 }
 
 type neighboursEdgesIter struct {
-	se     *StorageEngine
-	logger common.ITxnLoggerWithContext
+	se             *StorageEngine
+	startVertID    storage.VertexID
+	edgeFilter     storage.EdgeFilter
+	vertTableToken *txns.FileLockToken
+	vertIndex      storage.Index
+	logger         common.ITxnLoggerWithContext
 }
 
 var _ storage.NeighborEdgesIter = &neighboursEdgesIter{}
 
 func newNeighboursEdgesIter(
 	se *StorageEngine,
+	startVertID storage.VertexID,
+	edgeFilter storage.EdgeFilter,
+	vertTableToken *txns.FileLockToken,
+	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
 ) *neighboursEdgesIter {
 	iter := &neighboursEdgesIter{
-		se:     se,
-		logger: logger,
+		se:             se,
+		logger:         logger,
+		startVertID:    startVertID,
+		edgeFilter:     edgeFilter,
+		vertTableToken: vertTableToken,
+		vertIndex:      vertIndex,
 	}
 	return iter
 }
@@ -248,22 +260,17 @@ func iterWithErrorTriple[T, K any](err error) func(yield func(utils.Triple[T, K,
 	}
 }
 
-func (i *neighboursEdgesIter) Seq(
-	startVertID storage.VertexID,
-	edgeFilter storage.EdgeFilter,
-	vertTableToken *txns.FileLockToken,
-	vertIndex storage.Index,
-) iter.Seq[utils.Triple[common.RecordID, storage.Edge, error]] {
-	if !i.se.locker.UpgradeFileLock(vertTableToken, txns.GranularLockIntentionShared) {
+func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Edge, error]] {
+	if !i.se.locker.UpgradeFileLock(i.vertTableToken, txns.GranularLockIntentionShared) {
 		err := fmt.Errorf("failed to upgrade file lock")
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
 
-	vertRID, err := GetVertexRID(vertTableToken.GetTxnID(), startVertID, vertIndex)
+	vertRID, err := GetVertexRID(i.vertTableToken.GetTxnID(), i.startVertID, i.vertIndex)
 	if err != nil {
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
-	pToken := i.se.locker.LockPage(vertTableToken, vertRID.R.PageID, txns.PageLockShared)
+	pToken := i.se.locker.LockPage(i.vertTableToken, vertRID.R.PageID, txns.PageLockShared)
 	if pToken == nil {
 		return iterWithErrorTriple[common.RecordID, storage.Edge](fmt.Errorf("failed to lock page"))
 	}
@@ -285,14 +292,14 @@ func (i *neighboursEdgesIter) Seq(
 		}
 	}
 
-	cToken := txns.NewNilCatalogLockToken(vertTableToken.GetTxnID())
-	dirTableMeta, err := i.se.GetDirTableMeta(cToken, vertTableToken.GetFileID())
+	cToken := txns.NewNilCatalogLockToken(i.vertTableToken.GetTxnID())
+	dirTableMeta, err := i.se.GetDirTableMeta(cToken, i.vertTableToken.GetFileID())
 	if err != nil {
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
 
 	dirIndex, err := i.se.GetDirTableInternalIndex(
-		vertTableToken.GetTxnID(),
+		i.vertTableToken.GetTxnID(),
 		dirTableMeta.FileID,
 		cToken,
 		i.logger,
@@ -327,7 +334,7 @@ func (i *neighboursEdgesIter) Seq(
 
 			edgesFileToken := txns.NewNilFileLockToken(cToken, dirItem.EdgeFileID)
 			edgesIndex, err := i.se.GetEdgeTableInternalIndex(
-				vertTableToken.GetTxnID(),
+				i.vertTableToken.GetTxnID(),
 				dirItem.EdgeFileID,
 				cToken,
 				i.logger,
@@ -347,7 +354,7 @@ func (i *neighboursEdgesIter) Seq(
 				i.se,
 				dirItem.EdgeID,
 				edgesMeta.Schema,
-				edgeFilter,
+				i.edgeFilter,
 				edgesFileToken,
 				edgesIndex,
 			)
@@ -375,45 +382,51 @@ func (i *neighboursEdgesIter) Close() error {
 	return nil
 }
 
-type neighboursIter struct {
-	se     *StorageEngine
-	logger common.ITxnLoggerWithContext
+type neighbourVertexIDsIter struct {
+	se             *StorageEngine
+	vID            storage.VertexID
+	vertTableToken *txns.FileLockToken
+	vertIndex      storage.Index
+	edgeFilter     storage.EdgeFilter
+	logger         common.ITxnLoggerWithContext
 }
 
-var _ storage.NeighborIter = &neighboursIter{}
+var _ storage.NeighborIter = &neighbourVertexIDsIter{}
 
-func newNeighboursIter(
+func newNeighbourVertexIDsIter(
 	se *StorageEngine,
-	logger common.ITxnLoggerWithContext,
-) *neighboursIter {
-	iter := &neighboursIter{
-		se:     se,
-		logger: logger,
-	}
-	return iter
-}
-
-func (i *neighboursIter) Seq(
 	vID storage.VertexID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	edgeFilter storage.EdgeFilter,
-) iter.Seq[utils.Pair[storage.VertexIDWithRID, error]] {
-	cToken := vertTableToken.GetCatalogLockToken()
+	logger common.ITxnLoggerWithContext,
+) *neighbourVertexIDsIter {
+	iter := &neighbourVertexIDsIter{
+		se:             se,
+		logger:         logger,
+		vID:            vID,
+		vertTableToken: vertTableToken,
+		vertIndex:      vertIndex,
+		edgeFilter:     edgeFilter,
+	}
+	return iter
+}
+
+func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID, error]] {
+	cToken := i.vertTableToken.GetCatalogLockToken()
 	edgesIter := newNeighboursEdgesIter(
 		i.se,
+		i.vID,
+		i.edgeFilter,
+		i.vertTableToken,
+		i.vertIndex,
 		i.logger,
 	)
 
 	return func(yield func(utils.Pair[storage.VertexIDWithRID, error]) bool) {
 		lastEdgeFileID := common.NilFileID
 		var vertexIndex storage.Index
-		edgesSeq := edgesIter.Seq(
-			vID,
-			edgeFilter,
-			vertTableToken,
-			vertIndex,
-		)
+		edgesSeq := edgesIter.Seq()
 		for ridEdgeErr := range edgesSeq {
 			edgeRID, edge, err := ridEdgeErr.Destruct()
 			if err != nil {
@@ -462,6 +475,136 @@ func (i *neighboursIter) Seq(
 	}
 }
 
-func (i *neighboursIter) Close() error {
+func (i *neighbourVertexIDsIter) Close() error {
 	return nil
+}
+
+type neighbourVertexIter struct {
+	se                 *StorageEngine
+	vID                storage.VertexID
+	initVertTableToken *txns.FileLockToken
+	vertIndex          storage.Index
+	vertexFilter       storage.VertexFilter
+	edgeFilter         storage.EdgeFilter
+	locker             *txns.LockManager
+	logger             common.ITxnLoggerWithContext
+}
+
+var _ storage.VerticesIter = &neighbourVertexIter{}
+
+func newNeighbourVertexIter(
+	se *StorageEngine,
+	vID storage.VertexID,
+	vertTableToken *txns.FileLockToken,
+	vertIndex storage.Index,
+	vertexFilter storage.VertexFilter,
+	edgeFilter storage.EdgeFilter,
+	locker *txns.LockManager,
+	logger common.ITxnLoggerWithContext,
+) *neighbourVertexIter {
+	iter := &neighbourVertexIter{
+		se:                 se,
+		logger:             logger,
+		vID:                vID,
+		initVertTableToken: vertTableToken,
+		vertIndex:          vertIndex,
+		vertexFilter:       vertexFilter,
+		edgeFilter:         edgeFilter,
+		locker:             locker,
+	}
+	return iter
+}
+
+func (i *neighbourVertexIter) Seq() iter.Seq[utils.Pair[storage.Vertex, error]] {
+	return func(yield func(utils.Pair[storage.Vertex, error]) bool) {
+		neighbourVertexIDsIter := newNeighbourVertexIDsIter(
+			i.se,
+			i.vID,
+			i.initVertTableToken,
+			i.vertIndex,
+			i.edgeFilter,
+			i.logger,
+		)
+		cToken := i.initVertTableToken.GetCatalogLockToken()
+
+		var dstVertexFileToken *txns.FileLockToken
+		lastVertexFileID := common.NilFileID
+		for vertexIDWithRIDErr := range neighbourVertexIDsIter.Seq() {
+			vertexIDWithRID, err := vertexIDWithRIDErr.Destruct()
+			if err != nil {
+				yieldErrorPair(err, yield)
+				return
+			}
+			if vertexIDWithRID.R.FileID != lastVertexFileID {
+				lastVertexFileID = vertexIDWithRID.R.FileID
+				dstVertexFileToken = txns.NewNilFileLockToken(cToken, vertexIDWithRID.R.FileID)
+			}
+
+			pToken := i.locker.LockPage(
+				dstVertexFileToken,
+				vertexIDWithRID.R.PageID,
+				txns.PageLockShared,
+			)
+			if pToken == nil {
+				yieldErrorPair(fmt.Errorf("failed to lock page"), yield)
+				return
+			}
+
+			vertexPageIdent := vertexIDWithRID.R.PageIdentity()
+			pg, err := i.se.pool.GetPageNoCreate(vertexPageIdent)
+			if err != nil {
+				yieldErrorPair(err, yield)
+				return
+			}
+			vertexData := pg.LockedRead(vertexIDWithRID.R.SlotNum)
+			i.se.pool.Unpin(vertexPageIdent)
+
+			vertexMeta, err := i.se.GetVertexTableMetaByFileID(
+				vertexIDWithRID.R.FileID,
+				cToken,
+			)
+			if err != nil {
+				yieldErrorPair(err, yield)
+				return
+			}
+
+			vertexInternalFields, vertexFields, err := parseVertexRecord(
+				vertexData,
+				vertexMeta.Schema,
+			)
+			if err != nil {
+				yieldErrorPair(err, yield)
+				return
+			}
+
+			vertex := storage.Vertex{
+				VertexInternalFields: vertexInternalFields,
+				Data:                 vertexFields,
+			}
+
+			if !i.vertexFilter(&vertex) {
+				continue
+			}
+
+			vertexInfo := utils.Pair[storage.Vertex, error]{
+				First:  vertex,
+				Second: nil,
+			}
+
+			if !yield(vertexInfo) {
+				return
+			}
+		}
+	}
+}
+
+func (i *neighbourVertexIter) Close() error {
+	return nil
+}
+
+type tableScanIter struct {
+	se         *StorageEngine
+	tableToken *txns.FileLockToken
+	tableIndex storage.Index
+	logger     common.ITxnLoggerWithContext
 }
