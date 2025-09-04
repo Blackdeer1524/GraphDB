@@ -16,40 +16,45 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
+type tableType string
+
+const (
+	vertexTableType    tableType = "vertex"
+	edgeTableType      tableType = "edge"
+	directoryTableType tableType = "directory"
+)
+
 func GetVertexTableFilePath(basePath, vertTableName string) string {
-	return GetTableFilePath(basePath, "vertex", vertTableName)
+	return GetTableFilePath(basePath, vertexTableType, vertTableName)
 }
 
 func GetEdgeTableFilePath(basePath, edgeTableName string) string {
-	return GetTableFilePath(basePath, "edge", edgeTableName)
+	return GetTableFilePath(basePath, edgeTableType, edgeTableName)
 }
 
 func GetDirectoryTableFilePath(basePath string, vertexTableFileID common.FileID) string {
-	return GetTableFilePath(
-		basePath,
-		"directory",
-		systemcatalog.GetDirectoryTableName(vertexTableFileID),
-	)
+	dirTableName := systemcatalog.GetDirectoryTableName(vertexTableFileID)
+	return GetTableFilePath(basePath, directoryTableType, dirTableName)
 }
 
-func GetVertexIndexFilePath(basePath, indexName string) string {
-	return getIndexFilePath(basePath, "vertex", indexName)
+func GetVertexTableIndexFilePath(basePath, indexName string) string {
+	return getIndexFilePath(basePath, vertexTableType, indexName)
 }
 
-func GetEdgeIndexFilePath(basePath, indexName string) string {
-	return getIndexFilePath(basePath, "edge", indexName)
+func GetEdgeTableIndexFilePath(basePath, indexName string) string {
+	return getIndexFilePath(basePath, edgeTableType, indexName)
 }
 
-func getDirectoryIndexFilePath(basePath, indexName string) string {
-	return getIndexFilePath(basePath, "directory", indexName)
+func getDirTableIndexFilePath(basePath, indexName string) string {
+	return getIndexFilePath(basePath, directoryTableType, indexName)
 }
 
-func GetTableFilePath(basePath, tableType string, prefixedName string) string {
-	return filepath.Join(basePath, "tables", tableType, prefixedName+".tbl")
+func GetTableFilePath(basePath string, tableT tableType, prefixedName string) string {
+	return filepath.Join(basePath, "tables", string(tableT), prefixedName+".tbl")
 }
 
-func getIndexFilePath(basePath, indexType, prefixedName string) string {
-	return filepath.Join(basePath, "indexes", indexType, prefixedName+".idx")
+func getIndexFilePath(basePath string, indexType tableType, prefixedName string) string {
+	return filepath.Join(basePath, "indexes", string(indexType), prefixedName+".idx")
 }
 
 func getTableInternalIndexName(tableID common.FileID) string {
@@ -161,7 +166,7 @@ func (s *StorageEngine) CreateVertexTable(
 		return fmt.Errorf("unable to create internal vertex index: %w", err)
 	}
 
-	err = s.createDirectoryTable(txnID, tableFileID, cToken, logger)
+	err = s.createDirTable(txnID, tableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create directory table: %w", err)
 	}
@@ -170,7 +175,7 @@ func (s *StorageEngine) CreateVertexTable(
 	return nil
 }
 
-func (s *StorageEngine) createDirectoryTable(
+func (s *StorageEngine) createDirTable(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
 	_ *txns.CatalogLockToken,
@@ -205,7 +210,7 @@ func (s *StorageEngine) createDirectoryTable(
 	}()
 
 	// update info in metadata
-	tblCreateReq := storage.DirectoryTableMeta{
+	tblCreateReq := storage.DirTableMeta{
 		VertexTableID: vertexTableFileID,
 		FileID:        dirTableFileID,
 		PathToFile:    tableFilePath,
@@ -228,7 +233,7 @@ func (s *StorageEngine) createDirectoryTable(
 
 	s.diskMgr.InsertToFileMap(common.FileID(dirTableFileID), tableFilePath)
 
-	err = s.createInternalDirectoryIndex(txnID, vertexTableFileID, dirTableFileID, logger)
+	err = s.createInternalDirTableIndex(txnID, vertexTableFileID, dirTableFileID, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal directory index: %w", err)
 	}
@@ -329,7 +334,7 @@ func (s *StorageEngine) DropVertexTable(
 		return fmt.Errorf("unable to drop system index: %w", err)
 	}
 
-	err = s.dropDirectoryTable(txnID, vertTableMeta.FileID, logger)
+	err = s.dropDirTable(txnID, vertTableMeta.FileID, logger)
 	if err != nil {
 		return fmt.Errorf("unable to drop directory table: %w", err)
 	}
@@ -365,7 +370,7 @@ func (s *StorageEngine) DropEdgeTable(
 	return nil
 }
 
-func (s *StorageEngine) dropDirectoryTable(
+func (s *StorageEngine) dropDirTable(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
@@ -400,7 +405,7 @@ func (s *StorageEngine) CreateVertexIndex(
 	needToRollback := true
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
-	tableFilePath := GetVertexIndexFilePath(basePath, indexName)
+	tableFilePath := GetVertexTableIndexFilePath(basePath, indexName)
 	ok, err := s.catalog.VertexIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
@@ -476,7 +481,7 @@ func (s *StorageEngine) CreateEdgeIndex(
 	needToRollback := true
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
-	tableFilePath := GetEdgeIndexFilePath(basePath, indexName)
+	tableFilePath := GetEdgeTableIndexFilePath(basePath, indexName)
 	ok, err := s.catalog.EdgeIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
@@ -535,15 +540,15 @@ func (s *StorageEngine) createInternalEdgeIndex(
 	)
 }
 
-func (s *StorageEngine) GetVertexInternalIndex(
+func (s *StorageEngine) GetVertexTableInternalIndex(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.GetVertexIndex(txnID, getTableInternalIndexName(vertexTableFileID), logger)
+	return s.GetVertexTableIndex(txnID, getTableInternalIndexName(vertexTableFileID), logger)
 }
 
-func (s *StorageEngine) GetVertexIndex(
+func (s *StorageEngine) GetVertexTableIndex(
 	txnID common.TxnID,
 	indexName string,
 	logger common.ITxnLoggerWithContext,
@@ -571,15 +576,15 @@ func (s *StorageEngine) GetVertexIndex(
 	return s.indexLoader(indexMeta, s.locker, logger)
 }
 
-func (s *StorageEngine) GetEdgeInternalIndex(
+func (s *StorageEngine) GetEdgeTableInternalIndex(
 	txnID common.TxnID,
 	edgeTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.GetEdgeIndex(txnID, getTableInternalIndexName(edgeTableFileID), logger)
+	return s.GetEdgeTableIndex(txnID, getTableInternalIndexName(edgeTableFileID), logger)
 }
 
-func (s *StorageEngine) GetEdgeIndex(
+func (s *StorageEngine) GetEdgeTableIndex(
 	txnID common.TxnID,
 	indexName string,
 	logger common.ITxnLoggerWithContext,
@@ -607,15 +612,15 @@ func (s *StorageEngine) GetEdgeIndex(
 	return s.indexLoader(indexMeta, s.locker, logger)
 }
 
-func (s *StorageEngine) GetDirectoryInternalIndex(
+func (s *StorageEngine) GetDirTableInternalIndex(
 	txnID common.TxnID,
 	dirTableFileID common.FileID,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.getDirectoryIndex(txnID, getTableInternalIndexName(dirTableFileID), logger)
+	return s.getDirTableIndex(txnID, getTableInternalIndexName(dirTableFileID), logger)
 }
 
-func (s *StorageEngine) createDirectoryIndex(
+func (s *StorageEngine) createDirTableIndex(
 	txnID common.TxnID,
 	indexName string,
 	vertexTableFileID common.FileID,
@@ -632,7 +637,7 @@ func (s *StorageEngine) createDirectoryIndex(
 	needToRollback := true
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
-	tableFilePath := getDirectoryIndexFilePath(basePath, indexName)
+	tableFilePath := getDirTableIndexFilePath(basePath, indexName)
 	ok, err := s.catalog.DirectoryIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
@@ -673,7 +678,7 @@ func (s *StorageEngine) createDirectoryIndex(
 	return nil
 }
 
-func (s *StorageEngine) createInternalDirectoryIndex(
+func (s *StorageEngine) createInternalDirTableIndex(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
 	directoryTableFileID common.FileID,
@@ -681,7 +686,7 @@ func (s *StorageEngine) createInternalDirectoryIndex(
 ) error {
 	columns := []string{"ID"}
 	keyBytesCnt := uint32(unsafe.Sizeof(storage.DirItemID{}))
-	return s.createDirectoryIndex(
+	return s.createDirTableIndex(
 		txnID,
 		getTableInternalIndexName(directoryTableFileID),
 		vertexTableFileID,
@@ -691,7 +696,7 @@ func (s *StorageEngine) createInternalDirectoryIndex(
 	)
 }
 
-func (s *StorageEngine) getDirectoryIndex(
+func (s *StorageEngine) getDirTableIndex(
 	txnID common.TxnID,
 	indexName string,
 	logger common.ITxnLoggerWithContext,
@@ -717,30 +722,6 @@ func (s *StorageEngine) getDirectoryIndex(
 	}
 
 	return s.indexLoader(indexMeta, s.locker, logger)
-}
-
-func (s *StorageEngine) GetVertexTableInternalIndex(
-	txnID common.TxnID,
-	vertexTableFileID common.FileID,
-	logger common.ITxnLoggerWithContext,
-) (storage.Index, error) {
-	return s.GetVertexIndex(txnID, getTableInternalIndexName(vertexTableFileID), logger)
-}
-
-func (s *StorageEngine) GetEdgeTableInternalIndex(
-	txnID common.TxnID,
-	edgeTableID common.FileID,
-	logger common.ITxnLoggerWithContext,
-) (storage.Index, error) {
-	return s.GetEdgeIndex(txnID, getTableInternalIndexName(edgeTableID), logger)
-}
-
-func (s *StorageEngine) GetDirectoryTableInternalIndex(
-	txnID common.TxnID,
-	dirTableID common.FileID,
-	logger common.ITxnLoggerWithContext,
-) (storage.Index, error) {
-	return s.getDirectoryIndex(txnID, getTableInternalIndexName(dirTableID), logger)
 }
 
 func (s *StorageEngine) DropVertexTableIndex(
@@ -771,7 +752,7 @@ func (s *StorageEngine) DropEdgesTableIndex(
 	return s.catalog.DropEdgeIndex(indexName)
 }
 
-func (s *StorageEngine) dropDirectoryTableIndex(
+func (s *StorageEngine) dropDirTableIndex(
 	txnID common.TxnID,
 	indexName string,
 	logger common.ITxnLoggerWithContext,

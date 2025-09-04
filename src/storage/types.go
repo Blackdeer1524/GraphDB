@@ -256,43 +256,40 @@ type StorageEngine interface {
 }
 
 type SystemCatalog interface {
-	GetNewFileID() common.FileID
 	GetBasePath() string
+	GetNewFileID() common.FileID
+	GetFileIDToPathMap() map[common.FileID]string
 
-	GetVertexTableMeta(name string) (VertexTableMeta, error)
-	VertexTableExists(name string) (bool, error)
-	AddVertexTable(req VertexTableMeta) error
-	DropVertexTable(name string) error
-	GetVertexTableNameByFileID(fileID common.FileID) (string, error)
-
-	GetEdgeTableMeta(name string) (EdgeTableMeta, error)
-	EdgeTableExists(name string) (bool, error)
+	AddDirIndex(index IndexMeta) error
+	AddDirTable(req DirTableMeta) error
+	AddEdgeIndex(index IndexMeta) error
 	AddEdgeTable(req EdgeTableMeta) error
-	DropEdgeTable(name string) error
-	GetEdgeTableNameByFileID(fileID common.FileID) (string, error)
-
-	GetDirectoryTableMeta(vertexTableFileID common.FileID) (DirectoryTableMeta, error)
-	DirectoryTableExists(vertexTableFileID common.FileID) (bool, error)
-	AddDirectoryTable(req DirectoryTableMeta) error
-	DropDirectoryTable(vertexTableFileID common.FileID) error
-
-	AddVertexIndex(req IndexMeta) error
-	DropVertexIndex(name string) error
-	GetVertexIndexMeta(name string) (IndexMeta, error)
-	VertexIndexExists(name string) (bool, error)
-
-	AddEdgeIndex(req IndexMeta) error
+	AddVertexIndex(index IndexMeta) error
+	AddVertexTable(req VertexTableMeta) error
+	DirIndexExists(name string) (bool, error)
+	DirTableExists(vertexTableID common.FileID) (bool, error)
+	DropDirIndex(name string) error
+	DropDirTable(vertexTableID common.FileID) error
 	DropEdgeIndex(name string) error
+	DropEdgeTable(name string) error
+	DropVertexIndex(name string) error
+	DropVertexTable(name string) error
 	EdgeIndexExists(name string) (bool, error)
+	EdgeTableExists(name string) (bool, error)
+	GetDirIndexMeta(name string) (IndexMeta, error)
+	GetDirTableMeta(vertexTableID common.FileID) (DirTableMeta, error)
 	GetEdgeIndexMeta(name string) (IndexMeta, error)
+	GetEdgeTableIndexes(name string) ([]IndexMeta, error)
+	GetEdgeTableMeta(name string) (EdgeTableMeta, error)
+	GetEdgeTableNameByFileID(fileID common.FileID) (string, error)
+	GetVertexIndexMeta(name string) (IndexMeta, error)
+	GetVertexTableIndexes(name string) ([]IndexMeta, error)
+	GetVertexTableMeta(name string) (VertexTableMeta, error)
+	GetVertexTableNameByFileID(fileID common.FileID) (string, error)
+	VertexIndexExists(name string) (bool, error)
+	VertexTableExists(name string) (bool, error)
 
-	AddDirectoryIndex(req IndexMeta) error
-	DropDirectoryIndex(name string) error
-	DirectoryIndexExists(name string) (bool, error)
-	GetDirectoryIndexMeta(name string) (IndexMeta, error)
-
-	Save(logger common.ITxnLoggerWithContext) error
-	CurrentVersion() uint64
+	Save(logger common.ITxnLoggerWithContext) (err error)
 }
 
 type Index interface {

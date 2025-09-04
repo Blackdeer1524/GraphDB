@@ -68,8 +68,8 @@ func NewNilCatalogLockToken(txnID common.TxnID) *CatalogLockToken {
 	}
 }
 
-func (t *CatalogLockToken) IsNil() bool {
-	return !t.wasSetUp
+func (t *CatalogLockToken) WasSetUp() bool {
+	return t.wasSetUp
 }
 
 func NewCatalogLockToken(
@@ -84,7 +84,7 @@ func NewCatalogLockToken(
 }
 
 func (t *CatalogLockToken) String() string {
-	if t.IsNil() {
+	if !t.WasSetUp() {
 		return "CatalogLockToken{nil}"
 	}
 	return fmt.Sprintf("CatalogLockToken{txnID: %v, lockMode: %s}", t.txnID, t.lockMode)
@@ -101,6 +101,8 @@ type FileLockToken struct {
 }
 
 func NewNilFileLockToken(ct *CatalogLockToken, fileID common.FileID) *FileLockToken {
+	assert.Assert(ct != nil, "catalog lock token shouldn't be nil")
+
 	return &FileLockToken{
 		wasSetUp: false,
 		txnID:    ct.txnID,
@@ -122,6 +124,10 @@ func (f *FileLockToken) GetFileID() common.FileID {
 	return f.fileID
 }
 
+func (f *FileLockToken) GetCatalogLockToken() *CatalogLockToken {
+	return f.ct
+}
+
 func (t *FileLockToken) String() string {
 	if t.IsNil() {
 		return "FileLockToken{nil}"
@@ -139,6 +145,8 @@ func newFileLockToken(
 	lockMode GranularLockMode,
 	ct *CatalogLockToken,
 ) *FileLockToken {
+	assert.Assert(ct != nil, "catalog lock token shouldn't be nil")
+
 	return &FileLockToken{
 		wasSetUp: true,
 		txnID:    ct.txnID,
@@ -176,6 +184,8 @@ func (t *PageLockToken) String() string {
 }
 
 func NewNilPageLockToken(ft *FileLockToken, pageIdent common.PageIdentity) *PageLockToken {
+	assert.Assert(ft != nil, "file lock token shouldn't be nil")
+
 	return &PageLockToken{
 		wasSetUp: false,
 		txnID:    ft.txnID,
@@ -190,6 +200,8 @@ func NewPageLockToken(
 	lockMode PageLockMode,
 	ft *FileLockToken,
 ) *PageLockToken {
+	assert.Assert(ft != nil, "file lock token shouldn't be nil")
+
 	return &PageLockToken{
 		wasSetUp: true,
 		txnID:    ft.txnID,
@@ -306,7 +318,7 @@ func (l *LockManager) UpgradeCatalogLock(
 		objectId: struct{}{},
 		lockMode: lockMode,
 	}
-	if t.IsNil() {
+	if !t.WasSetUp() {
 		ct := l.LockCatalog(t.txnID, lockMode)
 		if ct == nil {
 			return false

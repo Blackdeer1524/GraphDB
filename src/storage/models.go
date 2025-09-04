@@ -60,17 +60,17 @@ func (v *EdgeTableMeta) Copy() EdgeTableMeta {
 	}
 }
 
-type DirectoryTableMeta struct {
-	VertexTableID     common.FileID `json:"vertex_table_id"`
-	FileID            common.FileID `json:"file_id"`
-	PathToFile        string        `json:"path_to_file"`
+type DirTableMeta struct {
+	VertexTableID common.FileID `json:"vertex_table_id"`
+	FileID        common.FileID `json:"file_id"`
+	PathToFile    string        `json:"path_to_file"`
 }
 
-func (d *DirectoryTableMeta) Copy() DirectoryTableMeta {
-	return DirectoryTableMeta{
-		VertexTableID:     d.VertexTableID,
-		FileID:            d.FileID,
-		PathToFile:        d.PathToFile,
+func (d *DirTableMeta) Copy() DirTableMeta {
+	return DirTableMeta{
+		VertexTableID: d.VertexTableID,
+		FileID:        d.FileID,
+		PathToFile:    d.PathToFile,
 	}
 }
 

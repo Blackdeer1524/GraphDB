@@ -24,6 +24,8 @@ func newEdgesIter(
 	edgeFileToken *txns.FileLockToken,
 	edgesIndex storage.Index,
 ) (*edgesIter, error) {
+	assert.Assert(!startEdgeID.IsNil(), "start edge ID shouldn't be nil")
+
 	if !se.locker.UpgradeFileLock(edgeFileToken, txns.GranularLockShared) {
 		return nil, fmt.Errorf("failed to upgrade file lock")
 	}
@@ -38,7 +40,9 @@ func newEdgesIter(
 }
 
 func (e *edgesIter) getAndMoveForward() (bool, storage.EdgeInternalFields, error) {
-	rid, err := e.se.GetEdgeRID(e.edgeFileToken.GetTxnID(), e.curEdgeID, e.edgesIndex)
+	assert.Assert(!e.curEdgeID.IsNil(), "current edge ID shouldn't be nil")
+
+	rid, err := GetEdgeRID(e.edgeFileToken.GetTxnID(), e.curEdgeID, e.edgesIndex)
 	if err != nil {
 		return false, storage.EdgeInternalFields{}, err
 	}
@@ -48,18 +52,18 @@ func (e *edgesIter) getAndMoveForward() (bool, storage.EdgeInternalFields, error
 	if err != nil {
 		return false, storage.EdgeInternalFields{}, err
 	}
-	defer e.se.pool.Unpin(pageIdent)
-
 	edgeData := pg.LockedRead(rid.R.SlotNum)
+	e.se.pool.Unpin(pageIdent)
+
 	edgeInternalFields, _, err := parseEdgeRecordHeader(edgeData)
 	if err != nil {
 		return false, storage.EdgeInternalFields{}, err
 	}
 
-	if edgeInternalFields.NextEdgeID.IsNil() {
+	e.curEdgeID = edgeInternalFields.NextEdgeID
+	if e.curEdgeID.IsNil() {
 		return false, edgeInternalFields, nil
 	}
-	e.curEdgeID = edgeInternalFields.NextEdgeID
 	return true, edgeInternalFields, nil
 }
 
@@ -68,28 +72,21 @@ func (e *edgesIter) Seq() iter.Seq[utils.Pair[storage.EdgeInternalFields, error]
 		for {
 			hasMore, edgeInternals, err := e.getAndMoveForward()
 			if err != nil {
-				yield(
-					utils.Pair[storage.EdgeInternalFields, error]{
-						First:  storage.EdgeInternalFields{},
-						Second: err,
-					},
-				)
+				errItem := utils.Pair[storage.EdgeInternalFields, error]{
+					First:  storage.EdgeInternalFields{},
+					Second: err,
+				}
+				yield(errItem)
 				return
 			}
 
+			item := utils.Pair[storage.EdgeInternalFields, error]{First: edgeInternals, Second: nil}
 			if !hasMore {
-				yield(
-					utils.Pair[storage.EdgeInternalFields, error]{
-						First:  edgeInternals,
-						Second: nil,
-					},
-				)
+				yield(item)
 				return
 			}
 
-			if !yield(
-				utils.Pair[storage.EdgeInternalFields, error]{First: edgeInternals, Second: nil},
-			) {
+			if !yield(item) {
 				break
 			}
 		}
@@ -109,6 +106,7 @@ func newDirItemsIter(
 	dirFileToken *txns.FileLockToken,
 	dirIndex storage.Index,
 ) (*dirItemsIter, error) {
+	assert.Assert(!startDirItemID.IsNil(), "start directory item ID shouldn't be nil")
 	if !se.locker.UpgradeFileLock(dirFileToken, txns.GranularLockShared) {
 		return nil, fmt.Errorf("failed to upgrade file lock")
 	}
@@ -123,8 +121,9 @@ func newDirItemsIter(
 }
 
 func (d *dirItemsIter) getAndMoveForward() (bool, storage.DirectoryItem, error) {
-	assert.Assert(!d.curDirItemID.IsNil(), "current directory item ID is nil")
-	rid, err := d.se.GetDirectoryRID(d.dirFileToken.GetTxnID(), d.curDirItemID, d.dirIndex)
+	assert.Assert(!d.curDirItemID.IsNil(), "current directory item ID shouldn't be nil")
+
+	rid, err := GetDirectoryRID(d.dirFileToken.GetTxnID(), d.curDirItemID, d.dirIndex)
 	if err != nil {
 		return false, storage.DirectoryItem{}, err
 	}
@@ -134,9 +133,9 @@ func (d *dirItemsIter) getAndMoveForward() (bool, storage.DirectoryItem, error) 
 	if err != nil {
 		return false, storage.DirectoryItem{}, err
 	}
-	defer d.se.pool.Unpin(pageIdent)
-
 	dirItemData := pg.LockedRead(rid.R.SlotNum)
+	d.se.pool.Unpin(pageIdent)
+
 	dirItem, err := parseDirectoryRecord(dirItemData)
 	if err != nil {
 		return false, storage.DirectoryItem{}, err
@@ -154,12 +153,11 @@ func (d *dirItemsIter) Seq() iter.Seq[utils.Pair[storage.DirectoryItem, error]] 
 		for {
 			hasMore, dirItem, err := d.getAndMoveForward()
 			if err != nil {
-				yield(
-					utils.Pair[storage.DirectoryItem, error]{
-						First:  storage.DirectoryItem{},
-						Second: err,
-					},
-				)
+				errItem := utils.Pair[storage.DirectoryItem, error]{
+					First:  storage.DirectoryItem{},
+					Second: err,
+				}
+				yield(errItem)
 				return
 			}
 
@@ -240,12 +238,12 @@ func (i *vertexNeighboursIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID
 		}
 	}
 
-	dirTableMeta, err := i.se.catalog.GetDirectoryTableMeta(i.vertTableToken.GetFileID())
+	dirTableMeta, err := i.se(i.vertTableToken.GetFileID())
 	if err != nil {
 		return iterWithError[storage.VertexIDWithRID](err)
 	}
 
-	dirIndex, err := i.se.GetDirectoryInternalIndex(
+	dirIndex, err := i.se.GetDirTableInternalIndex(
 		i.vertTableToken.GetTxnID(),
 		dirTableMeta.FileID,
 		i.logger,
@@ -302,8 +300,8 @@ func (i *vertexNeighboursIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID
 				yield(errItem)
 				return
 			}
-			
-			edgeTableName, err := i.se.catalog.GetEdgeTableNameByFileID(dirItem.EdgeFileID)
+
+			edgesTableName, err := i.se.catalog.GetEdgeTableNameByFileID(dirItem.EdgeFileID)
 			if err != nil {
 				errItem := utils.Pair[storage.VertexIDWithRID, error]{
 					First:  storage.VertexIDWithRID{},
@@ -312,8 +310,30 @@ func (i *vertexNeighboursIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID
 				yield(errItem)
 				return
 			}
-			
-			panic("TODO")
+
+			edgesTableMeta, err := i.se.catalog.GetEdgeTableMeta(edgesTableName)
+			if err != nil {
+				errItem := utils.Pair[storage.VertexIDWithRID, error]{
+					First:  storage.VertexIDWithRID{},
+					Second: err,
+				}
+				yield(errItem)
+				return
+			}
+
+			dstVertexIndex, err := i.se.GetVertexInternalIndex(
+				i.vertTableToken.GetTxnID(),
+				edgesTableMeta.DstVertexFileID,
+				i.logger,
+			)
+			if err != nil {
+				errItem := utils.Pair[storage.VertexIDWithRID, error]{
+					First:  storage.VertexIDWithRID{},
+					Second: err,
+				}
+				yield(errItem)
+				return
+			}
 
 			edgesIter, err := newEdgesIter(i.se, dirItem.EdgeID, edgesFileToken, edgesIndex)
 			if err != nil {
@@ -339,7 +359,7 @@ func (i *vertexNeighboursIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID
 				dstVertexRID, err := GetVertexRID(
 					i.vertTableToken.GetTxnID(),
 					edgesInternals.DstVertexID,
-					,
+					dstVertexIndex,
 				)
 				if err != nil {
 					errItem := utils.Pair[storage.VertexIDWithRID, error]{
@@ -358,7 +378,6 @@ func (i *vertexNeighboursIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID
 					return
 				}
 			}
-
 		}
 	}
 }
