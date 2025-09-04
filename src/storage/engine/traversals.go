@@ -61,9 +61,22 @@ func (s *StorageEngine) CountOfFilteredEdges(
 
 func (s *StorageEngine) GetAllVertices(
 	t common.TxnID,
-	vertTableID common.FileID,
+	vertTableToken *txns.FileLockToken,
 ) (storage.VerticesIter, error) {
-	panic("unimplemented")
+	cToken := vertTableToken.GetCatalogLockToken()
+	vertTableMeta, err := s.GetVertexTableMetaByFileID(vertTableToken.GetFileID(), cToken)
+	if err != nil {
+		return nil, err
+	}
+
+	iter := newTableScanIter(
+		s,
+		s.pool,
+		vertTableToken,
+		vertTableMeta.Schema,
+		s.locker,
+	)
+	return iter, nil
 }
 
 func (s *StorageEngine) GetNeighborsWithEdgeFilter(
@@ -74,15 +87,17 @@ func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 	edgeFilter storage.EdgeFilter,
 	logger common.ITxnLoggerWithContext,
 ) (storage.VerticesIter, error) {
-	return newNeighbourVertexIter(
+	iter := newNeighbourVertexIter(
 		s,
 		v,
 		vertTableToken,
 		vertIndex,
 		storage.AllowAllVerticesFilter,
 		edgeFilter,
+		s.locker,
 		logger,
-	), nil
+	)
+	return iter, nil
 }
 
 func (s *StorageEngine) Neighbours(

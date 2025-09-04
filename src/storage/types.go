@@ -163,7 +163,7 @@ type Vertex struct {
 }
 
 type VerticesIter interface {
-	Seq() iter.Seq[utils.Pair[Vertex, error]]
+	Seq() iter.Seq[utils.Triple[common.RecordID, Vertex, error]]
 	Close() error
 }
 

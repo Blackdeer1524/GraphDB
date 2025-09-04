@@ -1,13 +1,16 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"iter"
 
+	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
@@ -515,8 +518,8 @@ func newNeighbourVertexIter(
 	return iter
 }
 
-func (i *neighbourVertexIter) Seq() iter.Seq[utils.Pair[storage.Vertex, error]] {
-	return func(yield func(utils.Pair[storage.Vertex, error]) bool) {
+func (i *neighbourVertexIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Vertex, error]] {
+	return func(yield func(utils.Triple[common.RecordID, storage.Vertex, error]) bool) {
 		neighbourVertexIDsIter := newNeighbourVertexIDsIter(
 			i.se,
 			i.vID,
@@ -532,12 +535,20 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Pair[storage.Vertex, error]] 
 		for vertexIDWithRIDErr := range neighbourVertexIDsIter.Seq() {
 			vertexIDWithRID, err := vertexIDWithRIDErr.Destruct()
 			if err != nil {
-				yieldErrorPair(err, yield)
+				yieldErrorTripple(err, yield)
 				return
 			}
 			if vertexIDWithRID.R.FileID != lastVertexFileID {
 				lastVertexFileID = vertexIDWithRID.R.FileID
-				dstVertexFileToken = txns.NewNilFileLockToken(cToken, vertexIDWithRID.R.FileID)
+				dstVertexFileToken = i.locker.LockFile(
+					cToken,
+					vertexIDWithRID.R.FileID,
+					txns.GranularLockShared,
+				)
+				if dstVertexFileToken == nil {
+					yieldErrorTripple(fmt.Errorf("failed to lock file"), yield)
+					return
+				}
 			}
 
 			pToken := i.locker.LockPage(
@@ -545,15 +556,15 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Pair[storage.Vertex, error]] 
 				vertexIDWithRID.R.PageID,
 				txns.PageLockShared,
 			)
-			if pToken == nil {
-				yieldErrorPair(fmt.Errorf("failed to lock page"), yield)
-				return
-			}
+			assert.Assert(
+				pToken != nil,
+				"should have locked the page (the file is locked in the shared mode)",
+			)
 
 			vertexPageIdent := vertexIDWithRID.R.PageIdentity()
 			pg, err := i.se.pool.GetPageNoCreate(vertexPageIdent)
 			if err != nil {
-				yieldErrorPair(err, yield)
+				yieldErrorTripple(err, yield)
 				return
 			}
 			vertexData := pg.LockedRead(vertexIDWithRID.R.SlotNum)
@@ -564,7 +575,7 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Pair[storage.Vertex, error]] 
 				cToken,
 			)
 			if err != nil {
-				yieldErrorPair(err, yield)
+				yieldErrorTripple(err, yield)
 				return
 			}
 
@@ -573,7 +584,7 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Pair[storage.Vertex, error]] 
 				vertexMeta.Schema,
 			)
 			if err != nil {
-				yieldErrorPair(err, yield)
+				yieldErrorTripple(err, yield)
 				return
 			}
 
@@ -586,9 +597,10 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Pair[storage.Vertex, error]] 
 				continue
 			}
 
-			vertexInfo := utils.Pair[storage.Vertex, error]{
-				First:  vertex,
-				Second: nil,
+			vertexInfo := utils.Triple[common.RecordID, storage.Vertex, error]{
+				First:  vertexIDWithRID.R,
+				Second: vertex,
+				Third:  nil,
 			}
 
 			if !yield(vertexInfo) {
@@ -603,8 +615,109 @@ func (i *neighbourVertexIter) Close() error {
 }
 
 type tableScanIter struct {
-	se         *StorageEngine
-	tableToken *txns.FileLockToken
-	tableIndex storage.Index
-	logger     common.ITxnLoggerWithContext
+	se          *StorageEngine
+	pool        bufferpool.BufferPool
+	tableToken  *txns.FileLockToken
+	tableSchema storage.Schema
+	locker      *txns.LockManager
+}
+
+var _ storage.VerticesIter = &tableScanIter{}
+
+func newTableScanIter(
+	se *StorageEngine,
+	pool bufferpool.BufferPool,
+	tableToken *txns.FileLockToken,
+	tableSchema storage.Schema,
+	locker *txns.LockManager,
+) *tableScanIter {
+	return &tableScanIter{
+		se:          se,
+		pool:        pool,
+		tableToken:  tableToken,
+		tableSchema: tableSchema,
+		locker:      locker,
+	}
+}
+
+func (iter *tableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Vertex, error]] {
+	return func(yield func(utils.Triple[common.RecordID, storage.Vertex, error]) bool) {
+		if !iter.locker.UpgradeFileLock(iter.tableToken, txns.GranularLockShared) {
+			yieldErrorTripple(fmt.Errorf("failed to upgrade file lock"), yield)
+			return
+		}
+
+		pageID := uint64(0)
+		for {
+			pageIdent := common.PageIdentity{
+				FileID: iter.tableToken.GetFileID(),
+				PageID: common.PageID(pageID),
+			}
+
+			pToken := iter.locker.LockPage(
+				iter.tableToken,
+				common.PageID(pageID),
+				txns.PageLockShared,
+			)
+			assert.Assert(
+				pToken != nil,
+				"should have locked the page (the table is locked in the shared mode)",
+			)
+
+			pg, err := iter.pool.GetPageNoCreate(pageIdent)
+			if err != nil {
+				if !errors.Is(err, disk.ErrNoSuchPage) {
+					yieldErrorTripple(err, yield)
+				}
+				return
+			}
+
+			continueFlag, err := func() (bool, error) {
+				pg.RLock()
+				defer pg.RUnlock()
+				recordID := common.RecordID{
+					FileID:  pageIdent.FileID,
+					PageID:  pageIdent.PageID,
+					SlotNum: 0,
+				}
+				for i := uint16(0); i < pg.NumSlots(); i++ {
+					data := pg.UnsafeRead(i)
+					vertexInternalFields, vertexFields, err := parseVertexRecord(
+						data,
+						iter.tableSchema,
+					)
+					if err != nil {
+						return false, err
+					}
+					vertex := storage.Vertex{
+						VertexInternalFields: vertexInternalFields,
+						Data:                 vertexFields,
+					}
+
+					recordID.SlotNum = i
+					item := utils.Triple[common.RecordID, storage.Vertex, error]{
+						First:  recordID,
+						Second: vertex,
+						Third:  nil,
+					}
+					if !yield(item) {
+						return false, nil
+					}
+				}
+				return true, nil
+			}()
+			if err != nil {
+				yieldErrorTripple(err, yield)
+				return
+			}
+			if !continueFlag {
+				return
+			}
+			pageID++
+		}
+	}
+}
+
+func (iter *tableScanIter) Close() error {
+	return nil
 }
