@@ -25,6 +25,16 @@ func (p Pair[T, K]) Destruct() (T, K) {
 	return p.First, p.Second
 }
 
+type Triple[T, K, V any] struct {
+	First  T
+	Second K
+	Third  V
+}
+
+func (t Triple[T, K, V]) Destruct() (T, K, V) {
+	return t.First, t.Second, t.Third
+}
+
 func ToBytes[T any](v T) []byte {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.BigEndian, v)

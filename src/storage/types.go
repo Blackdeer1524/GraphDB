@@ -94,7 +94,7 @@ type NeighborIter interface {
 }
 
 type NeighborEdgesIter interface {
-	Seq() iter.Seq[utils.Pair[EdgeIDWithRID, error]]
+	Seq() iter.Seq[utils.Triple[common.RecordID, Edge, error]]
 	Close() error
 }
 
