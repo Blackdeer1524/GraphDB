@@ -49,8 +49,8 @@ func getDirTableIndexFilePath(basePath, indexName string) string {
 	return getIndexFilePath(basePath, directoryTableType, indexName)
 }
 
-func GetTableFilePath(basePath string, tableT tableType, prefixedName string) string {
-	return filepath.Join(basePath, "tables", string(tableT), prefixedName+".tbl")
+func GetTableFilePath(basePath string, tableType tableType, prefixedName string) string {
+	return filepath.Join(basePath, "tables", string(tableType), prefixedName+".tbl")
 }
 
 func getIndexFilePath(basePath string, indexType tableType, prefixedName string) string {
@@ -122,7 +122,7 @@ func (s *StorageEngine) CreateVertexTable(
 	tableFileID := s.catalog.GetNewFileID()
 
 	// Existence of the file is not the proof of existence of the table
-	// (we don't remove file on drop), and it is why we do not check if 
+	// (we don't remove file on drop), and it is why we do not check if
 	// the table exists in file system.
 	ok, err := s.catalog.VertexTableExists(tableName)
 	if err != nil {
@@ -155,7 +155,7 @@ func (s *StorageEngine) CreateVertexTable(
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
-	err = s.createInternalVertexIndex(txnID, tableName, tableFileID, cToken, logger)
+	err = s.createInternalVertexTableIndex(txnID, tableName, tableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal vertex index: %w", err)
 	}
@@ -403,7 +403,7 @@ func (s *StorageEngine) dropDirTable(
 	return nil
 }
 
-func (s *StorageEngine) CreateVertexIndex(
+func (s *StorageEngine) CreateVertexTableIndex(
 	txnID common.TxnID,
 	indexName string,
 	tableName string,
@@ -458,7 +458,7 @@ func (s *StorageEngine) CreateVertexIndex(
 	return nil
 }
 
-func (s *StorageEngine) createInternalVertexIndex(
+func (s *StorageEngine) createInternalVertexTableIndex(
 	txnID common.TxnID,
 	tableName string,
 	vertexTableFileID common.FileID,
@@ -467,7 +467,7 @@ func (s *StorageEngine) createInternalVertexIndex(
 ) error {
 	columns := []string{"ID"}
 	keyBytesCnt := uint32(unsafe.Sizeof(storage.VertexID{}))
-	return s.CreateVertexIndex(
+	return s.CreateVertexTableIndex(
 		txnID,
 		getTableInternalIndexName(vertexTableFileID),
 		tableName,
@@ -478,7 +478,7 @@ func (s *StorageEngine) createInternalVertexIndex(
 	)
 }
 
-func (s *StorageEngine) CreateEdgeIndex(
+func (s *StorageEngine) CreateEdgeTableIndex(
 	txnID common.TxnID,
 	indexName string,
 	tableName string,
@@ -533,7 +533,7 @@ func (s *StorageEngine) CreateEdgeIndex(
 	return nil
 }
 
-func (s *StorageEngine) createInternalEdgeIndex(
+func (s *StorageEngine) createInternalEdgeTableIndex(
 	txnID common.TxnID,
 	tableName string,
 	edgeTableFileID common.FileID,
@@ -542,7 +542,7 @@ func (s *StorageEngine) createInternalEdgeIndex(
 ) error {
 	columns := []string{"ID"}
 	keyBytesCnt := uint32(unsafe.Sizeof(storage.EdgeID{}))
-	return s.CreateEdgeIndex(
+	return s.CreateEdgeTableIndex(
 		txnID,
 		getTableInternalIndexName(edgeTableFileID),
 		tableName,
@@ -783,7 +783,7 @@ func (s *StorageEngine) DropVertexTableIndex(
 	return nil
 }
 
-func (s *StorageEngine) DropEdgesTableIndex(
+func (s *StorageEngine) DropEdgeTableIndex(
 	txnID common.TxnID,
 	indexName string,
 	cToken *txns.CatalogLockToken,

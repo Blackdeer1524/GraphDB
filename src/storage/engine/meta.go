@@ -38,7 +38,7 @@ func (s *StorageEngine) GetDirectoryTableMeta(
 		err := fmt.Errorf("failed to upgrade catalog lock")
 		return storage.DirTableMeta{}, err
 	}
-	return s.catalog.GetDirectoryTableMeta(vertexTableFileID)
+	return s.catalog.GetDirTableMeta(vertexTableFileID)
 }
 
 func (s *StorageEngine) GetVertexIndexMeta(
@@ -85,7 +85,7 @@ func (s *StorageEngine) GetEdgeInternalIndexMeta(
 	return s.catalog.GetEdgeIndexMeta(getTableInternalIndexName(edgeTableFileID))
 }
 
-func (s *StorageEngine) GetDirectoryInternalIndexMeta(
+func (s *StorageEngine) GetDirInternalIndexMeta(
 	dirTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
@@ -95,5 +95,5 @@ func (s *StorageEngine) GetDirectoryInternalIndexMeta(
 	}
 
 	indexName := getTableInternalIndexName(dirTableFileID)
-	return s.catalog.GetDirectoryIndexMeta(indexName)
+	return s.catalog.GetDirIndexMeta(indexName)
 }

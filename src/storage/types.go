@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 type VertexID uuid.UUID
@@ -87,7 +89,12 @@ func (v *VertexIDWithRID) UnmarshalBinary(data []byte) error {
 var ErrQueueEmpty = errors.New("queue is empty")
 
 type NeighborIter interface {
-	Seq() iter.Seq[VertexIDWithRID]
+	Seq() iter.Seq[utils.Pair[VertexIDWithRID, error]]
+	Close() error
+}
+
+type NeighborEdgesIter interface {
+	Seq() iter.Seq[utils.Pair[EdgeIDWithRID, error]]
 	Close() error
 }
 
@@ -191,68 +198,82 @@ type StorageEngine interface {
 		filter EdgeFilter,
 	) (VerticesIter, error)
 
-	GetVertexRID(txnID common.TxnID, vertexID VertexID, vertexIndex Index) (VertexIDWithRID, error)
-	GetEdgeRID(txnID common.TxnID, edgeID EdgeID, edgeIndex Index) (EdgeIDWithRID, error)
-
-	CreateVertexTable(
-		txnID common.TxnID,
-		name string,
-		schema Schema,
-		logger common.ITxnLoggerWithContext,
-	) error
-	GetVertexTableInternalIndex(
-		txnID common.TxnID,
-		vertexTableID common.FileID,
-		logger common.ITxnLoggerWithContext,
-	) (Index, error)
-	DropVertexTable(txnID common.TxnID, name string, logger common.ITxnLoggerWithContext) error
-
 	CreateEdgeTable(
 		txnID common.TxnID,
 		name string,
 		schema Schema,
+		srcVertexTableFileID common.FileID,
+		dstVertexTableFileID common.FileID,
+		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) error
-	GetEdgeTableInternalIndex(
-		txnID common.TxnID,
-		edgeTableID common.FileID,
-		logger common.ITxnLoggerWithContext,
-	) (Index, error)
-	DropEdgeTable(txnID common.TxnID, name string, logger common.ITxnLoggerWithContext) error
-
-	GetDirectoryIndex(
+	CreateEdgeTableIndex(
 		txnID common.TxnID,
 		indexName string,
+		tableName string,
+		columns []string,
+		keyBytesCnt uint32,
+		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
-	) (Index, error)
-
+	) error
+	CreateVertexTable(
+		txnID common.TxnID,
+		name string,
+		schema Schema,
+		cToken *txns.CatalogLockToken,
+		logger common.ITxnLoggerWithContext,
+	) error
 	CreateVertexTableIndex(
 		txnID common.TxnID,
 		indexName string,
 		tableName string,
 		columns []string,
 		keyBytesCnt uint32,
+		cToken *txns.CatalogLockToken,
+		logger common.ITxnLoggerWithContext,
+	) error
+	DropEdgeTable(
+		txnID common.TxnID,
+		name string,
+		cToken *txns.CatalogLockToken,
+		logger common.ITxnLoggerWithContext,
+	) error
+	DropEdgeTableIndex(
+		txnID common.TxnID,
+		indexName string,
+		cToken *txns.CatalogLockToken,
+		logger common.ITxnLoggerWithContext,
+	) error
+	DropVertexTable(
+		txnID common.TxnID,
+		name string,
+		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) error
 	DropVertexTableIndex(
 		txnID common.TxnID,
 		indexName string,
+		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) error
-
-	CreateEdgesTableIndex(
+	GetDirTableInternalIndex(
 		txnID common.TxnID,
-		indexName string,
-		tableName string,
-		columns []string,
-		keyBytesCnt uint32,
+		dirTableFileID common.FileID,
+		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
-	) error
-	DropEdgesTableIndex(
+	) (Index, error)
+	GetEdgeTableInternalIndex(
 		txnID common.TxnID,
-		indexName string,
+		edgeTableID common.FileID,
+		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
-	) error
+	) (Index, error)
+	GetVertexTableInternalIndex(
+		txnID common.TxnID,
+		vertexTableID common.FileID,
+		cToken *txns.CatalogLockToken,
+		logger common.ITxnLoggerWithContext,
+	) (Index, error)
 }
 
 type SystemCatalog interface {

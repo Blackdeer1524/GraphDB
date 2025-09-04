@@ -60,7 +60,10 @@ func (s *StorageEngine) CountOfFilteredEdges(
 }
 
 // GetAllVertices implements storage.StorageEngine.
-func (s *StorageEngine) GetAllVertices(t common.TxnID) (storage.VerticesIter, error) {
+func (s *StorageEngine) GetAllVertices(
+	t common.TxnID,
+	vertTableID common.FileID,
+) (storage.VerticesIter, error) {
 	panic("unimplemented")
 }
 
@@ -81,8 +84,7 @@ func (s *StorageEngine) Neighbours(
 	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
 ) (storage.NeighborIter, error) {
-	iter := newVertexNeighboursIter(s, vID, vertTableToken, vertIndex, logger)
-
+	return newVertexNeighboursIter(s, vID, vertTableToken, vertIndex, logger), nil
 }
 
 var _ storage.StorageEngine = &StorageEngine{}

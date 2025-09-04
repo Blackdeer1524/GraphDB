@@ -307,7 +307,7 @@ func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Manager, erro
 	}, nil
 }
 
-func (m *Manager) Begin() error {
+func (m *Manager) Load() error {
 	m.mu.RLock()
 	versionNum := utils.FromBytes[uint64](m.currentVersionPage.LockedRead(catalogVersionSlotNum))
 	if m.currentVersion == versionNum && !m.isDirty {
