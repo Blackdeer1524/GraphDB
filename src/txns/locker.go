@@ -90,6 +90,10 @@ func (t *CatalogLockToken) String() string {
 	return fmt.Sprintf("CatalogLockToken{txnID: %v, lockMode: %s}", t.txnID, t.lockMode)
 }
 
+func (t *CatalogLockToken) GetTxnID() common.TxnID {
+	return t.txnID
+}
+
 type FileLockToken struct {
 	wasSetUp bool
 

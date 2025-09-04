@@ -16,6 +16,12 @@ func (s *StorageEngine) GetVertexTableMeta(
 		err := fmt.Errorf("failed to upgrade catalog lock")
 		return storage.VertexTableMeta{}, err
 	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.VertexTableMeta{}, err
+	}
+
 	return s.catalog.GetVertexTableMeta(name)
 }
 
@@ -27,10 +33,16 @@ func (s *StorageEngine) GetEdgeTableMeta(
 		err := fmt.Errorf("failed to upgrade catalog lock")
 		return storage.EdgeTableMeta{}, err
 	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.EdgeTableMeta{}, err
+	}
+
 	return s.catalog.GetEdgeTableMeta(name)
 }
 
-func (s *StorageEngine) GetDirectoryTableMeta(
+func (s *StorageEngine) GetDirTableMeta(
 	cToken *txns.CatalogLockToken,
 	vertexTableFileID common.FileID,
 ) (storage.DirTableMeta, error) {
@@ -38,10 +50,16 @@ func (s *StorageEngine) GetDirectoryTableMeta(
 		err := fmt.Errorf("failed to upgrade catalog lock")
 		return storage.DirTableMeta{}, err
 	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.DirTableMeta{}, err
+	}
+
 	return s.catalog.GetDirTableMeta(vertexTableFileID)
 }
 
-func (s *StorageEngine) GetVertexIndexMeta(
+func (s *StorageEngine) GetVertexTableIndexMeta(
 	name string,
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
@@ -49,10 +67,16 @@ func (s *StorageEngine) GetVertexIndexMeta(
 		err := fmt.Errorf("failed to upgrade catalog lock")
 		return storage.IndexMeta{}, err
 	}
-	return s.catalog.GetVertexIndexMeta(name)
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.IndexMeta{}, err
+	}
+
+	return s.catalog.GetVertexTableIndexMeta(name)
 }
 
-func (s *StorageEngine) GetVertexInternalIndexMeta(
+func (s *StorageEngine) GetVertexTableInternalIndexMeta(
 	vertexTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
@@ -60,7 +84,13 @@ func (s *StorageEngine) GetVertexInternalIndexMeta(
 		err := fmt.Errorf("failed to upgrade catalog lock")
 		return storage.IndexMeta{}, err
 	}
-	return s.catalog.GetVertexIndexMeta(getTableInternalIndexName(vertexTableFileID))
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.IndexMeta{}, err
+	}
+
+	return s.catalog.GetVertexTableIndexMeta(getTableInternalIndexName(vertexTableFileID))
 }
 
 func (s *StorageEngine) GetEdgeIndexMeta(
@@ -71,10 +101,16 @@ func (s *StorageEngine) GetEdgeIndexMeta(
 		err := fmt.Errorf("failed to upgrade catalog lock")
 		return storage.IndexMeta{}, err
 	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.IndexMeta{}, err
+	}
+
 	return s.catalog.GetEdgeIndexMeta(name)
 }
 
-func (s *StorageEngine) GetEdgeInternalIndexMeta(
+func (s *StorageEngine) GetEdgeTableInternalIndexMeta(
 	edgeTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
@@ -82,10 +118,16 @@ func (s *StorageEngine) GetEdgeInternalIndexMeta(
 		err := fmt.Errorf("failed to upgrade catalog lock")
 		return storage.IndexMeta{}, err
 	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.IndexMeta{}, err
+	}
+
 	return s.catalog.GetEdgeIndexMeta(getTableInternalIndexName(edgeTableFileID))
 }
 
-func (s *StorageEngine) GetDirInternalIndexMeta(
+func (s *StorageEngine) GetDirTableInternalIndexMeta(
 	dirTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
@@ -94,6 +136,63 @@ func (s *StorageEngine) GetDirInternalIndexMeta(
 		return storage.IndexMeta{}, err
 	}
 
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.IndexMeta{}, err
+	}
+
 	indexName := getTableInternalIndexName(dirTableFileID)
 	return s.catalog.GetDirIndexMeta(indexName)
+}
+
+func (s *StorageEngine) GetEdgeTableMetaByFileID(
+	edgeTableID common.FileID,
+	cToken *txns.CatalogLockToken,
+) (storage.EdgeTableMeta, error) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockIntentionShared) {
+		err := fmt.Errorf("couldn't upgrade catalog lock")
+		return storage.EdgeTableMeta{}, err
+	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.EdgeTableMeta{}, err
+	}
+
+	name, err := s.catalog.GetEdgeTableNameByFileID(edgeTableID)
+	if err != nil {
+		return storage.EdgeTableMeta{}, err
+	}
+
+	meta, err := s.catalog.GetEdgeTableMeta(name)
+	if err != nil {
+		return storage.EdgeTableMeta{}, err
+	}
+	return meta, nil
+}
+
+func (s *StorageEngine) GetVertexTableMetaByFileID(
+	vertexTableID common.FileID,
+	cToken *txns.CatalogLockToken,
+) (storage.EdgeTableMeta, error) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockIntentionShared) {
+		err := fmt.Errorf("couldn't upgrade catalog lock")
+		return storage.EdgeTableMeta{}, err
+	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return storage.EdgeTableMeta{}, err
+	}
+
+	name, err := s.catalog.GetEdgeTableNameByFileID(vertexTableID)
+	if err != nil {
+		return storage.EdgeTableMeta{}, err
+	}
+
+	meta, err := s.catalog.GetEdgeTableMeta(name)
+	if err != nil {
+		return storage.EdgeTableMeta{}, err
+	}
+	return meta, nil
 }

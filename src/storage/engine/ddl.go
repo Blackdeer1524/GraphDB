@@ -591,7 +591,7 @@ func (s *StorageEngine) GetVertexTableIndex(
 		return nil, fmt.Errorf("index %s does not exist", indexName)
 	}
 
-	indexMeta, err := s.catalog.GetVertexIndexMeta(indexName)
+	indexMeta, err := s.catalog.GetVertexTableIndexMeta(indexName)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}

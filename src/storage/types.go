@@ -303,7 +303,7 @@ type SystemCatalog interface {
 	GetEdgeTableIndexes(name string) ([]IndexMeta, error)
 	GetEdgeTableMeta(name string) (EdgeTableMeta, error)
 	GetEdgeTableNameByFileID(fileID common.FileID) (string, error)
-	GetVertexIndexMeta(name string) (IndexMeta, error)
+	GetVertexTableIndexMeta(name string) (IndexMeta, error)
 	GetVertexTableIndexes(name string) ([]IndexMeta, error)
 	GetVertexTableMeta(name string) (VertexTableMeta, error)
 	GetVertexTableNameByFileID(fileID common.FileID) (string, error)

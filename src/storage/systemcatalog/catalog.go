@@ -665,7 +665,7 @@ func (m *Manager) DirIndexExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) GetVertexIndexMeta(name string) (storage.IndexMeta, error) {
+func (m *Manager) GetVertexTableIndexMeta(name string) (storage.IndexMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

@@ -4,12 +4,22 @@ import (
 	"fmt"
 	"iter"
 
+	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
+
+func yieldError[T any](err error, yield func(utils.Pair[T, error]) bool) bool {
+	var zero T
+	errItem := utils.Pair[T, error]{
+		First:  zero,
+		Second: err,
+	}
+	return yield(errItem)
+}
 
 type edgesIter struct {
 	se            *StorageEngine
@@ -72,11 +82,7 @@ func (e *edgesIter) Seq() iter.Seq[utils.Pair[storage.EdgeInternalFields, error]
 		for {
 			hasMore, edgeInternals, err := e.getAndMoveForward()
 			if err != nil {
-				errItem := utils.Pair[storage.EdgeInternalFields, error]{
-					First:  storage.EdgeInternalFields{},
-					Second: err,
-				}
-				yield(errItem)
+				yieldError(err, yield)
 				return
 			}
 
@@ -153,11 +159,7 @@ func (d *dirItemsIter) Seq() iter.Seq[utils.Pair[storage.DirectoryItem, error]] 
 		for {
 			hasMore, dirItem, err := d.getAndMoveForward()
 			if err != nil {
-				errItem := utils.Pair[storage.DirectoryItem, error]{
-					First:  storage.DirectoryItem{},
-					Second: err,
-				}
-				yield(errItem)
+				yieldError(err, yield)
 				return
 			}
 
@@ -241,7 +243,7 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Pair[storage.EdgeIDWithRID, e
 	}
 
 	cToken := txns.NewNilCatalogLockToken(i.vertTableToken.GetTxnID())
-	dirTableMeta, err := i.se.GetDirectoryTableMeta(cToken, i.vertTableToken.GetFileID())
+	dirTableMeta, err := i.se.GetDirTableMeta(cToken, i.vertTableToken.GetFileID())
 	if err != nil {
 		return iterWithError[storage.EdgeIDWithRID](err)
 	}
@@ -265,22 +267,14 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Pair[storage.EdgeIDWithRID, e
 			dirIndex,
 		)
 		if err != nil {
-			errItem := utils.Pair[storage.EdgeIDWithRID, error]{
-				First:  storage.EdgeIDWithRID{},
-				Second: err,
-			}
-			yield(errItem)
+			yieldError(err, yield)
 			return
 		}
 
 		for dirItemErr := range dirItemsIter.Seq() {
 			dirItem, err := dirItemErr.Destruct()
 			if err != nil {
-				errItem := utils.Pair[storage.EdgeIDWithRID, error]{
-					First:  storage.EdgeIDWithRID{},
-					Second: err,
-				}
-				yield(errItem)
+				yieldError(err, yield)
 				return
 			}
 
@@ -296,32 +290,20 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Pair[storage.EdgeIDWithRID, e
 				i.logger,
 			)
 			if err != nil {
-				errItem := utils.Pair[storage.EdgeIDWithRID, error]{
-					First:  storage.EdgeIDWithRID{},
-					Second: err,
-				}
-				yield(errItem)
+				yieldError(err, yield)
 				return
 			}
 
 			edgesIter, err := newEdgesIter(i.se, dirItem.EdgeID, edgesFileToken, edgesIndex)
 			if err != nil {
-				errItem := utils.Pair[storage.EdgeIDWithRID, error]{
-					First:  storage.EdgeIDWithRID{},
-					Second: err,
-				}
-				yield(errItem)
+				yieldError(err, yield)
 				return
 			}
 
 			for edgesInternalsErr := range edgesIter.Seq() {
 				edgesInternals, err := edgesInternalsErr.Destruct()
 				if err != nil {
-					errItem := utils.Pair[storage.EdgeIDWithRID, error]{
-						First:  storage.EdgeIDWithRID{},
-						Second: err,
-					}
-					yield(errItem)
+					yieldError(err, yield)
 					return
 				}
 
@@ -331,11 +313,7 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Pair[storage.EdgeIDWithRID, e
 					edgesIndex,
 				)
 				if err != nil {
-					errItem := utils.Pair[storage.EdgeIDWithRID, error]{
-						First:  storage.EdgeIDWithRID{},
-						Second: err,
-					}
-					yield(errItem)
+					yieldError(err, yield)
 					return
 				}
 
@@ -346,28 +324,6 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Pair[storage.EdgeIDWithRID, e
 				if !yield(item) {
 					return
 				}
-
-				// dstVertexRID, err := GetVertexRID(
-				// 	i.vertTableToken.GetTxnID(),
-				// 	edgesInternals.DstVertexID,
-				// 	dstVertexIndex,
-				// )
-				// if err != nil {
-				// 	errItem := utils.Pair[storage.EdgeIDWithRID, error]{
-				// 		First:  storage.EdgeIDWithRID{},
-				// 		Second: err,
-				// 	}
-				// 	yield(errItem)
-				// 	return
-				// }
-				//
-				// item := utils.Pair[storage.EdgeIDWithRID, error]{
-				// 	First:  dstVertexRID,
-				// 	Second: nil,
-				// }
-				// if !yield(item) {
-				// 	return
-				// }
 			}
 		}
 	}
@@ -382,23 +338,29 @@ type neighboursIter struct {
 	vID            storage.VertexID
 	vertTableToken *txns.FileLockToken
 	vertIndex      storage.Index
+	locker         *txns.LockManager
 	logger         common.ITxnLoggerWithContext
+	pool           bufferpool.BufferPool
 }
 
 var _ storage.NeighborIter = &neighboursIter{}
 
 func newNeighboursIter(
 	se *StorageEngine,
+	pool bufferpool.BufferPool,
 	vID storage.VertexID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
+	locker *txns.LockManager,
 	logger common.ITxnLoggerWithContext,
 ) *neighboursIter {
 	iter := &neighboursIter{
 		se:             se,
+		pool:           pool,
 		vID:            vID,
 		vertTableToken: vertTableToken,
 		vertIndex:      vertIndex,
+		locker:         locker,
 		logger:         logger,
 	}
 	return iter
@@ -408,17 +370,79 @@ func (i *neighboursIter) Seq() iter.Seq[utils.Pair[storage.VertexIDWithRID, erro
 	return func(yield func(utils.Pair[storage.VertexIDWithRID, error]) bool) {
 		edgesIter := newNeighboursEdgesIter(i.se, i.vID, i.vertTableToken, i.vertIndex, i.logger)
 
+		cToken := i.vertTableToken.GetCatalogLockToken()
 		lastEdgeFileID := common.NilFileID
+		var edgeFileToken *txns.FileLockToken
+		var vertexIndex storage.Index
 		for edgeErr := range edgesIter.Seq() {
 			edgeIDWithRID, err := edgeErr.Destruct()
 			if err != nil {
-				yield(utils.Pair[storage.VertexIDWithRID, error]{
-					First:  storage.VertexIDWithRID{},
-					Second: err,
-				})
+				yieldError(err, yield)
 				return
 			}
 
+			if edgeIDWithRID.R.FileID != lastEdgeFileID {
+				edgeFileToken = i.locker.LockFile(
+					cToken,
+					edgeIDWithRID.R.FileID,
+					txns.GranularLockShared,
+				)
+				edgeMeta, err := i.se.GetEdgeTableMetaByFileID(lastEdgeFileID, cToken)
+				if err != nil {
+					yieldError(err, yield)
+					return
+				}
+
+				vertexIndex, err = i.se.GetVertexTableInternalIndex(
+					cToken.GetTxnID(),
+					edgeMeta.DstVertexFileID,
+					cToken,
+					i.logger,
+				)
+				if err != nil {
+					yieldError(err, yield)
+					return
+				}
+			}
+
+			pToken := i.locker.LockPage(edgeFileToken, edgeIDWithRID.R.PageID, txns.PageLockShared)
+			if pToken == nil {
+				err := fmt.Errorf("couldn't lock a page")
+				yieldError(err, yield)
+				return
+			}
+
+			edgePageIdent := edgeIDWithRID.R.PageIdentity()
+			pg, err := i.pool.GetPageNoCreate(edgePageIdent)
+			if err != nil {
+				yieldError(err, yield)
+				return
+			}
+			edgeData := pg.LockedRead(edgeIDWithRID.R.SlotNum)
+			i.pool.Unpin(edgePageIdent)
+			edgeInternals, _, err := parseEdgeRecordHeader(edgeData)
+
+			vertexRID, err := GetVertexRID(
+				cToken.GetTxnID(),
+				edgeInternals.DstVertexID,
+				vertexIndex,
+			)
+			if err != nil {
+				yieldError(err, yield)
+				return
+			}
+
+			vertexInfo := utils.Pair[storage.VertexIDWithRID, error]{
+				First:  vertexRID,
+				Second: nil,
+			}
+			if !yield(vertexInfo) {
+				return
+			}
 		}
 	}
+}
+
+func (i *neighboursIter) Close() error {
+	return nil
 }
