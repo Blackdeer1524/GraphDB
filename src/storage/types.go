@@ -260,22 +260,22 @@ type SystemCatalog interface {
 	GetNewFileID() common.FileID
 	GetFileIDToPathMap() map[common.FileID]string
 
+	Load() error
+	CommitChanges(logger common.ITxnLoggerWithContext) (err error)
+
 	AddDirIndex(index IndexMeta) error
 	AddDirTable(req DirTableMeta) error
 	AddEdgeIndex(index IndexMeta) error
 	AddEdgeTable(req EdgeTableMeta) error
 	AddVertexIndex(index IndexMeta) error
 	AddVertexTable(req VertexTableMeta) error
-	DirIndexExists(name string) (bool, error)
-	DirTableExists(vertexTableID common.FileID) (bool, error)
 	DropDirIndex(name string) error
 	DropDirTable(vertexTableID common.FileID) error
 	DropEdgeIndex(name string) error
 	DropEdgeTable(name string) error
 	DropVertexIndex(name string) error
 	DropVertexTable(name string) error
-	EdgeIndexExists(name string) (bool, error)
-	EdgeTableExists(name string) (bool, error)
+
 	GetDirIndexMeta(name string) (IndexMeta, error)
 	GetDirTableMeta(vertexTableID common.FileID) (DirTableMeta, error)
 	GetEdgeIndexMeta(name string) (IndexMeta, error)
@@ -288,8 +288,10 @@ type SystemCatalog interface {
 	GetVertexTableNameByFileID(fileID common.FileID) (string, error)
 	VertexIndexExists(name string) (bool, error)
 	VertexTableExists(name string) (bool, error)
-
-	Save(logger common.ITxnLoggerWithContext) (err error)
+	EdgeIndexExists(name string) (bool, error)
+	EdgeTableExists(name string) (bool, error)
+	DirIndexExists(name string) (bool, error)
+	DirTableExists(vertexTableID common.FileID) (bool, error)
 }
 
 type Index interface {

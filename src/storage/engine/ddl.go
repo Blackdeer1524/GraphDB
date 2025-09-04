@@ -33,7 +33,7 @@ func GetEdgeTableFilePath(basePath, edgeTableName string) string {
 }
 
 func GetDirectoryTableFilePath(basePath string, vertexTableFileID common.FileID) string {
-	dirTableName := systemcatalog.GetDirectoryTableName(vertexTableFileID)
+	dirTableName := systemcatalog.GetDirTableName(vertexTableFileID)
 	return GetTableFilePath(basePath, directoryTableType, dirTableName)
 }
 
@@ -108,15 +108,22 @@ func (s *StorageEngine) CreateVertexTable(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	needToRollback := true
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
+	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
 
 	basePath := s.catalog.GetBasePath()
 	tableFilePath := GetVertexTableFilePath(basePath, tableName)
 	tableFileID := s.catalog.GetNewFileID()
 
 	// Existence of the file is not the proof of existence of the table
-	// (we don't remove file on drop),
-	// and it is why we do not check if the table exists in file system.
+	// (we don't remove file on drop), and it is why we do not check if 
+	// the table exists in file system.
 	ok, err := s.catalog.VertexTableExists(tableName)
 	if err != nil {
 		return fmt.Errorf("unable to check if table exists: %w", err)
@@ -130,12 +137,6 @@ func (s *StorageEngine) CreateVertexTable(
 		return fmt.Errorf("unable to prepare file system for table: %w", err)
 	}
 
-	defer func() {
-		if needToRollback {
-			_ = s.fs.Remove(tableFilePath)
-		}
-	}()
-
 	// update info in metadata
 	tblCreateReq := storage.VertexTableMeta{
 		Name:       tableName,
@@ -148,20 +149,13 @@ func (s *StorageEngine) CreateVertexTable(
 	if err != nil {
 		return fmt.Errorf("unable to add table to catalog: %w", err)
 	}
-	defer func() {
-		if needToRollback {
-			_ = s.catalog.DropVertexTable(tableName)
-		}
-	}()
 
-	err = s.catalog.Save(logger)
+	err = s.catalog.CommitChanges(logger)
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
-	s.diskMgr.InsertToFileMap(common.FileID(tableFileID), tableFilePath)
-
-	err = s.createInternalVertexIndex(txnID, tableName, tableFileID, logger)
+	err = s.createInternalVertexIndex(txnID, tableName, tableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal vertex index: %w", err)
 	}
@@ -171,17 +165,24 @@ func (s *StorageEngine) CreateVertexTable(
 		return fmt.Errorf("unable to create directory table: %w", err)
 	}
 
-	needToRollback = false
+	s.diskMgr.InsertToFileMap(common.FileID(tableFileID), tableFilePath)
 	return nil
 }
 
 func (s *StorageEngine) createDirTable(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
-	_ *txns.CatalogLockToken,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	needToRollback := true
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
+	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
 
 	basePath := s.catalog.GetBasePath()
 	tableFilePath := GetDirectoryTableFilePath(basePath, vertexTableFileID)
@@ -190,7 +191,7 @@ func (s *StorageEngine) createDirTable(
 	// Existence of the file is not the proof of existence of the table
 	// (we don't remove file on drop),
 	// and it is why we do not check if the table exists in file system.
-	ok, err := s.catalog.DirectoryTableExists(vertexTableFileID)
+	ok, err := s.catalog.DirTableExists(vertexTableFileID)
 	if err != nil {
 		return fmt.Errorf("unable to check if table exists: %w", err)
 	}
@@ -203,12 +204,6 @@ func (s *StorageEngine) createDirTable(
 		return fmt.Errorf("unable to prepare file system for table: %w", err)
 	}
 
-	defer func() {
-		if needToRollback {
-			_ = s.fs.Remove(tableFilePath)
-		}
-	}()
-
 	// update info in metadata
 	tblCreateReq := storage.DirTableMeta{
 		VertexTableID: vertexTableFileID,
@@ -216,29 +211,22 @@ func (s *StorageEngine) createDirTable(
 		PathToFile:    tableFilePath,
 	}
 
-	err = s.catalog.AddDirectoryTable(tblCreateReq)
+	err = s.catalog.AddDirTable(tblCreateReq)
 	if err != nil {
 		return fmt.Errorf("unable to add table to catalog: %w", err)
 	}
-	defer func() {
-		if needToRollback {
-			_ = s.catalog.DropDirectoryTable(vertexTableFileID)
-		}
-	}()
 
-	err = s.catalog.Save(logger)
+	err = s.catalog.CommitChanges(logger)
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
-	s.diskMgr.InsertToFileMap(common.FileID(dirTableFileID), tableFilePath)
-
-	err = s.createInternalDirTableIndex(txnID, vertexTableFileID, dirTableFileID, logger)
+	err = s.createInternalDirTableIndex(txnID, vertexTableFileID, dirTableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal directory index: %w", err)
 	}
 
-	needToRollback = false
+	s.diskMgr.InsertToFileMap(common.FileID(dirTableFileID), tableFilePath)
 	return nil
 }
 
@@ -248,9 +236,17 @@ func (s *StorageEngine) CreateEdgeTable(
 	schema storage.Schema,
 	srcVertexTableFileID common.FileID,
 	dstVertexTableFileID common.FileID,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	needToRollback := true
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
+	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
 
 	basePath := s.catalog.GetBasePath()
 	tableFilePath := GetEdgeTableFilePath(basePath, tableName)
@@ -272,12 +268,6 @@ func (s *StorageEngine) CreateEdgeTable(
 		return fmt.Errorf("unable to prepare file system for table: %w", err)
 	}
 
-	defer func() {
-		if needToRollback {
-			_ = s.fs.Remove(tableFilePath)
-		}
-	}()
-
 	// update info in metadata
 	tblCreateReq := storage.EdgeTableMeta{
 		PathToFile:      tableFilePath,
@@ -292,32 +282,30 @@ func (s *StorageEngine) CreateEdgeTable(
 	if err != nil {
 		return fmt.Errorf("unable to add table to catalog: %w", err)
 	}
-	defer func() {
-		if needToRollback {
-			_ = s.catalog.DropEdgeTable(tableName)
-		}
-	}()
 
-	err = s.catalog.Save(logger)
+	err = s.catalog.CommitChanges(logger)
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
 	s.diskMgr.InsertToFileMap(common.FileID(tableFileID), tableFilePath)
-	needToRollback = false
 	return nil
 }
 
 func (s *StorageEngine) DropVertexTable(
 	txnID common.TxnID,
 	vertTableName string,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
-		return errors.New("unable to get system catalog X-lock")
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
 	}
-	defer s.locker.Unlock(txnID)
+
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
 
 	vertTableMeta, err := s.catalog.GetVertexTableMeta(vertTableName)
 	if err != nil {
@@ -334,7 +322,12 @@ func (s *StorageEngine) DropVertexTable(
 		return fmt.Errorf("unable to drop system index: %w", err)
 	}
 
-	err = s.dropDirTable(txnID, vertTableMeta.FileID, logger)
+	err = s.catalog.CommitChanges(logger)
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+
+	err = s.dropDirTable(txnID, vertTableMeta.FileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to drop directory table: %w", err)
 	}
@@ -344,15 +337,19 @@ func (s *StorageEngine) DropVertexTable(
 func (s *StorageEngine) DropEdgeTable(
 	txnID common.TxnID,
 	name string,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
-		return errors.New("unable to get system catalog X-lock")
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
 	}
-	defer s.locker.Unlock(txnID)
 
-	err := s.catalog.DropEdgeTable(name)
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
+
+	err = s.catalog.DropEdgeTable(name)
 	if err != nil {
 		return err
 	}
@@ -367,25 +364,43 @@ func (s *StorageEngine) DropEdgeTable(
 		return fmt.Errorf("unable to drop system index: %w", err)
 	}
 
+	err = s.catalog.CommitChanges(logger)
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
 	return nil
 }
 
 func (s *StorageEngine) dropDirTable(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	err := s.catalog.DropDirectoryTable(vertexTableFileID)
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
+	}
+
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
+
+	err = s.catalog.DropDirTable(vertexTableFileID)
 	if err != nil {
 		return err
 	}
 
-	err = s.catalog.DropDirectoryIndex(getTableInternalIndexName(vertexTableFileID))
+	err = s.catalog.DropDirIndex(getTableInternalIndexName(vertexTableFileID))
 	if err != nil {
 		return err
 	}
 
-	return s.catalog.DropDirectoryTable(vertexTableFileID)
+	err = s.catalog.CommitChanges(logger)
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+	return nil
 }
 
 func (s *StorageEngine) CreateVertexIndex(
@@ -394,15 +409,18 @@ func (s *StorageEngine) CreateVertexIndex(
 	tableName string,
 	columns []string,
 	keyBytesCnt uint32,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
-		return errors.New("unable to get system catalog X-lock")
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
 	}
-	defer s.locker.Unlock(txnID)
 
-	needToRollback := true
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
+
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
 	tableFilePath := GetVertexTableIndexFilePath(basePath, indexName)
@@ -414,12 +432,11 @@ func (s *StorageEngine) CreateVertexIndex(
 		return fmt.Errorf("index %s already exists", indexName)
 	}
 
-	prepareFSforTable(s.fs, tableFilePath)
-	defer func() {
-		if needToRollback {
-			_ = s.fs.Remove(tableFilePath)
-		}
-	}()
+	err = prepareFSforTable(s.fs, tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to prepare file system for table: %w", err)
+	}
+
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
 		PathToFile:  tableFilePath,
@@ -432,17 +449,12 @@ func (s *StorageEngine) CreateVertexIndex(
 	if err != nil {
 		return fmt.Errorf("unable to add index to catalog: %w", err)
 	}
-	defer func() {
-		if needToRollback {
-			_ = s.catalog.DropVertexIndex(indexName)
-		}
-	}()
-	err = s.catalog.Save(logger)
+
+	err = s.catalog.CommitChanges(logger)
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
-	needToRollback = false
 	return nil
 }
 
@@ -450,6 +462,7 @@ func (s *StorageEngine) createInternalVertexIndex(
 	txnID common.TxnID,
 	tableName string,
 	vertexTableFileID common.FileID,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
@@ -460,6 +473,7 @@ func (s *StorageEngine) createInternalVertexIndex(
 		tableName,
 		columns,
 		keyBytesCnt,
+		cToken,
 		logger,
 	)
 }
@@ -470,15 +484,18 @@ func (s *StorageEngine) CreateEdgeIndex(
 	tableName string,
 	columns []string,
 	keyBytesCnt uint32,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
-		return errors.New("unable to get system catalog X-lock")
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
 	}
-	defer s.locker.Unlock(txnID)
 
-	needToRollback := true
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
+
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
 	tableFilePath := GetEdgeTableIndexFilePath(basePath, indexName)
@@ -490,12 +507,11 @@ func (s *StorageEngine) CreateEdgeIndex(
 		return fmt.Errorf("index %s already exists", indexName)
 	}
 
-	prepareFSforTable(s.fs, tableFilePath)
-	defer func() {
-		if needToRollback {
-			_ = s.fs.Remove(tableFilePath)
-		}
-	}()
+	err = prepareFSforTable(s.fs, tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to prepare file system for table: %w", err)
+	}
+
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
 		PathToFile:  tableFilePath,
@@ -508,17 +524,12 @@ func (s *StorageEngine) CreateEdgeIndex(
 	if err != nil {
 		return fmt.Errorf("unable to add index to catalog: %w", err)
 	}
-	defer func() {
-		if needToRollback {
-			_ = s.catalog.DropEdgeIndex(indexName)
-		}
-	}()
-	err = s.catalog.Save(logger)
+
+	err = s.catalog.CommitChanges(logger)
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
-	needToRollback = false
 	return nil
 }
 
@@ -526,6 +537,7 @@ func (s *StorageEngine) createInternalEdgeIndex(
 	txnID common.TxnID,
 	tableName string,
 	edgeTableFileID common.FileID,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
@@ -536,6 +548,7 @@ func (s *StorageEngine) createInternalEdgeIndex(
 		tableName,
 		columns,
 		keyBytesCnt,
+		cToken,
 		logger,
 	)
 }
@@ -543,21 +556,31 @@ func (s *StorageEngine) createInternalEdgeIndex(
 func (s *StorageEngine) GetVertexTableInternalIndex(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.GetVertexTableIndex(txnID, getTableInternalIndexName(vertexTableFileID), logger)
+	return s.GetVertexTableIndex(
+		txnID,
+		getTableInternalIndexName(vertexTableFileID),
+		cToken,
+		logger,
+	)
 }
 
 func (s *StorageEngine) GetVertexTableIndex(
 	txnID common.TxnID,
 	indexName string,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	ctoken := s.locker.LockCatalog(txnID, txns.GranularLockShared)
-	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
+		return nil, errors.New("unable to upgrade catalog lock")
 	}
-	defer s.locker.Unlock(txnID)
+
+	err := s.catalog.Load()
+	if err != nil {
+		return nil, fmt.Errorf("unable to load catalog: %w", err)
+	}
 
 	ok, err := s.catalog.VertexIndexExists(indexName)
 	if err != nil {
@@ -579,21 +602,26 @@ func (s *StorageEngine) GetVertexTableIndex(
 func (s *StorageEngine) GetEdgeTableInternalIndex(
 	txnID common.TxnID,
 	edgeTableFileID common.FileID,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.GetEdgeTableIndex(txnID, getTableInternalIndexName(edgeTableFileID), logger)
+	return s.GetEdgeTableIndex(txnID, getTableInternalIndexName(edgeTableFileID), cToken, logger)
 }
 
 func (s *StorageEngine) GetEdgeTableIndex(
 	txnID common.TxnID,
 	indexName string,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	ctoken := s.locker.LockCatalog(txnID, txns.GranularLockShared)
-	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
+		return nil, errors.New("unable to upgrade catalog lock")
 	}
-	defer s.locker.Unlock(txnID)
+
+	err := s.catalog.Load()
+	if err != nil {
+		return nil, fmt.Errorf("unable to load catalog: %w", err)
+	}
 
 	ok, err := s.catalog.EdgeIndexExists(indexName)
 	if err != nil {
@@ -615,9 +643,10 @@ func (s *StorageEngine) GetEdgeTableIndex(
 func (s *StorageEngine) GetDirTableInternalIndex(
 	txnID common.TxnID,
 	dirTableFileID common.FileID,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.getDirTableIndex(txnID, getTableInternalIndexName(dirTableFileID), logger)
+	return s.getDirTableIndex(txnID, getTableInternalIndexName(dirTableFileID), cToken, logger)
 }
 
 func (s *StorageEngine) createDirTableIndex(
@@ -626,19 +655,22 @@ func (s *StorageEngine) createDirTableIndex(
 	vertexTableFileID common.FileID,
 	columns []string,
 	keyBytesCnt uint32,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return errors.New("unable to get system catalog X-lock")
 	}
-	defer s.locker.Unlock(txnID)
 
-	needToRollback := true
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
+
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
 	tableFilePath := getDirTableIndexFilePath(basePath, indexName)
-	ok, err := s.catalog.DirectoryIndexExists(indexName)
+	ok, err := s.catalog.DirIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
 	}
@@ -646,35 +678,29 @@ func (s *StorageEngine) createDirTableIndex(
 		return fmt.Errorf("index %s already exists", indexName)
 	}
 
-	prepareFSforTable(s.fs, tableFilePath)
-	defer func() {
-		if needToRollback {
-			_ = s.fs.Remove(tableFilePath)
-		}
-	}()
+	err = prepareFSforTable(s.fs, tableFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to prepare file system for table: %w", err)
+	}
+
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
 		PathToFile:  tableFilePath,
 		FileID:      fileID,
-		TableName:   systemcatalog.GetDirectoryTableName(vertexTableFileID),
+		TableName:   systemcatalog.GetDirTableName(vertexTableFileID),
 		Columns:     columns,
 		KeyBytesCnt: keyBytesCnt,
 	}
-	err = s.catalog.AddDirectoryIndex(idxCreateReq)
+	err = s.catalog.AddDirIndex(idxCreateReq)
 	if err != nil {
 		return fmt.Errorf("unable to add index to catalog: %w", err)
 	}
-	defer func() {
-		if needToRollback {
-			_ = s.catalog.DropDirectoryIndex(indexName)
-		}
-	}()
-	err = s.catalog.Save(logger)
+
+	err = s.catalog.CommitChanges(logger)
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 	s.diskMgr.InsertToFileMap(common.FileID(fileID), tableFilePath)
-	needToRollback = false
 	return nil
 }
 
@@ -682,6 +708,7 @@ func (s *StorageEngine) createInternalDirTableIndex(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
 	directoryTableFileID common.FileID,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
@@ -692,6 +719,7 @@ func (s *StorageEngine) createInternalDirTableIndex(
 		vertexTableFileID,
 		columns,
 		keyBytesCnt,
+		cToken,
 		logger,
 	)
 }
@@ -699,15 +727,19 @@ func (s *StorageEngine) createInternalDirTableIndex(
 func (s *StorageEngine) getDirTableIndex(
 	txnID common.TxnID,
 	indexName string,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	ctoken := s.locker.LockCatalog(txnID, txns.GranularLockShared)
-	if ctoken == nil {
-		return nil, errors.New("unable to get system catalog lock")
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
+		return nil, errors.New("unable to upgrade catalog lock")
 	}
-	defer s.locker.Unlock(txnID)
 
-	ok, err := s.catalog.DirectoryIndexExists(indexName)
+	err := s.catalog.Load()
+	if err != nil {
+		return nil, fmt.Errorf("unable to load catalog: %w", err)
+	}
+
+	ok, err := s.catalog.DirIndexExists(indexName)
 	if err != nil {
 		return nil, fmt.Errorf("unable to check if index exists: %w", err)
 	}
@@ -716,7 +748,7 @@ func (s *StorageEngine) getDirTableIndex(
 		return nil, fmt.Errorf("index %s does not exist", indexName)
 	}
 
-	indexMeta, err := s.catalog.GetDirectoryIndexMeta(indexName)
+	indexMeta, err := s.catalog.GetDirIndexMeta(indexName)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}
@@ -727,40 +759,80 @@ func (s *StorageEngine) getDirTableIndex(
 func (s *StorageEngine) DropVertexTableIndex(
 	txnID common.TxnID,
 	indexName string,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
-		return errors.New("unable to get system catalog X-lock")
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
+		return errors.New("unable to upgrade catalog lock")
 	}
-	defer s.locker.Unlock(txnID)
 
-	return s.catalog.DropVertexIndex(indexName)
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
+
+	err = s.catalog.DropVertexIndex(indexName)
+	if err != nil {
+		return fmt.Errorf("unable to drop index: %w", err)
+	}
+
+	err = s.catalog.CommitChanges(logger)
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+	return nil
 }
 
 func (s *StorageEngine) DropEdgesTableIndex(
 	txnID common.TxnID,
 	indexName string,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return errors.New("unable to get system catalog X-lock")
 	}
-	defer s.locker.Unlock(txnID)
 
-	return s.catalog.DropEdgeIndex(indexName)
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
+
+	err = s.catalog.DropEdgeIndex(indexName)
+	if err != nil {
+		return fmt.Errorf("unable to drop index: %w", err)
+	}
+
+	err = s.catalog.CommitChanges(logger)
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+	return nil
 }
 
 func (s *StorageEngine) dropDirTableIndex(
 	txnID common.TxnID,
 	indexName string,
+	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	cToken := s.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	if cToken == nil {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return errors.New("unable to get system catalog X-lock")
 	}
-	defer s.locker.Unlock(txnID)
-	return s.catalog.DropDirectoryIndex(indexName)
+
+	err := s.catalog.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load catalog: %w", err)
+	}
+
+	err = s.catalog.DropDirIndex(indexName)
+	if err != nil {
+		return fmt.Errorf("unable to drop index: %w", err)
+	}
+
+	err = s.catalog.CommitChanges(logger)
+	if err != nil {
+		return fmt.Errorf("unable to save catalog: %w", err)
+	}
+	return nil
 }

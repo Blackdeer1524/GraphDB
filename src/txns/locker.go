@@ -313,11 +313,6 @@ func (l *LockManager) UpgradeCatalogLock(
 	t *CatalogLockToken,
 	lockMode GranularLockMode,
 ) bool {
-	req := TxnLockRequest[GranularLockMode, struct{}]{
-		txnID:    t.txnID,
-		objectId: struct{}{},
-		lockMode: lockMode,
-	}
 	if !t.WasSetUp() {
 		ct := l.LockCatalog(t.txnID, lockMode)
 		if ct == nil {
@@ -329,6 +324,12 @@ func (l *LockManager) UpgradeCatalogLock(
 
 	if lockMode.Upgradable(t.lockMode) || lockMode.Equal(t.lockMode) {
 		return true
+	}
+
+	req := TxnLockRequest[GranularLockMode, struct{}]{
+		txnID:    t.txnID,
+		objectId: struct{}{},
+		lockMode: lockMode,
 	}
 	n := l.catalogLockManager.Upgrade(req)
 	if n == nil {
