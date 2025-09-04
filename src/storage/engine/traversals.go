@@ -66,5 +66,5 @@ func (s *StorageEngine) Neighbours(
 	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
 ) (storage.NeighborIter, error) {
-	return newNeighboursIter(s, s.pool, vID, vertTableToken, vertIndex, s.locker, logger), nil
+	return newNeighboursIter(s, vID, vertTableToken, vertIndex, logger), nil
 }
