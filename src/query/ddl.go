@@ -8,8 +8,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-func (e *Executor) CreateVertexType(name string, schema storage.Schema) (err error) {
-
+func (e *Executor) CreateVertexType(tableName string, schema storage.Schema) (err error) {
 	txnID := e.newTxnID()
 
 	_ = e.locker.LockCatalog(txnID, txns.GranularLockExclusive)
@@ -33,10 +32,16 @@ func (e *Executor) CreateVertexType(name string, schema storage.Schema) (err err
 		}
 	}()
 
-	return e.se.CreateVertexTable(e.newTxnID(), name, schema, logger)
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	return e.se.CreateVertexTable(txnID, tableName, schema, cToken, logger)
 }
 
-func (e *Executor) CreateEdgeType(name string, schema storage.Schema) (err error) {
+func (e *Executor) CreateEdgeType(
+	tableName string,
+	schema storage.Schema,
+	srcVertexTableName string,
+	dstVertexTableName string,
+) (err error) {
 	txnID := e.newTxnID()
 
 	_ = e.locker.LockCatalog(txnID, txns.GranularLockExclusive)
@@ -60,5 +65,24 @@ func (e *Executor) CreateEdgeType(name string, schema storage.Schema) (err error
 		}
 	}()
 
-	return e.se.CreateEdgeTable(txnID, name, schema, logger)
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	srcTableMeta, err := e.se.GetVertexTableMeta(srcVertexTableName, cToken)
+	if err != nil {
+		return err
+	}
+	dstTableMeta, err := e.se.GetVertexTableMeta(dstVertexTableName, cToken)
+	if err != nil {
+		return err
+	}
+
+	err = e.se.CreateEdgeTable(
+		txnID,
+		tableName,
+		schema,
+		srcTableMeta.FileID,
+		dstTableMeta.FileID,
+		cToken,
+		logger,
+	)
+	return err
 }

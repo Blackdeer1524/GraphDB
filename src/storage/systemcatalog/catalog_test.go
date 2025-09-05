@@ -24,7 +24,7 @@ func newTestCatalogManager(t *testing.T) (*Manager, afero.Fs, bufferpool.BufferP
 	require.NoError(t, InitSystemCatalog(basePath, fs))
 	versionFilePath := GetSystemCatalogVersionFileName(basePath)
 	dm := disk.New(
-		map[common.FileID]string{catalogVersionFileID: versionFilePath},
+		map[common.FileID]string{CatalogVersionFileID: versionFilePath},
 		func(_ common.FileID, _ common.PageID) *page.SlottedPage { return page.NewSlottedPage() },
 		fs)
 	replacer := bufferpool.NewLRUReplacer()

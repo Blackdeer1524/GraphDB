@@ -23,13 +23,18 @@ func (e *Executor) traverseNeighborsWithDepth(
 	targetDepth uint32,
 	seen storage.BitMap,
 	q storage.Queue,
+	cToken *txns.CatalogLockToken,
+	logger common.ITxnLoggerWithContext,
 ) (err error) {
 	curDepth := v.D
 
-	it, err := e.se.Neighbours(t, v.V, v.R.FileID)
+	startFileToken := txns.NewNilFileLockToken(cToken, v.R.FileID)
+	vertIndex, err := e.se.GetVertexTableInternalIndex(t, v.R.FileID, cToken, logger)
+	it, err := e.se.Neighbours(t, v.V, startFileToken, vertIndex, logger)
 	if err != nil {
 		return err
 	}
+
 	defer func() {
 		err1 := it.Close()
 		if err1 != nil {
@@ -84,6 +89,8 @@ func (e *Executor) bfsWithDepth(
 	tx common.TxnID,
 	start storage.VertexInternalIDWithRID,
 	targetDepth uint32,
+	cToken *txns.CatalogLockToken,
+	logger common.ITxnLoggerWithContext,
 ) (result []storage.VertexInternalIDWithRID, err error) {
 	result = make([]storage.VertexInternalIDWithRID, 0)
 
@@ -115,9 +122,7 @@ func (e *Executor) bfsWithDepth(
 	}
 
 	for {
-		var v storage.VertexInternalIDWithDepthAndRID
-
-		v, err = q.Dequeue()
+		v, err := q.Dequeue()
 		if err != nil {
 			if errors.Is(err, storage.ErrQueueEmpty) {
 				break
@@ -136,7 +141,7 @@ func (e *Executor) bfsWithDepth(
 			continue
 		}
 
-		err = e.traverseNeighborsWithDepth(tx, v, targetDepth, seen, q)
+		err = e.traverseNeighborsWithDepth(tx, v, targetDepth, seen, q, cToken, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to traverse neighbors: %w", err)
 		}
@@ -196,7 +201,7 @@ func (e *Executor) GetVertexesOnDepth(
 
 	var res []storage.VertexInternalIDWithRID
 
-	res, err = e.bfsWithDepth(tx, st, targetDepth)
+	res, err = e.bfsWithDepth(tx, st, targetDepth, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bfsWithDepth: %w", err)
 	}
@@ -207,6 +212,7 @@ func (e *Executor) GetVertexesOnDepth(
 // GetAllVertexesWithFieldValue is the second query from SOW.
 // It returns all vertexes with a given field value.
 func (e *Executor) GetAllVertexesWithFieldValue(
+	vertTableName string,
 	field string,
 	value []byte,
 ) (res []storage.Vertex, err error) {
@@ -214,10 +220,10 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 		return nil, errors.New("storage engine is nil")
 	}
 
-	tx := e.newTxnID()
-	defer e.locker.Unlock(tx)
+	txnID := e.newTxnID()
+	defer e.locker.Unlock(txnID)
 
-	logger := e.logger.WithContext(tx)
+	logger := e.logger.WithContext(txnID)
 
 	if err := logger.AppendBegin(); err != nil {
 		return nil, fmt.Errorf("failed to append begin: %w", err)
@@ -242,7 +248,14 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 
 	var verticesIter storage.VerticesIter
 
-	verticesIter, err = e.se.AllVerticesWithValue(tx, field, value)
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	tableMeta, err := e.se.GetVertexTableMeta(vertTableName, cToken)
+	if err != nil {
+	}
+
+	e.se.GetVertexTableInternalIndex(txnID)
+
+	verticesIter, err = e.se.AllVerticesWithValue(txnID, field, value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertices iterator: %w", err)
 	}

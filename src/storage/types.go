@@ -391,7 +391,7 @@ type StorageEngine interface {
 	GetVertexTableMetaByFileID(
 		vertexTableID common.FileID,
 		cToken *txns.CatalogLockToken,
-	) (EdgeTableMeta, error)
+	) (VertexTableMeta, error)
 
 	// DML
 	InsertEdge(

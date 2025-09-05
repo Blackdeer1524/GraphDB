@@ -22,7 +22,7 @@ const (
 	currentVersionFile = "CURRENT"
 	zeroVersion        = uint64(0)
 
-	catalogVersionFileID  = common.FileID(0)
+	CatalogVersionFileID  = common.FileID(0)
 	catalogVersionPageID  = common.PageID(0)
 	catalogVersionSlotNum = uint16(0)
 )
@@ -35,12 +35,12 @@ var (
 // catalogVersionPageIdent return page identity of page with current version of system catalog.
 // We reserve zero fileID and zero pageID for this page.
 func catalogVersionPageIdent() common.PageIdentity {
-	return common.PageIdentity{FileID: catalogVersionFileID, PageID: catalogVersionPageID}
+	return common.PageIdentity{FileID: CatalogVersionFileID, PageID: catalogVersionPageID}
 }
 
 func catalogVersionPageRecordID() common.RecordID {
 	return common.RecordID{
-		FileID:  catalogVersionFileID,
+		FileID:  CatalogVersionFileID,
 		PageID:  catalogVersionPageID,
 		SlotNum: catalogVersionSlotNum,
 	}

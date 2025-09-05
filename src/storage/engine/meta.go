@@ -174,25 +174,25 @@ func (s *StorageEngine) GetEdgeTableMetaByFileID(
 func (s *StorageEngine) GetVertexTableMetaByFileID(
 	vertexTableID common.FileID,
 	cToken *txns.CatalogLockToken,
-) (storage.EdgeTableMeta, error) {
+) (storage.VertexTableMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockIntentionShared) {
 		err := fmt.Errorf("couldn't upgrade catalog lock")
-		return storage.EdgeTableMeta{}, err
+		return storage.VertexTableMeta{}, err
 	}
 
 	err := s.catalog.Load()
 	if err != nil {
-		return storage.EdgeTableMeta{}, err
+		return storage.VertexTableMeta{}, err
 	}
 
-	name, err := s.catalog.GetEdgeTableNameByFileID(vertexTableID)
+	name, err := s.catalog.GetVertexTableNameByFileID(vertexTableID)
 	if err != nil {
-		return storage.EdgeTableMeta{}, err
+		return storage.VertexTableMeta{}, err
 	}
 
-	meta, err := s.catalog.GetEdgeTableMeta(name)
+	meta, err := s.catalog.GetVertexTableMeta(name)
 	if err != nil {
-		return storage.EdgeTableMeta{}, err
+		return storage.VertexTableMeta{}, err
 	}
 	return meta, nil
 }

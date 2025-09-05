@@ -264,7 +264,7 @@ func iterWithErrorTriple[T, K any](err error) func(yield func(utils.Triple[T, K,
 }
 
 func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Edge, error]] {
-	if !i.se.locker.UpgradeFileLock(i.vertTableToken, txns.GranularLockIntentionShared) {
+	if !i.se.locker.UpgradeFileLock(i.vertTableToken, txns.GranularLockShared) {
 		err := fmt.Errorf("failed to upgrade file lock")
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
@@ -451,6 +451,7 @@ func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexInterna
 					cToken,
 					i.logger,
 				)
+
 				if err != nil {
 					yieldErrorPair(err, yield)
 					return

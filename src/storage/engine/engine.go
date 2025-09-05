@@ -38,8 +38,9 @@ func New(
 		return nil, fmt.Errorf("failed to : %w", err)
 	}
 
+	versionFileName := systemcatalog.GetSystemCatalogVersionFileName(catalogBasePath)
 	fileIDToFilePath := map[common.FileID]string{
-		common.FileID(0): systemcatalog.GetSystemCatalogVersionFileName(catalogBasePath),
+		systemcatalog.CatalogVersionFileID: versionFileName,
 	}
 
 	diskMgr := disk.New(
@@ -58,7 +59,6 @@ func New(
 	}
 
 	diskMgr.UpdateFileMap(sysCat.GetFileIDToPathMap())
-
 	return newInjectedEngine(sysCat, bpManager, diskMgr, locker, fs, indexLoader), nil
 }
 
