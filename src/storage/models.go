@@ -113,7 +113,7 @@ type IndexMeta struct {
 	Name        string        `json:"name"`
 	PathToFile  string        `json:"path_to_file"`
 	FileID      common.FileID `json:"id"`
-	TableName   string        `json:"full_table_name"`
+	TableName   string        `json:"table_name"`
 	Columns     []string      `json:"columns"`
 	KeyBytesCnt uint32        `json:"key_bytes_cnt"`
 }

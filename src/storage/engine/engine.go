@@ -24,7 +24,6 @@ type StorageEngine struct {
 	indexLoader func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error)
 }
 
-
 var _ storage.StorageEngine = &StorageEngine{}
 
 func New(
@@ -49,6 +48,7 @@ func New(
 			// TODO: implement this
 			return page.NewSlottedPage()
 		},
+		fs,
 	)
 
 	bpManager := bufferpool.New(poolSize, &bufferpool.LRUReplacer{}, diskMgr)

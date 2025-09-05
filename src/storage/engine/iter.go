@@ -222,7 +222,6 @@ func (d *dirItemsIter) Seq() iter.Seq[utils.Pair[storage.DirectoryItem, error]] 
 				break
 			}
 		}
-
 	}
 }
 

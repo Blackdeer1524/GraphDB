@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 )
 
 func getRandomMapKey[K cmp.Ordered, V any](r *rand.Rand, m map[K]V) (K, bool) {
@@ -85,7 +84,7 @@ func randomVertexIndexNameForCreate(
 		}
 	}
 
-	return engine.GetVertexIndexName(randomString(r, 10))
+	return randomString(r, 10)
 }
 
 func randomEdgeIndexNameForCreate(
@@ -101,7 +100,7 @@ func randomEdgeIndexNameForCreate(
 		}
 	}
 
-	return engine.GetEdgeIndexName(randomString(r, 10))
+	return randomString(r, 10)
 }
 
 func randomVertexIndexNameForDrop(
@@ -117,7 +116,7 @@ func randomVertexIndexNameForDrop(
 		}
 	}
 
-	return engine.GetVertexIndexName(randomString(r, 10))
+	return randomString(r, 10)
 }
 
 func randomEdgeIndexNameForDrop(
@@ -133,5 +132,5 @@ func randomEdgeIndexNameForDrop(
 		}
 	}
 
-	return engine.GetEdgeIndexName(randomString(r, 10))
+	return randomString(r, 10)
 }

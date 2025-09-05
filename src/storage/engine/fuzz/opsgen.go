@@ -133,9 +133,9 @@ func (g *OpsGenerator) Gen() chan Operation {
 	go func() {
 		defer close(ch)
 
-		for i := range g.count {
+		for range g.count {
 			op := g.genRandomOp()
-			op.TxnID = common.TxnID(i)
+			op.TxnID = common.TxnID(g.r.Intn(g.count))
 
 			ch <- op
 		}

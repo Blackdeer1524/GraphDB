@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"os"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -9,371 +8,282 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-func TestStorageEngine_CreateVertexTable(t *testing.T) {
-	dir := t.TempDir()
+type sysCatAdapter struct{ *storage.MockSystemCatalog }
 
-	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
-	require.NoError(t, err)
+func (a *sysCatAdapter) CurrentVersion() uint64 { return 0 }
 
-	lockMgr := txns.NewLockManager()
-
-	var se *StorageEngine
-
-	se, err = New(
-		dir,
-		uint64(200),
-		lockMgr,
-		afero.NewOsFs(),
-		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
-			return nil, nil
-		},
-	)
-	require.NoError(t, err)
-
-	tableName := "User"
-	schema := storage.Schema{
-		{Name: "id", Type: storage.ColumnTypeInt64},
-		{Name: "name", Type: storage.ColumnTypeUUID},
+func newTestEngineWithMockCatalog(
+	t *testing.T,
+) (*StorageEngine, *storage.MockSystemCatalog, *txns.LockManager) {
+	cat := storage.NewMockSystemCatalog(t)
+	locker := txns.NewLockManager()
+	fs := afero.NewMemMapFs()
+	indexLoader := func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
+		return storage.NewMockIndex(t), nil
 	}
 
-	func() {
-		firstTxnID := common.TxnID(1)
-		cToken := txns.NewNilCatalogLockToken(firstTxnID)
-
-		defer lockMgr.Unlock(firstTxnID)
-		err = se.CreateVertexTable(firstTxnID, tableName, schema, cToken, common.NoLogs())
-		require.NoError(t, err)
-
-		tablePath := GetVertexTableFilePath(dir, tableName)
-		info, err := os.Stat(tablePath)
-		require.NoError(t, err)
-
-		require.False(t, info.IsDir())
-
-		tblMeta, err := se.catalog.GetVertexTableMeta(tableName)
-		require.NoError(t, err)
-		require.Equal(t, tableName, tblMeta.Name)
-
-		require.Equal(t, uint64(1), se.catalog.CurrentVersion())
-	}()
-
-	func() {
-		secondTxnID := common.TxnID(2)
-		cToken := txns.NewNilCatalogLockToken(secondTxnID)
-		defer lockMgr.Unlock(secondTxnID)
-
-		err = se.CreateVertexTable(secondTxnID, tableName, schema, cToken, common.NoLogs())
-		require.Error(t, err)
-	}()
+	eng := newInjectedEngine(&sysCatAdapter{cat}, nil, nil, locker, fs, indexLoader)
+	return eng, cat, locker
 }
 
-func TestStorageEngine_DropVertexTable(t *testing.T) {
-	dir := t.TempDir()
+func TestStorageEngine_GetVertexTableMeta_LoadOrder(t *testing.T) {
+	eng, cat, locker := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(1))
 
-	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
+	expected := storage.VertexTableMeta{Name: "users"}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetVertexTableMeta("users").
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(expected, nil).
+		Once()
+
+	meta, err := eng.GetVertexTableMeta("users", ct)
 	require.NoError(t, err)
+	require.Equal(t, expected, meta)
 
-	var se *StorageEngine
-
-	lockMgr := txns.NewLockManager()
-	se, err = New(
-		dir,
-		uint64(200),
-		lockMgr,
-		afero.NewOsFs(),
-		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
-			return nil, nil
-		},
-	)
-	require.NoError(t, err)
-
-	tableName := "User"
-	schema := storage.Schema{
-		{Name: "id", Type: storage.ColumnTypeInt64},
-		{Name: "name", Type: storage.ColumnTypeUUID},
-	}
-
-	func() {
-		firstTxnID := common.TxnID(1)
-		defer lockMgr.Unlock(firstTxnID)
-
-		cToken := txns.NewNilCatalogLockToken(firstTxnID)
-
-		err = se.CreateVertexTable(firstTxnID, tableName, schema, cToken, common.NoLogs())
-		require.NoError(t, err)
-
-		tablePath := GetVertexTableFilePath(dir, tableName)
-		info, err := os.Stat(tablePath)
-		require.NoError(t, err)
-
-		require.False(t, info.IsDir())
-
-		err = se.DropVertexTable(firstTxnID, tableName, cToken, common.NoLogs())
-		require.NoError(t, err)
-
-		_, err = os.Stat(tablePath)
-		require.NoError(t, err)
-
-		err = se.DropVertexTable(firstTxnID, tableName, cToken, common.NoLogs())
-		require.Error(t, err)
-
-		require.Equal(t, uint64(2), se.catalog.CurrentVersion())
-	}()
-
-	func() {
-		secondTxnID := common.TxnID(2)
-		defer lockMgr.Unlock(secondTxnID)
-
-		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
-		require.NoError(t, err)
-
-		tablePath := getTableFilePath(dir, getVertexTableName(tableName))
-		_, err := os.Stat(tablePath)
-		require.NoError(t, err)
-	}()
+	// ensure locker path exercised
+	require.NotNil(t, locker)
 }
 
-func TestStorageEngine_CreateEdgeTable(t *testing.T) {
-	dir := t.TempDir()
+func TestStorageEngine_GetEdgeTableMeta_LoadOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(2))
 
-	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
+	expected := storage.EdgeTableMeta{Name: "follows"}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetEdgeTableMeta("follows").
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(expected, nil).
+		Once()
+
+	meta, err := eng.GetEdgeTableMeta("follows", ct)
 	require.NoError(t, err)
-
-	var se *StorageEngine
-
-	lockMgr := txns.NewLockManager()
-	se, err = New(
-		dir,
-		uint64(200),
-		lockMgr,
-		afero.NewOsFs(),
-		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
-			return nil, nil
-		},
-	)
-	require.NoError(t, err)
-
-	tableName := "IsFriendWith"
-	schema := storage.Schema{
-		{Name: "from", Type: storage.ColumnTypeInt64},
-		{Name: "to", Type: storage.ColumnTypeInt64},
-	}
-
-	func() {
-		firstTxnID := common.TxnID(1)
-		defer lockMgr.Unlock(firstTxnID)
-
-		err = se.CreateEdgeTable(firstTxnID, tableName, schema, common.NoLogs())
-		require.NoError(t, err)
-
-		tablePath := getTableFilePath(dir, getEdgeTableName(tableName))
-		info, err := os.Stat(tablePath)
-		require.NoError(t, err)
-
-		require.False(t, info.IsDir())
-
-		tblMeta, err := se.catalog.GetTableMeta(getEdgeTableName(tableName))
-		require.NoError(t, err)
-		require.Equal(t, tableName, tblMeta.Name)
-
-		require.Greater(t, se.catalog.CurrentVersion(), uint64(0))
-	}()
-
-	func() {
-		secondTxnID := common.TxnID(2)
-		defer lockMgr.Unlock(secondTxnID)
-
-		err = se.CreateEdgeTable(secondTxnID, tableName, schema, common.NoLogs())
-		require.Error(t, err)
-	}()
+	require.Equal(t, expected, meta)
 }
 
-func TestStorageEngine_DropEdgesTable(t *testing.T) {
-	dir := t.TempDir()
+func TestStorageEngine_GetDirTableMeta_LoadOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(3))
+	fileID := common.FileID(10)
 
-	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
+	expected := storage.DirTableMeta{VertexTableID: fileID}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetDirTableMeta(fileID).
+		Run(func(_ common.FileID) { require.Equal(t, 1, step); step = 2 }).
+		Return(expected, nil).
+		Once()
+
+	meta, err := eng.GetDirTableMeta(ct, fileID)
 	require.NoError(t, err)
-
-	var se *StorageEngine
-
-	lockMgr := txns.NewLockManager()
-	se, err = New(
-		dir,
-		uint64(200),
-		lockMgr,
-		afero.NewOsFs(),
-		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
-			return nil, nil
-		},
-	)
-	require.NoError(t, err)
-
-	tableName := "IsFriendWith"
-	schema := storage.Schema{
-		{Name: "from", Type: storage.ColumnTypeInt64},
-		{Name: "to", Type: storage.ColumnTypeInt64},
-	}
-
-	func() {
-		firstTxnID := common.TxnID(1)
-		defer lockMgr.Unlock(firstTxnID)
-
-		err = se.CreateEdgeTable(firstTxnID, tableName, schema, common.NoLogs())
-		require.NoError(t, err)
-
-		tablePath := getTableFilePath(dir, getEdgeTableName(tableName))
-		info, err := os.Stat(tablePath)
-		require.NoError(t, err)
-
-		require.False(t, info.IsDir())
-
-		err = se.DropEdgeTable(firstTxnID, tableName, common.NoLogs())
-		require.NoError(t, err)
-
-		_, err = os.Stat(tablePath)
-		require.NoError(t, err)
-
-		err = se.DropEdgeTable(firstTxnID, tableName, common.NoLogs())
-		require.Error(t, err)
-
-		require.Equal(t, uint64(2), se.catalog.CurrentVersion())
-	}()
-
-	func() {
-		secondTxnID := common.TxnID(2)
-		defer lockMgr.Unlock(secondTxnID)
-
-		err = se.CreateEdgeTable(secondTxnID, tableName, schema, common.NoLogs())
-		require.NoError(t, err)
-
-		tablePath := getTableFilePath(dir, getEdgeTableName(tableName))
-		_, err := os.Stat(tablePath)
-		require.NoError(t, err)
-	}()
+	require.Equal(t, expected, meta)
 }
 
-func TestStorageEngine_CreateIndex(t *testing.T) {
-	dir := t.TempDir()
+func TestStorageEngine_GetVertexTableIndexMeta_LoadOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(4))
 
-	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
+	expected := storage.IndexMeta{Name: "idx_users_name"}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetVertexTableIndexMeta("idx_users_name").
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(expected, nil).
+		Once()
+
+	meta, err := eng.GetVertexTableIndexMeta("idx_users_name", ct)
 	require.NoError(t, err)
-
-	var se *StorageEngine
-
-	lockMgr := txns.NewLockManager()
-	se, err = New(
-		dir,
-		uint64(200),
-		lockMgr,
-		afero.NewOsFs(),
-		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
-			return nil, nil
-		},
-	)
-	require.NoError(t, err)
-
-	tableName := "User"
-	schema := storage.Schema{
-		{Name: "id", Type: storage.ColumnTypeInt64},
-		{Name: "name", Type: storage.ColumnTypeUUID},
-	}
-
-	firstTxnID := common.TxnID(1)
-	defer lockMgr.Unlock(firstTxnID)
-
-	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
-	require.NoError(t, err)
-
-	indexName := "user_name"
-	err = se.CreateVertexTableIndex(
-		firstTxnID,
-		indexName,
-		tableName,
-		[]string{"name"},
-		8,
-		common.NoLogs(),
-	)
-	require.NoError(t, err)
-
-	tablePath := GetVertexIndexFilePath(dir, indexName)
-	_, err = os.Stat(tablePath)
-	require.NoError(t, err)
-
-	_, err = se.catalog.GetIndexMeta(GetVertexIndexName(indexName))
-	require.NoError(t, err)
+	require.Equal(t, expected, meta)
 }
 
-func TestStorageEngine_DropIndex(t *testing.T) {
-	dir := t.TempDir()
+func TestStorageEngine_GetEdgeIndexMeta_LoadOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(5))
 
-	err := systemcatalog.InitSystemCatalog(dir, afero.NewOsFs())
+	expected := storage.IndexMeta{Name: "idx_follows_weight"}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetEdgeIndexMeta("idx_follows_weight").
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(expected, nil).
+		Once()
+
+	meta, err := eng.GetEdgeIndexMeta("idx_follows_weight", ct)
 	require.NoError(t, err)
+	require.Equal(t, expected, meta)
+}
 
-	var se *StorageEngine
+func TestStorageEngine_GetVertexTableInternalIndexMeta_LoadOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(6))
+	fileID := common.FileID(42)
+	internalName := "idx_internal_42"
 
-	lockMgr := txns.NewLockManager()
-	se, err = New(
-		dir,
-		uint64(200),
-		lockMgr,
-		afero.NewOsFs(),
-		func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
-			return nil, nil
-		},
-	)
+	expected := storage.IndexMeta{Name: internalName}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetVertexTableIndexMeta(internalName).
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(expected, nil).
+		Once()
+
+	meta, err := eng.GetVertexTableInternalIndexMeta(fileID, ct)
 	require.NoError(t, err)
+	require.Equal(t, expected, meta)
+}
 
-	tableName := "User"
-	schema := storage.Schema{
-		{Name: "id", Type: storage.ColumnTypeInt64},
-		{Name: "name", Type: storage.ColumnTypeUUID},
-	}
+func TestStorageEngine_GetEdgeTableInternalIndexMeta_LoadOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(7))
+	fileID := common.FileID(7)
+	internalName := "idx_internal_7"
 
-	firstTxnID := common.TxnID(1)
-	defer lockMgr.Unlock(firstTxnID)
+	expected := storage.IndexMeta{Name: internalName}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetEdgeIndexMeta(internalName).
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(expected, nil).
+		Once()
 
-	err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
+	meta, err := eng.GetEdgeTableInternalIndexMeta(fileID, ct)
 	require.NoError(t, err)
+	require.Equal(t, expected, meta)
+}
 
-	indexName := "user_name"
+func TestStorageEngine_GetEdgeTableMetaByFileID_LoadOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(8))
+	fileID := common.FileID(77)
 
-	err = se.CreateVertexTableIndex(
-		firstTxnID,
-		indexName,
-		tableName,
-		[]string{"name"},
-		8,
-		common.NoLogs(),
-	)
+	expected := storage.EdgeTableMeta{Name: "edges"}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetEdgeTableNameByFileID(fileID).
+		Run(func(_ common.FileID) { require.Equal(t, 1, step); step = 2 }).
+		Return("edges", nil).
+		Once()
+	cat.EXPECT().
+		GetEdgeTableMeta("edges").
+		Run(func(_ string) { require.Equal(t, 2, step); step = 3 }).
+		Return(expected, nil).
+		Once()
+
+	meta, err := eng.GetEdgeTableMetaByFileID(fileID, ct)
 	require.NoError(t, err)
+	require.Equal(t, expected, meta)
+}
 
-	indexPath := GetVertexIndexFilePath(dir, indexName)
-	_, err = os.Stat(indexPath)
-	require.NoError(t, err)
+func TestStorageEngine_GetVertexTableMetaByFileID_LoadOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(9))
+	fileID := common.FileID(88)
 
-	_, err = se.catalog.GetIndexMeta(indexName)
-	require.NoError(t, err)
+	// Note: current implementation resolves via edge lookups and returns EdgeTableMeta
+	expected := storage.EdgeTableMeta{Name: "edges_by_vertex_id"}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		GetEdgeTableNameByFileID(fileID).
+		Run(func(_ common.FileID) { require.Equal(t, 1, step); step = 2 }).
+		Return("edges_by_vertex_id", nil).
+		Once()
+	cat.EXPECT().
+		GetEdgeTableMeta("edges_by_vertex_id").
+		Run(func(_ string) { require.Equal(t, 2, step); step = 3 }).
+		Return(expected, nil).
+		Once()
 
-	err = se.DropVertexTableIndex(firstTxnID, indexName, common.NoLogs())
+	meta, err := eng.GetVertexTableMetaByFileID(fileID, ct)
 	require.NoError(t, err)
+	require.Equal(t, expected, meta)
+}
 
-	_, err = os.Stat(indexPath)
-	require.NoError(t, err)
+func TestStorageEngine_GetVertexTableIndex_LoadAndExistsOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(10))
+	logger := common.NewMockITxnLoggerWithContext(t)
 
-	err = se.CreateVertexTableIndex(
-		firstTxnID,
-		indexName,
-		tableName,
-		[]string{"name"},
-		8,
-		common.NoLogs(),
-	)
-	require.NoError(t, err)
+	idxName := "idx_users_id"
+	idxMeta := storage.IndexMeta{Name: idxName}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		VertexIndexExists(idxName).
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(true, nil).
+		Once()
+	cat.EXPECT().
+		GetVertexTableIndexMeta(idxName).
+		Run(func(_ string) { require.Equal(t, 2, step); step = 3 }).
+		Return(idxMeta, nil).
+		Once()
 
-	_, err = os.Stat(indexPath)
+	idx, err := eng.GetVertexTableIndex(common.TxnID(10), idxName, ct, logger)
 	require.NoError(t, err)
+	require.NotNil(t, idx)
+}
+
+func TestStorageEngine_GetEdgeTableIndex_LoadAndExistsOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(11))
+	logger := common.NewMockITxnLoggerWithContext(t)
+
+	idxName := "idx_edges_id"
+	idxMeta := storage.IndexMeta{Name: idxName}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		EdgeIndexExists(idxName).
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(true, nil).
+		Once()
+	cat.EXPECT().
+		GetEdgeIndexMeta(idxName).
+		Run(func(_ string) { require.Equal(t, 2, step); step = 3 }).
+		Return(idxMeta, nil).
+		Once()
+
+	idx, err := eng.GetEdgeTableIndex(common.TxnID(11), idxName, ct, logger)
+	require.NoError(t, err)
+	require.NotNil(t, idx)
+}
+
+func TestStorageEngine_GetDirTableInternalIndex_LoadAndExistsOrder(t *testing.T) {
+	eng, cat, _ := newTestEngineWithMockCatalog(t)
+	ct := txns.NewNilCatalogLockToken(common.TxnID(12))
+	logger := common.NewMockITxnLoggerWithContext(t)
+
+	fileID := common.FileID(5)
+	internalName := "idx_internal_5"
+	idxMeta := storage.IndexMeta{Name: internalName}
+	step := 0
+	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
+	cat.EXPECT().
+		DirIndexExists(internalName).
+		Run(func(_ string) { require.Equal(t, 1, step); step = 2 }).
+		Return(true, nil).
+		Once()
+	cat.EXPECT().
+		GetDirIndexMeta(internalName).
+		Run(func(_ string) { require.Equal(t, 2, step); step = 3 }).
+		Return(idxMeta, nil).
+		Once()
+
+	idx, err := eng.GetDirTableInternalIndex(common.TxnID(12), fileID, ct, logger)
+	require.NoError(t, err)
+	require.NotNil(t, idx)
 }

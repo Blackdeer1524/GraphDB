@@ -135,7 +135,6 @@ func TestFuzz_SingleThreaded(t *testing.T) {
 		res := applyOp(se, op, baseDir, common.NoLogs())
 
 		model.apply(op, res)
-		lockMgr.Unlock(op.TxnID)
 
 		if i%25 == 0 {
 			t.Logf("validate invariants at step=%d", i)

@@ -67,12 +67,18 @@ func GetDirectoryRID(
 ) (storage.DirItemInternalIDWithRID, error) {
 	b, err := dirItemID.MarshalBinary()
 	if err != nil {
-		return storage.DirItemInternalIDWithRID{}, fmt.Errorf("failed to marshal directory ID: %w", err)
+		return storage.DirItemInternalIDWithRID{}, fmt.Errorf(
+			"failed to marshal directory ID: %w",
+			err,
+		)
 	}
 
 	rid, err := dirSystemIndex.Get(b)
 	if err != nil {
-		return storage.DirItemInternalIDWithRID{}, fmt.Errorf("failed to get directory RID: %w", err)
+		return storage.DirItemInternalIDWithRID{}, fmt.Errorf(
+			"failed to get directory RID: %w",
+			err,
+		)
 	}
 
 	res := storage.DirItemInternalIDWithRID{
