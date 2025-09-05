@@ -46,10 +46,6 @@ func catalogVersionPageRecordID() common.RecordID {
 	}
 }
 
-func getDirIndexName(dirFileID common.FileID) string {
-	return fmt.Sprintf("%d", dirFileID)
-}
-
 type Data struct {
 	Metadata                storage.Metadata                       `json:"metadata"`
 	VertexTables            map[string]storage.VertexTableMeta     `json:"vertex_tables"`
@@ -139,12 +135,12 @@ type Manager struct {
 	bp                 bufferpool.BufferPool
 	currentVersionPage *page.SlottedPage
 
-	// currentVersion uses for cache if version from file is equal to
+	// masterVersion uses for cache if version from file is equal to
 	// this then we don't need to reread it from disk
-	currentVersion uint64
-	isDirty        bool
+	masterVersion uint64
+	isDirty       bool
 
-	mu *sync.RWMutex
+	mu sync.RWMutex
 }
 
 var _ storage.SystemCatalog = &Manager{}
@@ -297,20 +293,22 @@ func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Manager, erro
 	return &Manager{
 		bp:                 bp,
 		currentVersionPage: cvp,
-		currentVersion:     versionNum,
+		masterVersion:      versionNum,
 		basePath:           basePath,
 		data:               &data,
 		fs:                 fs,
 		maxFileID:          calcMaxFileID(&data),
 
-		mu: new(sync.RWMutex),
+		mu: sync.RWMutex{},
 	}, nil
 }
 
 func (m *Manager) Load() error {
 	m.mu.RLock()
-	versionNum := utils.FromBytes[uint64](m.currentVersionPage.LockedRead(catalogVersionSlotNum))
-	if m.currentVersion == versionNum && !m.isDirty {
+	onDiskVersionNum := utils.FromBytes[uint64](
+		m.currentVersionPage.LockedRead(catalogVersionSlotNum),
+	)
+	if m.masterVersion == onDiskVersionNum && !m.isDirty {
 		m.mu.RUnlock()
 		return nil
 	}
@@ -319,12 +317,14 @@ func (m *Manager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	versionNum = utils.FromBytes[uint64](m.currentVersionPage.LockedRead(catalogVersionSlotNum))
-	if m.currentVersion == versionNum && !m.isDirty {
+	onDiskVersionNum = utils.FromBytes[uint64](
+		m.currentVersionPage.LockedRead(catalogVersionSlotNum),
+	)
+	if m.masterVersion == onDiskVersionNum && !m.isDirty {
 		return nil
 	}
 
-	sysCatFilename := getSystemCatalogFilename(m.basePath, versionNum)
+	sysCatFilename := getSystemCatalogFilename(m.basePath, m.masterVersion)
 	dataBytes, err := afero.ReadFile(m.fs, sysCatFilename)
 	if err != nil {
 		return fmt.Errorf("failed to read system catalog file: %w", err)
@@ -338,7 +338,6 @@ func (m *Manager) Load() error {
 	}
 
 	m.data = &data
-	m.currentVersion = versionNum
 	m.isDirty = false
 
 	return nil
@@ -354,8 +353,11 @@ func (m *Manager) GetBasePath() string {
 func (m *Manager) CommitChanges(logger common.ITxnLoggerWithContext) (err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !m.isDirty {
+		return nil
+	}
 
-	nVersion := m.currentVersion + 1
+	nVersion := m.masterVersion + 1
 
 	var data []byte
 
@@ -417,7 +419,7 @@ func (m *Manager) CommitChanges(logger common.ITxnLoggerWithContext) (err error)
 		return fmt.Errorf("failed to mark dirty: %w", err)
 	}
 
-	m.currentVersion++
+	m.masterVersion++
 	m.isDirty = false
 	return nil
 }
@@ -556,6 +558,7 @@ func (m *Manager) AddVertexTable(req storage.VertexTableMeta) error {
 	}
 
 	m.data.VertexTables[req.Name] = req
+	m.data.FileIDToVertexTableName[req.FileID] = req.Name
 	m.isDirty = true
 	return nil
 }
@@ -571,6 +574,7 @@ func (m *Manager) AddEdgeTable(req storage.EdgeTableMeta) error {
 
 	m.data.EdgeTables[req.Name] = req
 	m.isDirty = true
+	m.data.FileIDToEdgeTableName[req.FileID] = req.Name
 	return nil
 }
 
@@ -578,12 +582,13 @@ func (m *Manager) DropVertexTable(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, exists := m.data.VertexTables[name]
+	tableMeta, exists := m.data.VertexTables[name]
 	if !exists {
 		return ErrEntityNotFound
 	}
 
 	delete(m.data.VertexTables, name)
+	delete(m.data.FileIDToVertexTableName, tableMeta.FileID)
 	m.isDirty = true
 	return nil
 }
@@ -592,12 +597,13 @@ func (m *Manager) DropEdgeTable(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, exists := m.data.EdgeTables[name]
+	tableMeta, exists := m.data.EdgeTables[name]
 	if !exists {
 		return ErrEntityNotFound
 	}
 
 	delete(m.data.EdgeTables, name)
+	delete(m.data.FileIDToEdgeTableName, tableMeta.FileID)
 	m.isDirty = true
 	return nil
 }
@@ -877,7 +883,7 @@ func (m *Manager) CurrentVersion() uint64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	return m.currentVersion
+	return m.masterVersion
 }
 
 func GetDirTableName(vertexTableFileID common.FileID) string {

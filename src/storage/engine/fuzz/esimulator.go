@@ -1,4 +1,4 @@
-package fuzz
+package engine
 
 import (
 	"os"
@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/storage"
-	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
 )
 
 type engineSimulator struct {
@@ -85,12 +84,12 @@ func (m *engineSimulator) apply(op Operation, res OpResult) {
 
 func (m *engineSimulator) compareWithEngineFS(t *testing.T, baseDir string) {
 	for tbl := range m.VertexTables {
-		_, err := os.Stat(engine.GetTableFilePath(baseDir, tbl))
+		_, err := os.Stat(engine.getTableFilePath(baseDir, tbl))
 		require.NoError(t, err, "table file is missing: %s", tbl)
 	}
 
 	for idx := range m.EdgeIndexes {
-		_, err := os.Stat(engine.GetTableFilePath(baseDir, idx))
+		_, err := os.Stat(engine.getTableFilePath(baseDir, idx))
 		require.NoError(t, err, "index file is missing: %s", idx)
 	}
 }

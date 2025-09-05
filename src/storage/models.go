@@ -1,6 +1,15 @@
 package storage
 
-import "github.com/Blackdeer1524/GraphDB/src/pkg/common"
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+
+	"github.com/google/uuid"
+
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+)
 
 type ColumnType string
 
@@ -10,6 +19,32 @@ const (
 	ColumnTypeFloat64 ColumnType = "float64"
 	ColumnTypeUUID    ColumnType = "uuid" // 16 bytes
 )
+
+func CmpColumnValue(left any, right []byte) bool {
+	switch left := left.(type) {
+	case int64:
+		var result int64
+		err := binary.Read(bytes.NewReader(right), binary.BigEndian, &result)
+		assert.NoError(err)
+		return left == result
+	case uint64:
+		var result uint64
+		err := binary.Read(bytes.NewReader(right), binary.BigEndian, &result)
+		assert.NoError(err)
+		return left == result
+	case float64:
+		var result float64
+		err := binary.Read(bytes.NewReader(right), binary.BigEndian, &result)
+		assert.NoError(err)
+		return left == result
+	case uuid.UUID:
+		var result uuid.UUID
+		err := binary.Read(bytes.NewReader(right), binary.BigEndian, &result)
+		assert.NoError(err)
+		return left == result
+	}
+	panic("unsupported column type: " + fmt.Sprintf("%#v", left))
+}
 
 type Column struct {
 	Name string

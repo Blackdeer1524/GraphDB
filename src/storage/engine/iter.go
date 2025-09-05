@@ -616,11 +616,12 @@ func (i *neighbourVertexIter) Close() error {
 }
 
 type vertexTableScanIter struct {
-	se          *StorageEngine
-	pool        bufferpool.BufferPool
-	tableToken  *txns.FileLockToken
-	tableSchema storage.Schema
-	locker      *txns.LockManager
+	se           storage.StorageEngine
+	pool         bufferpool.BufferPool
+	vertexFilter storage.VertexFilter
+	tableToken   *txns.FileLockToken
+	tableSchema  storage.Schema
+	locker       *txns.LockManager
 }
 
 var _ storage.VerticesIter = &vertexTableScanIter{}
@@ -628,16 +629,18 @@ var _ storage.VerticesIter = &vertexTableScanIter{}
 func newVertexTableScanIter(
 	se *StorageEngine,
 	pool bufferpool.BufferPool,
-	tableToken *txns.FileLockToken,
-	tableSchema storage.Schema,
+	vertexFilter storage.VertexFilter,
+	vertTableToken *txns.FileLockToken,
+	vartTableSchema storage.Schema,
 	locker *txns.LockManager,
 ) *vertexTableScanIter {
 	return &vertexTableScanIter{
-		se:          se,
-		pool:        pool,
-		tableToken:  tableToken,
-		tableSchema: tableSchema,
-		locker:      locker,
+		se:           se,
+		pool:         pool,
+		vertexFilter: vertexFilter,
+		tableToken:   vertTableToken,
+		tableSchema:  vartTableSchema,
+		locker:       locker,
 	}
 }
 
@@ -696,6 +699,9 @@ func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, st
 					vertex := storage.Vertex{
 						VertexInternalFields: vertexInternalFields,
 						Data:                 vertexFields,
+					}
+					if !iter.vertexFilter(&vertex) {
+						continue
 					}
 
 					recordID.SlotNum = i

@@ -32,7 +32,29 @@ func (s *StorageEngine) AllVerticesWithValue(
 	field string,
 	value []byte,
 ) (storage.VerticesIter, error) {
-	panic("unimplemented")
+	cToken := vertTableToken.GetCatalogLockToken()
+	vertTableMeta, err := s.GetVertexTableMetaByFileID(vertTableToken.GetFileID(), cToken)
+	if err != nil {
+		return nil, err
+	}
+
+	var valueVertexFilter storage.VertexFilter = func(v *storage.Vertex) bool {
+		columnValue, ok := v.Data[field]
+		if !ok {
+			return false
+		}
+		return storage.CmpColumnValue(columnValue, value)
+	}
+
+	iter := newVertexTableScanIter(
+		s,
+		s.pool,
+		valueVertexFilter,
+		vertTableToken,
+		vertTableMeta.Schema,
+		s.locker,
+	)
+	return iter, nil
 }
 
 func (s *StorageEngine) CountOfFilteredEdges(
@@ -72,6 +94,7 @@ func (s *StorageEngine) GetAllVertices(
 	iter := newVertexTableScanIter(
 		s,
 		s.pool,
+		storage.AllowAllVerticesFilter,
 		vertTableToken,
 		vertTableMeta.Schema,
 		s.locker,

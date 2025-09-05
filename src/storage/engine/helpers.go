@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"unsafe"
 
 	"github.com/google/uuid"
 
@@ -39,18 +40,17 @@ func parseRecord(reader *bytes.Reader, schema storage.Schema) (map[string]any, e
 			}
 			res[colName] = result
 		case storage.ColumnTypeUUID:
-			uuidBytes := make([]byte, 36)
+			uuidBytes := make([]byte, unsafe.Sizeof(uuid.UUID{}))
 			_, err := io.ReadFull(reader, uuidBytes)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read UUID for column %s: %w", colName, err)
 			}
 
-			uuidStr := string(uuidBytes)
-			err = uuid.Validate(uuidStr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid UUID for column %s: %w", colName, err)
+			uuidVal := uuid.UUID(uuidBytes)
+			if uuidVal.String() == "" {
+				return nil, fmt.Errorf("invalid UUID for column %s. uuid: %v", colName, uuidVal)
 			}
-			res[colName] = uuidStr
+			res[colName] = uuidVal
 		}
 	}
 
@@ -160,7 +160,7 @@ func parseDirectoryRecord(data []byte) (storage.DirectoryItem, error) {
 	return directoryInternalFields, nil
 }
 
-func _serializeRecord(data map[string]any, schema storage.Schema) ([]byte, error) {
+func serializeRecord(data map[string]any, schema storage.Schema) ([]byte, error) {
 	var buf bytes.Buffer
 
 	for _, colInfo := range schema {
@@ -201,22 +201,15 @@ func _serializeRecord(data map[string]any, schema storage.Schema) ([]byte, error
 				return nil, err
 			}
 		case storage.ColumnTypeUUID:
-			val, ok := value.(string)
+			val, ok := value.(uuid.UUID)
 			if !ok {
 				return nil, fmt.Errorf("expected string for UUID column %s, got %T", colName, value)
 			}
-			err := uuid.Validate(val)
-			if err != nil {
-				return nil, fmt.Errorf("invalid UUID for column %s: %w", colName, err)
+			if val.String() == "" {
+				return nil, fmt.Errorf("invalid UUID for column %s: %v", colName, val)
 			}
-			if len(val) != 36 {
-				return nil, fmt.Errorf(
-					"UUID for column %s must be exactly 36 characters, got %d",
-					colName,
-					len(val),
-				)
-			}
-			_, err = buf.WriteString(val)
+
+			_, err := buf.Write(val[:])
 			if err != nil {
 				return nil, err
 			}
@@ -240,7 +233,7 @@ func serializeVertexRecord(
 		return nil, fmt.Errorf("failed to write vertex internal fields: %w", err)
 	}
 
-	recordBytes, err := _serializeRecord(record, vertexSchema)
+	recordBytes, err := serializeRecord(record, vertexSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize record: %w", err)
 	}
@@ -282,7 +275,7 @@ func serializeEdgeRecord(
 		return nil, fmt.Errorf("failed to write edge internal fields: %w", err)
 	}
 
-	recordBytes, err := _serializeRecord(record, edgeSchema)
+	recordBytes, err := serializeRecord(record, edgeSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize record: %w", err)
 	}

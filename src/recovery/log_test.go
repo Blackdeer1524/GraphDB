@@ -325,7 +325,7 @@ func TestMassiveRecovery(t *testing.T) {
 	NEW := []byte("new1")
 	NEW2 := []byte("1234")
 
-	DataFileID := common.FileID(0)
+	DataFileID := common.FileID(4)
 	dataPageId := common.PageIdentity{
 		FileID: DataFileID,
 		PageID: 321,

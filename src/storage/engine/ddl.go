@@ -24,16 +24,16 @@ const (
 )
 
 func GetVertexTableFilePath(basePath, vertTableName string) string {
-	return GetTableFilePath(basePath, vertexTableType, vertTableName)
+	return getTableFilePath(basePath, vertexTableType, vertTableName)
 }
 
 func GetEdgeTableFilePath(basePath, edgeTableName string) string {
-	return GetTableFilePath(basePath, edgeTableType, edgeTableName)
+	return getTableFilePath(basePath, edgeTableType, edgeTableName)
 }
 
 func GetDirectoryTableFilePath(basePath string, vertexTableFileID common.FileID) string {
 	dirTableName := systemcatalog.GetDirTableName(vertexTableFileID)
-	return GetTableFilePath(basePath, directoryTableType, dirTableName)
+	return getTableFilePath(basePath, directoryTableType, dirTableName)
 }
 
 func GetVertexTableIndexFilePath(basePath, indexName string) string {
@@ -48,7 +48,7 @@ func getDirTableIndexFilePath(basePath, indexName string) string {
 	return getIndexFilePath(basePath, directoryTableType, indexName)
 }
 
-func GetTableFilePath(basePath string, tableType tableType, prefixedName string) string {
+func getTableFilePath(basePath string, tableType tableType, prefixedName string) string {
 	return filepath.Join(basePath, "tables", string(tableType), prefixedName+".tbl")
 }
 

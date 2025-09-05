@@ -15,3 +15,13 @@ packages:
       inpackage: true
     interfaces:
       ILockManager:
+
+  github.com/Blackdeer1524/GraphDB/src/storage:
+    config:
+      dir: "{{.InterfaceDir}}"
+      outpkg: "{{.PackageName}}"
+      inpackage: true
+    interfaces:
+      StorageEngine:
+      SystemCatalog:
+      Index:

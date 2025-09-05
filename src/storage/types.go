@@ -466,6 +466,7 @@ type StorageEngine interface {
 }
 
 type SystemCatalog interface {
+	CurrentVersion() uint64
 	GetBasePath() string
 	GetNewFileID() common.FileID
 	GetFileIDToPathMap() map[common.FileID]string

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
@@ -13,18 +12,6 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
-
-func Test_getTableFilePath(t *testing.T) {
-	ans := GetTableFilePath("/var/lib/graphdb", "friends")
-
-	assert.Equal(t, "/var/lib/graphdb/tables/friends.tbl", ans)
-}
-
-func Test_getIndexFilePath(t *testing.T) {
-	ans := getIndexFilePath("/var/lib/graphdb", "idx_user_name")
-
-	assert.Equal(t, "/var/lib/graphdb/indexes/idx_user_name.idx", ans)
-}
 
 func TestStorageEngine_CreateVertexTable(t *testing.T) {
 	dir := t.TempDir()
@@ -55,28 +42,31 @@ func TestStorageEngine_CreateVertexTable(t *testing.T) {
 
 	func() {
 		firstTxnID := common.TxnID(1)
+		cToken := txns.NewNilCatalogLockToken(firstTxnID)
+
 		defer lockMgr.Unlock(firstTxnID)
-		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
+		err = se.CreateVertexTable(firstTxnID, tableName, schema, cToken, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, tableName)
+		tablePath := GetVertexTableFilePath(dir, tableName)
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
 		require.False(t, info.IsDir())
 
-		tblMeta, err := se.catalog.GetTableMeta(tableName)
+		tblMeta, err := se.catalog.GetVertexTableMeta(tableName)
 		require.NoError(t, err)
 		require.Equal(t, tableName, tblMeta.Name)
 
-		require.Greater(t, se.catalog.CurrentVersion(), uint64(0))
+		require.Equal(t, uint64(1), se.catalog.CurrentVersion())
 	}()
 
 	func() {
 		secondTxnID := common.TxnID(2)
+		cToken := txns.NewNilCatalogLockToken(secondTxnID)
 		defer lockMgr.Unlock(secondTxnID)
 
-		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
+		err = se.CreateVertexTable(secondTxnID, tableName, schema, cToken, common.NoLogs())
 		require.Error(t, err)
 	}()
 }
@@ -111,22 +101,24 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		firstTxnID := common.TxnID(1)
 		defer lockMgr.Unlock(firstTxnID)
 
-		err = se.CreateVertexTable(firstTxnID, tableName, schema, common.NoLogs())
+		cToken := txns.NewNilCatalogLockToken(firstTxnID)
+
+		err = se.CreateVertexTable(firstTxnID, tableName, schema, cToken, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, getVertexTableName(tableName))
+		tablePath := GetVertexTableFilePath(dir, tableName)
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
 		require.False(t, info.IsDir())
 
-		err = se.DropVertexTable(1, tableName, common.NoLogs())
+		err = se.DropVertexTable(firstTxnID, tableName, cToken, common.NoLogs())
 		require.NoError(t, err)
 
 		_, err = os.Stat(tablePath)
 		require.NoError(t, err)
 
-		err = se.DropVertexTable(1, tableName, common.NoLogs())
+		err = se.DropVertexTable(firstTxnID, tableName, cToken, common.NoLogs())
 		require.Error(t, err)
 
 		require.Equal(t, uint64(2), se.catalog.CurrentVersion())
@@ -139,7 +131,7 @@ func TestStorageEngine_DropVertexTable(t *testing.T) {
 		err = se.CreateVertexTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, getVertexTableName(tableName))
+		tablePath := getTableFilePath(dir, getVertexTableName(tableName))
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
@@ -178,7 +170,7 @@ func TestStorageEngine_CreateEdgeTable(t *testing.T) {
 		err = se.CreateEdgeTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, getEdgeTableName(tableName))
+		tablePath := getTableFilePath(dir, getEdgeTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -233,7 +225,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		err = se.CreateEdgeTable(firstTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, getEdgeTableName(tableName))
+		tablePath := getTableFilePath(dir, getEdgeTableName(tableName))
 		info, err := os.Stat(tablePath)
 		require.NoError(t, err)
 
@@ -258,7 +250,7 @@ func TestStorageEngine_DropEdgesTable(t *testing.T) {
 		err = se.CreateEdgeTable(secondTxnID, tableName, schema, common.NoLogs())
 		require.NoError(t, err)
 
-		tablePath := GetTableFilePath(dir, getEdgeTableName(tableName))
+		tablePath := getTableFilePath(dir, getEdgeTableName(tableName))
 		_, err := os.Stat(tablePath)
 		require.NoError(t, err)
 	}()
