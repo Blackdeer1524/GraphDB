@@ -95,7 +95,7 @@ func TestGetVertexesOnDepth_Depth0(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	expected := []storage.VertexIDWithRID{{V: 1, R: common.RecordID{PageID: 100}}}
+	expected := []storage.VertexInternalIDWithRID{{V: 1, R: common.RecordID{PageID: 100}}}
 	res, err := e.GetVertexesOnDepth(1, 0)
 	require.NoError(t, err)
 	assert.Equal(t, expected, res)
@@ -125,7 +125,7 @@ func TestGetVertexesOnDepth_Depth1(t *testing.T) {
 	res, err := e.GetVertexesOnDepth(1, 1)
 	require.NoError(t, err)
 
-	expected := []storage.VertexIDWithRID{
+	expected := []storage.VertexInternalIDWithRID{
 		{V: 2, R: common.RecordID{PageID: 200}},
 		{V: 3, R: common.RecordID{PageID: 300}},
 	}
@@ -153,7 +153,7 @@ func TestGetVertexesOnDepth_Depth2(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	expected := []storage.VertexIDWithRID{
+	expected := []storage.VertexInternalIDWithRID{
 		{V: 4, R: common.RecordID{PageID: 400}},
 		{V: 5, R: common.RecordID{PageID: 500}},
 	}
@@ -186,7 +186,7 @@ func TestGetVertexesOnDepth_WithCycle(t *testing.T) {
 	res, err := e.GetVertexesOnDepth(1, 1)
 	require.NoError(t, err)
 
-	expected := []storage.VertexIDWithRID{
+	expected := []storage.VertexInternalIDWithRID{
 		{V: 2, R: common.RecordID{PageID: 200}},
 		{V: 3, R: common.RecordID{PageID: 300}},
 	}
@@ -293,7 +293,7 @@ func TestBFS_NewQueueError(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	_, err := e.bfsWithDepth(0, start, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "queue error")
@@ -304,7 +304,7 @@ func TestBFS_NewBitMapError(t *testing.T) {
 	edges := [][]engine.VertexID{}
 	se := mocks.NewDataMockStorageEngine(vertices, edges, nil, nil, errors.New("bitmap error"), nil)
 	e := &Executor{se: se}
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 
 	_, err := e.bfsWithDepth(0, start, 0)
 	require.Error(t, err)
@@ -332,10 +332,10 @@ func TestBFS_Depth0(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 0)
 	require.NoError(t, err)
-	assert.Equal(t, []storage.VertexIDWithRID{start}, res)
+	assert.Equal(t, []storage.VertexInternalIDWithRID{start}, res)
 }
 
 func TestBFS_Depth1(t *testing.T) {
@@ -359,10 +359,10 @@ func TestBFS_Depth1(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 1)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []storage.VertexIDWithRID{
+	assert.ElementsMatch(t, []storage.VertexInternalIDWithRID{
 		{V: 2, R: common.RecordID{PageID: 200}},
 		{V: 3, R: common.RecordID{PageID: 300}},
 	}, res)
@@ -389,10 +389,10 @@ func TestBFS_Depth2(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 2)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []storage.VertexIDWithRID{
+	assert.ElementsMatch(t, []storage.VertexInternalIDWithRID{
 		{V: 4, R: common.RecordID{PageID: 400}},
 		{V: 5, R: common.RecordID{PageID: 500}},
 	}, res)
@@ -419,11 +419,11 @@ func TestBFS_WithCycle(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 1)
 	require.NoError(t, err)
 	assert.Equal(t,
-		[]storage.VertexIDWithRID{
+		[]storage.VertexInternalIDWithRID{
 			{V: 2, R: common.RecordID{PageID: 200}},
 			{V: 3, R: common.RecordID{PageID: 300}},
 		},
@@ -460,7 +460,7 @@ func TestBFS_TraverseNeighborsError(t *testing.T) {
 	)
 
 	e := New(se, &mockLockMgr, &mockLogger)
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	_, err := e.bfsWithDepth(0, start, 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to traverse neighbors: neighbors error")
@@ -487,7 +487,7 @@ func TestBFS_NoVerticesAtTargetDepth(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 1)
 	require.NoError(t, err)
 	assert.Empty(t, res)
@@ -514,10 +514,10 @@ func TestBFS_MultiplePathsToSameVertex(t *testing.T) {
 	)
 	e := New(se, &mockLockMgr, &mockLogger)
 
-	start := storage.VertexIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
+	start := storage.VertexInternalIDWithRID{V: 1, R: common.RecordID{PageID: 100}}
 	res, err := e.bfsWithDepth(0, start, 2)
 	require.NoError(t, err)
-	assert.Equal(t, []storage.VertexIDWithRID{{V: 4, R: common.RecordID{PageID: 400}}}, res)
+	assert.Equal(t, []storage.VertexInternalIDWithRID{{V: 4, R: common.RecordID{PageID: 400}}}, res)
 }
 
 // GetAllVertexesWithFieldValue

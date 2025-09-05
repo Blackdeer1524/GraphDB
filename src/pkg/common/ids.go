@@ -76,6 +76,22 @@ type RecordID struct {
 	SlotNum uint16
 }
 
+func (r RecordID) MarshalBinary() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	if err := binary.Write(buf, binary.BigEndian, r.FileID); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (r *RecordID) UnmarshalBinary(data []byte) error {
+	rd := bytes.NewReader(data)
+	if err := binary.Read(rd, binary.BigEndian, &r.FileID); err != nil {
+		return err
+	}
+	return binary.Read(rd, binary.BigEndian, &r.SlotNum)
+}
+
 func (r RecordID) PageIdentity() PageIdentity {
 	return PageIdentity{
 		FileID: r.FileID,

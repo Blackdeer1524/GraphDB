@@ -110,15 +110,15 @@ func (m *Metadata) Copy() Metadata {
 }
 
 type DirectoryItemInternalFields struct {
-	ID         DirItemID
-	NextItemID DirItemID
-	PrevItemID DirItemID
+	ID         DirItemInternalID
+	NextItemID DirItemInternalID
+	PrevItemID DirItemInternalID
 }
 
 func NewDirectoryItemInternalFields(
-	ID DirItemID,
-	NextItemID DirItemID,
-	PrevItemID DirItemID,
+	ID DirItemInternalID,
+	NextItemID DirItemInternalID,
+	PrevItemID DirItemInternalID,
 ) DirectoryItemInternalFields {
 	return DirectoryItemInternalFields{
 		ID:         ID,
@@ -128,15 +128,15 @@ func NewDirectoryItemInternalFields(
 }
 
 type DirectoryItemGraphFields struct {
-	VertexID   VertexID
+	VertexID   VertexInternalID
 	EdgeFileID common.FileID
-	EdgeID     EdgeID
+	EdgeID     EdgeInternalID
 }
 
 func NewDirectoryItemGraphFields(
-	VertexID VertexID,
+	VertexID VertexInternalID,
 	EdgeFileID common.FileID,
-	EdgeID EdgeID,
+	EdgeID EdgeInternalID,
 ) DirectoryItemGraphFields {
 	return DirectoryItemGraphFields{
 		VertexID:   VertexID,
@@ -151,21 +151,21 @@ type DirectoryItem struct {
 }
 
 type EdgeInternalFields struct {
-	ID              EdgeID
-	DirectoryItemID DirItemID
-	SrcVertexID     VertexID
-	DstVertexID     VertexID
-	NextEdgeID      EdgeID
-	PrevEdgeID      EdgeID
+	ID              EdgeInternalID
+	DirectoryItemID DirItemInternalID
+	SrcVertexID     VertexInternalID
+	DstVertexID     VertexInternalID
+	NextEdgeID      EdgeInternalID
+	PrevEdgeID      EdgeInternalID
 }
 
 func NewEdgeInternalFields(
-	ID EdgeID,
-	DirectoryItemID DirItemID,
-	SrcVertexID VertexID,
-	DstVertexID VertexID,
-	PrevEdgeID EdgeID,
-	NextEdgeID EdgeID,
+	ID EdgeInternalID,
+	DirectoryItemID DirItemInternalID,
+	SrcVertexID VertexInternalID,
+	DstVertexID VertexInternalID,
+	PrevEdgeID EdgeInternalID,
+	NextEdgeID EdgeInternalID,
 ) EdgeInternalFields {
 	return EdgeInternalFields{
 		ID:              ID,
@@ -178,13 +178,13 @@ func NewEdgeInternalFields(
 }
 
 type VertexInternalFields struct {
-	ID        VertexID
-	DirItemID DirItemID
+	ID        VertexInternalID
+	DirItemID DirItemInternalID
 }
 
 func NewVertexInternalFields(
-	ID VertexID,
-	DirItemID DirItemID,
+	ID VertexInternalID,
+	DirItemID DirItemInternalID,
 ) VertexInternalFields {
 	return VertexInternalFields{
 		ID:        ID,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"unsafe"
 
 	"github.com/google/uuid"
 
@@ -13,83 +14,122 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-type VertexID uuid.UUID
-type EdgeID uuid.UUID
-type DirItemID uuid.UUID
+type VertexInternalID uuid.UUID
+type EdgeInternalID uuid.UUID
+type DirItemInternalID uuid.UUID
 
-var NilVertexID = VertexID(uuid.Nil)
-var NilEdgeID = EdgeID(uuid.Nil)
-var NilDirItemID = DirItemID(uuid.Nil)
+var NilVertexID = VertexInternalID(uuid.Nil)
+var NilEdgeID = EdgeInternalID(uuid.Nil)
+var NilDirItemID = DirItemInternalID(uuid.Nil)
 
-func (v VertexID) IsNil() bool {
+const (
+	VertexInternalIDSize  = uint64(unsafe.Sizeof(VertexInternalID{}))
+	EdgeInternalIDSize    = uint64(unsafe.Sizeof(EdgeInternalID{}))
+	DirItemInternalIDSize = uint64(unsafe.Sizeof(DirItemInternalID{}))
+)
+
+func (v VertexInternalID) IsNil() bool {
 	return v == NilVertexID
 }
 
-func (v VertexID) MarshalBinary() ([]byte, error) {
+func (v VertexInternalID) MarshalBinary() ([]byte, error) {
 	return uuid.UUID(v).MarshalBinary()
 }
 
-func (v *VertexID) UnmarshalBinary(data []byte) error {
+func (v *VertexInternalID) UnmarshalBinary(data []byte) error {
 	return (*uuid.UUID)(v).UnmarshalBinary(data)
 }
 
-func (e EdgeID) IsNil() bool {
+func (e EdgeInternalID) IsNil() bool {
 	return e == NilEdgeID
 }
 
-func (v EdgeID) MarshalBinary() ([]byte, error) {
+func (v EdgeInternalID) MarshalBinary() ([]byte, error) {
 	return uuid.UUID(v).MarshalBinary()
 }
 
-func (v *EdgeID) UnmarshalBinary(data []byte) error {
+func (v *EdgeInternalID) UnmarshalBinary(data []byte) error {
 	return (*uuid.UUID)(v).UnmarshalBinary(data)
 }
 
-func (d DirItemID) IsNil() bool {
+func (d DirItemInternalID) IsNil() bool {
 	return d == NilDirItemID
 }
 
-func (v DirItemID) MarshalBinary() ([]byte, error) {
+func (v DirItemInternalID) MarshalBinary() ([]byte, error) {
 	return uuid.UUID(v).MarshalBinary()
 }
 
-func (v *DirItemID) UnmarshalBinary(data []byte) error {
+func (v *DirItemInternalID) UnmarshalBinary(data []byte) error {
 	return (*uuid.UUID)(v).UnmarshalBinary(data)
 }
 
-type VertexWithDepthAndRID struct {
-	V VertexID
+type VertexID struct {
+	ID      VertexInternalID
+	TableID common.FileID
+}
+
+type EdgeID struct {
+	ID      EdgeInternalID
+	TableID common.FileID
+}
+
+type VertexInternalIDWithDepthAndRID struct {
+	V VertexInternalID
 	D uint32
 	R common.RecordID
 }
 
-type VertexIDWithRID struct {
-	V VertexID
+type VertexInternalIDWithRID struct {
+	V VertexInternalID
 	R common.RecordID
 }
 
-type EdgeIDWithRID struct {
-	E EdgeID
+type EdgeInternalIDWithRID struct {
+	E EdgeInternalID
 	R common.RecordID
 }
 
-type DirectoryIDWithRID struct {
-	D DirItemID
+type DirItemInternalIDWithRID struct {
+	D DirItemInternalID
 	R common.RecordID
 }
 
-func (v *VertexIDWithRID) MarshalBinary() ([]byte, error) {
-	return nil, nil
+func (v *VertexInternalIDWithRID) MarshalBinary() ([]byte, error) {
+	vBytes, err := v.V.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	rBytes, err := v.R.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]byte, len(vBytes)+len(rBytes))
+	copy(result, vBytes)
+	copy(result[len(vBytes):], rBytes)
+
+	return result, nil
 }
 
-func (v *VertexIDWithRID) UnmarshalBinary(data []byte) error {
+func (v *VertexInternalIDWithRID) UnmarshalBinary(data []byte) error {
+	if err := v.V.UnmarshalBinary(data[:VertexInternalIDSize]); err != nil {
+		return err
+	}
+
+	rBytes := data[VertexInternalIDSize:]
+	if err := (&v.R).UnmarshalBinary(rBytes); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 var ErrQueueEmpty = errors.New("queue is empty")
 
-type NeighborIter interface {
-	Seq() iter.Seq[utils.Pair[VertexIDWithRID, error]]
+type NeighborIDIter interface {
+	Seq() iter.Seq[utils.Pair[VertexInternalIDWithRID, error]]
 	Close() error
 }
 
@@ -99,8 +139,8 @@ type NeighborEdgesIter interface {
 }
 
 type Queue interface {
-	Enqueue(v VertexWithDepthAndRID) error
-	Dequeue() (VertexWithDepthAndRID, error)
+	Enqueue(v VertexInternalIDWithDepthAndRID) error
+	Dequeue() (VertexInternalIDWithDepthAndRID, error)
 
 	Close() error
 }
@@ -193,24 +233,51 @@ type AssociativeArray[K comparable, V any] interface {
 }
 
 type StorageEngine interface {
-	NewQueue(common.TxnID) (Queue, error)
-	NewAggregationAssociativeArray(common.TxnID) (AssociativeArray[VertexID, float64], error)
+	// Data structures
+	NewAggregationAssociativeArray(
+		common.TxnID,
+	) (AssociativeArray[VertexInternalID, float64], error)
 	NewBitMap(common.TxnID) (BitMap, error)
-	Neighbours(t common.TxnID, v VertexID, vertTableID common.FileID) (NeighborIter, error)
+	NewQueue(common.TxnID) (Queue, error)
 
-	AllVerticesWithValue(t common.TxnID, field string, value []byte) (VerticesIter, error)
-	CountOfFilteredEdges(t common.TxnID, v VertexID, f EdgeFilter) (uint64, error)
-	GetAllVertices(t common.TxnID, vertTableID common.FileID) (VerticesIter, error)
+	// Graph traversals
+	GetAllVertices(t common.TxnID, vertTableToken *txns.FileLockToken) (VerticesIter, error)
+	Neighbours(
+		txnID common.TxnID,
+		vID VertexInternalID,
+		vertTableToken *txns.FileLockToken,
+		vertIndex Index,
+		logger common.ITxnLoggerWithContext,
+	) (NeighborIDIter, error)
+	AllVerticesWithValue(
+		t common.TxnID,
+		vertTableToken *txns.FileLockToken,
+		vertIndex Index,
+		logger common.ITxnLoggerWithContext,
+		field string,
+		value []byte,
+	) (VerticesIter, error)
+	CountOfFilteredEdges(
+		t common.TxnID,
+		v VertexInternalID,
+		vertTableToken *txns.FileLockToken,
+		vertIndex Index,
+		logger common.ITxnLoggerWithContext,
+		filter EdgeFilter,
+	) (uint64, error)
 	GetNeighborsWithEdgeFilter(
 		t common.TxnID,
-		vertTableID common.FileID,
-		v VertexID,
-		filter EdgeFilter,
+		v VertexInternalID,
+		vertTableToken *txns.FileLockToken,
+		vertIndex Index,
+		edgeFilter EdgeFilter,
+		logger common.ITxnLoggerWithContext,
 	) (VerticesIter, error)
 
+	// Schema management
 	CreateEdgeTable(
 		txnID common.TxnID,
-		name string,
+		tableName string,
 		schema Schema,
 		srcVertexTableFileID common.FileID,
 		dstVertexTableFileID common.FileID,
@@ -228,7 +295,7 @@ type StorageEngine interface {
 	) error
 	CreateVertexTable(
 		txnID common.TxnID,
-		name string,
+		tableName string,
 		schema Schema,
 		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
@@ -256,7 +323,7 @@ type StorageEngine interface {
 	) error
 	DropVertexTable(
 		txnID common.TxnID,
-		name string,
+		vertTableName string,
 		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) error
@@ -272,18 +339,130 @@ type StorageEngine interface {
 		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) (Index, error)
+	GetEdgeTableIndex(
+		txnID common.TxnID,
+		indexName string,
+		cToken *txns.CatalogLockToken,
+		logger common.ITxnLoggerWithContext,
+	) (Index, error)
 	GetEdgeTableInternalIndex(
 		txnID common.TxnID,
-		edgeTableID common.FileID,
+		edgeTableFileID common.FileID,
+		cToken *txns.CatalogLockToken,
+		logger common.ITxnLoggerWithContext,
+	) (Index, error)
+	GetVertexTableIndex(
+		txnID common.TxnID,
+		indexName string,
 		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) (Index, error)
 	GetVertexTableInternalIndex(
 		txnID common.TxnID,
-		vertexTableID common.FileID,
+		vertexTableFileID common.FileID,
 		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) (Index, error)
+
+	GetEdgeTableInternalIndexMeta(
+		edgeTableFileID common.FileID,
+		cToken *txns.CatalogLockToken,
+	) (IndexMeta, error)
+	GetEdgeTableMeta(name string, cToken *txns.CatalogLockToken) (EdgeTableMeta, error)
+	GetEdgeTableMetaByFileID(
+		edgeTableID common.FileID,
+		cToken *txns.CatalogLockToken,
+	) (EdgeTableMeta, error)
+	GetDirTableInternalIndexMeta(
+		dirTableFileID common.FileID,
+		cToken *txns.CatalogLockToken,
+	) (IndexMeta, error)
+	GetDirTableMeta(
+		cToken *txns.CatalogLockToken,
+		vertexTableFileID common.FileID,
+	) (DirTableMeta, error)
+	GetEdgeIndexMeta(name string, cToken *txns.CatalogLockToken) (IndexMeta, error)
+	GetVertexTableInternalIndexMeta(
+		vertexTableFileID common.FileID,
+		cToken *txns.CatalogLockToken,
+	) (IndexMeta, error)
+	GetVertexTableIndexMeta(name string, cToken *txns.CatalogLockToken) (IndexMeta, error)
+	GetVertexTableMeta(name string, cToken *txns.CatalogLockToken) (VertexTableMeta, error)
+	GetVertexTableMetaByFileID(
+		vertexTableID common.FileID,
+		cToken *txns.CatalogLockToken,
+	) (EdgeTableMeta, error)
+
+	// DML
+	InsertEdge(
+		txnID common.TxnID,
+		srcVertexID VertexInternalID,
+		dstVertexID VertexInternalID,
+		edgeFields map[string]any,
+		schema Schema,
+		srcVertToken *txns.FileLockToken,
+		srcVertSystemIndex Index,
+		srcVertDirToken *txns.FileLockToken,
+		srcVertDirSystemIndex Index,
+		edgesFileToken *txns.FileLockToken,
+		edgeSystemIndex Index,
+		ctxLogger common.ITxnLoggerWithContext,
+	) error
+	InsertVertex(
+		txnID common.TxnID,
+		data map[string]any,
+		schema Schema,
+		vertexFileToken *txns.FileLockToken,
+		vertexIndex Index,
+		ctxLogger common.ITxnLoggerWithContext,
+	) error
+	SelectEdge(
+		txnID common.TxnID,
+		edgeID EdgeInternalID,
+		edgeFileToken *txns.FileLockToken,
+		edgeSystemIndex Index,
+		schema Schema,
+	) (EdgeInternalFields, map[string]any, error)
+	SelectVertex(
+		txnID common.TxnID,
+		vertexID VertexInternalID,
+		vertexIndex Index,
+		schema Schema,
+	) (VertexInternalFields, map[string]any, error)
+	UpdateEdge(
+		txnID common.TxnID,
+		edgeID EdgeInternalID,
+		edgeFields map[string]any,
+		edgesFileToken *txns.FileLockToken,
+		edgeSystemIndex Index,
+		schema Schema,
+		ctxLogger common.ITxnLoggerWithContext,
+	) error
+	UpdateVertex(
+		txnID common.TxnID,
+		vertexID VertexInternalID,
+		newData map[string]any,
+		schema Schema,
+		vertexFileToken *txns.FileLockToken,
+		vertexIndex Index,
+		ctxLogger common.ITxnLoggerWithContext,
+	) error
+	DeleteEdge(
+		txnID common.TxnID,
+		edgeID EdgeInternalID,
+		edgesFileToken *txns.FileLockToken,
+		edgeSystemIndex Index,
+		dirFileToken *txns.FileLockToken,
+		dirSystemIndex Index,
+		ctxLogger common.ITxnLoggerWithContext,
+	) error
+	DeleteVertex(
+		txnID common.TxnID,
+		vertexID VertexInternalID,
+		vertexFileToken *txns.FileLockToken,
+		vertexIndex Index,
+		ctxLogger common.ITxnLoggerWithContext,
+	) error
 }
 
 type SystemCatalog interface {

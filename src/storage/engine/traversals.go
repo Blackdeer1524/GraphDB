@@ -9,7 +9,7 @@ import (
 // NewAggregationAssociativeArray implements storage.StorageEngine.
 func (s *StorageEngine) NewAggregationAssociativeArray(
 	common.TxnID,
-) (storage.AssociativeArray[storage.VertexID, float64], error) {
+) (storage.AssociativeArray[storage.VertexInternalID, float64], error) {
 	panic("unimplemented")
 }
 
@@ -37,7 +37,7 @@ func (s *StorageEngine) AllVerticesWithValue(
 
 func (s *StorageEngine) CountOfFilteredEdges(
 	t common.TxnID,
-	v storage.VertexID,
+	v storage.VertexInternalID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
@@ -69,7 +69,7 @@ func (s *StorageEngine) GetAllVertices(
 		return nil, err
 	}
 
-	iter := newTableScanIter(
+	iter := newVertexTableScanIter(
 		s,
 		s.pool,
 		vertTableToken,
@@ -81,7 +81,7 @@ func (s *StorageEngine) GetAllVertices(
 
 func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 	t common.TxnID,
-	v storage.VertexID,
+	v storage.VertexInternalID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	edgeFilter storage.EdgeFilter,
@@ -102,11 +102,11 @@ func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 
 func (s *StorageEngine) Neighbours(
 	txnID common.TxnID,
-	vID storage.VertexID,
+	vID storage.VertexInternalID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
-) (storage.NeighborIter, error) {
+) (storage.NeighborIDIter, error) {
 	return newNeighbourVertexIDsIter(
 		s,
 		vID,

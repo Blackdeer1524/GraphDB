@@ -8,6 +8,8 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/datastructures/inmemory"
+	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 func (e *Executor) newTxnID() common.TxnID {
@@ -17,7 +19,7 @@ func (e *Executor) newTxnID() common.TxnID {
 // traverseNeighborsWithDepth enqueues unvisited neighbors at next depth if <= targetDepth.
 func (e *Executor) traverseNeighborsWithDepth(
 	t common.TxnID,
-	v storage.VertexWithDepthAndRID,
+	v storage.VertexInternalIDWithDepthAndRID,
 	targetDepth uint32,
 	seen storage.BitMap,
 	q storage.Queue,
@@ -36,9 +38,15 @@ func (e *Executor) traverseNeighborsWithDepth(
 	}()
 
 	for u := range it.Seq() {
+		vIntID, err := u.Destruct()
+		if err != nil {
+			return err
+		}
+
 		var ok bool
 
-		ok, err = seen.Get(u.V)
+		vID := storage.VertexID{ID: vIntID.V, TableID: vIntID.R.FileID}
+		ok, err = seen.Get(vID)
 		if err != nil {
 			return fmt.Errorf("failed to get vertex visited status: %w", err)
 		}
@@ -48,7 +56,7 @@ func (e *Executor) traverseNeighborsWithDepth(
 			continue
 		}
 
-		err = seen.Set(u.V, true)
+		err = seen.Set(vID, true)
 		if err != nil {
 			return fmt.Errorf("failed to set vertex visited status: %w", err)
 		}
@@ -60,7 +68,9 @@ func (e *Executor) traverseNeighborsWithDepth(
 		nd := curDepth + 1
 
 		if nd <= targetDepth {
-			err = q.Enqueue(storage.VertexWithDepthAndRID{V: u.V, D: nd, R: u.R})
+			err = q.Enqueue(
+				storage.VertexInternalIDWithDepthAndRID{V: vIntID.V, D: nd, R: vIntID.R},
+			)
 			if err != nil {
 				return fmt.Errorf("failed to enqueue vertex: %w", err)
 			}
@@ -72,10 +82,10 @@ func (e *Executor) traverseNeighborsWithDepth(
 
 func (e *Executor) bfsWithDepth(
 	tx common.TxnID,
-	start storage.VertexIDWithRID,
+	start storage.VertexInternalIDWithRID,
 	targetDepth uint32,
-) (result []storage.VertexIDWithRID, err error) {
-	result = make([]storage.VertexIDWithRID, 0)
+) (result []storage.VertexInternalIDWithRID, err error) {
+	result = make([]storage.VertexInternalIDWithRID, 0)
 
 	q, err := e.se.NewQueue(tx)
 	if err != nil {
@@ -93,18 +103,19 @@ func (e *Executor) bfsWithDepth(
 		err = errors.Join(err, seen.Close())
 	}()
 
-	err = seen.Set(start.V, true)
+	vID := storage.VertexID{ID: start.V, TableID: start.R.FileID}
+	err = seen.Set(vID, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set start vertex: %w", err)
 	}
 
-	err = q.Enqueue(storage.VertexWithDepthAndRID{V: start.V, D: 0, R: start.R})
+	err = q.Enqueue(storage.VertexInternalIDWithDepthAndRID{V: start.V, D: 0, R: start.R})
 	if err != nil {
 		return nil, fmt.Errorf("failed to enqueue start vertex: %w", err)
 	}
 
 	for {
-		var v storage.VertexWithDepthAndRID
+		var v storage.VertexInternalIDWithDepthAndRID
 
 		v, err = q.Dequeue()
 		if err != nil {
@@ -120,7 +131,7 @@ func (e *Executor) bfsWithDepth(
 		}
 
 		if v.D == targetDepth {
-			result = append(result, storage.VertexIDWithRID{V: v.V, R: v.R})
+			result = append(result, storage.VertexInternalIDWithRID{V: v.V, R: v.R})
 
 			continue
 		}
@@ -138,9 +149,9 @@ func (e *Executor) bfsWithDepth(
 // We will use BFS on graph because DFS cannot calculate right depth on graphs (except trees).
 func (e *Executor) GetVertexesOnDepth(
 	vertTableID common.FileID,
-	start storage.VertexID,
+	start storage.VertexInternalID,
 	targetDepth uint32,
-) (r []storage.VertexIDWithRID, err error) {
+) (r []storage.VertexInternalIDWithRID, err error) {
 	if e.se == nil {
 		return nil, errors.New("storage engine is nil")
 	}
@@ -171,18 +182,19 @@ func (e *Executor) GetVertexesOnDepth(
 		}
 	}()
 
-	var st storage.VertexIDWithRID
-	index, err := e.se.GetVertexTableInternalIndex(tx, vertTableID, logger)
+	var st storage.VertexInternalIDWithRID
+	cToken := txns.NewNilCatalogLockToken(tx)
+	index, err := e.se.GetVertexTableInternalIndex(tx, vertTableID, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
 
-	st, err = e.se.GetVertexRID(tx, start, index)
+	st, err = engine.GetVertexRID(tx, start, index)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get start vertex: %w", err)
 	}
 
-	var res []storage.VertexIDWithRID
+	var res []storage.VertexInternalIDWithRID
 
 	res, err = e.bfsWithDepth(tx, st, targetDepth)
 	if err != nil {
@@ -241,7 +253,11 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 	res = make([]storage.Vertex, 0, 1024)
 
 	for v := range verticesIter.Seq() {
-		res = append(res, v)
+		_, vert, err := v.Destruct()
+		if err != nil {
+			return nil, fmt.Errorf("failed to destruct vertex: %w", err)
+		}
+		res = append(res, vert)
 	}
 
 	return res, nil
@@ -374,7 +390,7 @@ func (e *Executor) SumNeighborAttributes(
 	vertTableID common.FileID,
 	filter storage.EdgeFilter,
 	pred storage.SumNeighborAttributesFilter,
-) (r storage.AssociativeArray[storage.VertexID, float64], err error) {
+) (r storage.AssociativeArray[storage.VertexInternalID, float64], err error) {
 	if e.se == nil {
 		return nil, errors.New("storage engine is nil")
 	}
@@ -450,11 +466,11 @@ func (e *Executor) SumNeighborAttributes(
 
 func (e *Executor) countCommonNeighbors(
 	tx common.TxnID,
-	left storage.VertexID,
+	left storage.VertexInternalID,
 	leftTableID common.FileID,
-	leftNeighbours storage.AssociativeArray[storage.VertexID, common.FileID],
+	leftNeighbours storage.AssociativeArray[storage.VertexInternalID, common.FileID],
 ) (r uint64, err error) {
-	var rightNeighboursIter storage.NeighborIter
+	var rightNeighboursIter storage.NeighborIDIter
 
 	rightNeighboursIter, err = e.se.Neighbours(tx, left, leftTableID)
 	if err != nil {
@@ -498,7 +514,7 @@ func (e *Executor) getVertexTriangleCount(
 		}
 	}()
 
-	leftNeighbours := inmemory.NewInMemoryAssociativeArray[storage.VertexID, common.FileID]()
+	leftNeighbours := inmemory.NewInMemoryAssociativeArray[storage.VertexInternalID, common.FileID]()
 	for l := range leftNeighboursIter.Seq() {
 		err = leftNeighbours.Set(l.V, l.R.FileID)
 		if err != nil {
@@ -507,7 +523,7 @@ func (e *Executor) getVertexTriangleCount(
 		}
 	}
 
-	leftNeighbours.Seq(func(left storage.VertexID, leftTableID common.FileID) bool {
+	leftNeighbours.Seq(func(left storage.VertexInternalID, leftTableID common.FileID) bool {
 		var add uint64
 
 		add, err = e.countCommonNeighbors(txnID, left, leftTableID, leftNeighbours)

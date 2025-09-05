@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"unsafe"
 
 	"github.com/spf13/afero"
 
@@ -466,7 +465,7 @@ func (s *StorageEngine) createInternalVertexTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := uint32(unsafe.Sizeof(storage.VertexID{}))
+	keyBytesCnt := uint32(storage.VertexInternalIDSize)
 	return s.CreateVertexTableIndex(
 		txnID,
 		getTableInternalIndexName(vertexTableFileID),
@@ -541,7 +540,7 @@ func (s *StorageEngine) createInternalEdgeTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := uint32(unsafe.Sizeof(storage.EdgeID{}))
+	keyBytesCnt := uint32(storage.EdgeInternalIDSize)
 	return s.CreateEdgeTableIndex(
 		txnID,
 		getTableInternalIndexName(edgeTableFileID),
@@ -712,13 +711,13 @@ func (s *StorageEngine) createInternalDirTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := uint32(unsafe.Sizeof(storage.DirItemID{}))
+	keyBytesCnt := storage.DirItemInternalIDSize
 	return s.createDirTableIndex(
 		txnID,
 		getTableInternalIndexName(directoryTableFileID),
 		vertexTableFileID,
 		columns,
-		keyBytesCnt,
+		uint32(keyBytesCnt),
 		cToken,
 		logger,
 	)

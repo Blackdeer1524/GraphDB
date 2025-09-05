@@ -385,3 +385,7 @@ func InsertSerializable[T encoding.BinaryMarshaler](
 	assert.NoError(err)
 	return p.UnsafeInsertNoLogs(bytes)
 }
+
+func (p *SlottedPage) SlotInfo(slotID uint16) slotStatus {
+	return p.assertSlotInserted(slotID).slotInfo()
+}
