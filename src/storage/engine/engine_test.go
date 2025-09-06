@@ -123,7 +123,7 @@ func TestStorageEngine_GetEdgeIndexMeta_LoadOrder(t *testing.T) {
 	require.Equal(t, expected, meta)
 }
 
-func TestStorageEngine_GetVertexTableInternalIndexMeta_LoadOrder(t *testing.T) {
+func TestStorageEngine_GetVertexTableSystemIndexMeta_LoadOrder(t *testing.T) {
 	eng, cat, _ := newTestEngineWithMockCatalog(t)
 	ct := txns.NewNilCatalogLockToken(common.TxnID(6))
 	fileID := common.FileID(42)
@@ -138,12 +138,12 @@ func TestStorageEngine_GetVertexTableInternalIndexMeta_LoadOrder(t *testing.T) {
 		Return(expected, nil).
 		Once()
 
-	meta, err := eng.GetVertexTableInternalIndexMeta(fileID, ct)
+	meta, err := eng.GetVertexTableSystemIndexMeta(fileID, ct)
 	require.NoError(t, err)
 	require.Equal(t, expected, meta)
 }
 
-func TestStorageEngine_GetEdgeTableInternalIndexMeta_LoadOrder(t *testing.T) {
+func TestStorageEngine_GetEdgeTableSystemIndexMeta_LoadOrder(t *testing.T) {
 	eng, cat, _ := newTestEngineWithMockCatalog(t)
 	ct := txns.NewNilCatalogLockToken(common.TxnID(7))
 	fileID := common.FileID(7)
@@ -158,7 +158,7 @@ func TestStorageEngine_GetEdgeTableInternalIndexMeta_LoadOrder(t *testing.T) {
 		Return(expected, nil).
 		Once()
 
-	meta, err := eng.GetEdgeTableInternalIndexMeta(fileID, ct)
+	meta, err := eng.GetEdgeTableSystemIndexMeta(fileID, ct)
 	require.NoError(t, err)
 	require.Equal(t, expected, meta)
 }
@@ -262,7 +262,7 @@ func TestStorageEngine_GetEdgeTableIndex_LoadAndExistsOrder(t *testing.T) {
 	require.NotNil(t, idx)
 }
 
-func TestStorageEngine_GetDirTableInternalIndex_LoadAndExistsOrder(t *testing.T) {
+func TestStorageEngine_GetDirTableSystemIndex_LoadAndExistsOrder(t *testing.T) {
 	eng, cat, _ := newTestEngineWithMockCatalog(t)
 	ct := txns.NewNilCatalogLockToken(common.TxnID(12))
 	logger := common.NewMockITxnLoggerWithContext(t)
@@ -283,7 +283,7 @@ func TestStorageEngine_GetDirTableInternalIndex_LoadAndExistsOrder(t *testing.T)
 		Return(idxMeta, nil).
 		Once()
 
-	idx, err := eng.GetDirTableInternalIndex(common.TxnID(12), fileID, ct, logger)
+	idx, err := eng.GetDirTableSystemIndex(common.TxnID(12), fileID, ct, logger)
 	require.NoError(t, err)
 	require.NotNil(t, idx)
 }

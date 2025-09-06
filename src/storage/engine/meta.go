@@ -76,7 +76,7 @@ func (s *StorageEngine) GetVertexTableIndexMeta(
 	return s.catalog.GetVertexTableIndexMeta(name)
 }
 
-func (s *StorageEngine) GetVertexTableInternalIndexMeta(
+func (s *StorageEngine) GetVertexTableSystemIndexMeta(
 	vertexTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
@@ -90,7 +90,7 @@ func (s *StorageEngine) GetVertexTableInternalIndexMeta(
 		return storage.IndexMeta{}, err
 	}
 
-	return s.catalog.GetVertexTableIndexMeta(getTableInternalIndexName(vertexTableFileID))
+	return s.catalog.GetVertexTableIndexMeta(getTableSystemIndexName(vertexTableFileID))
 }
 
 func (s *StorageEngine) GetEdgeIndexMeta(
@@ -110,7 +110,7 @@ func (s *StorageEngine) GetEdgeIndexMeta(
 	return s.catalog.GetEdgeIndexMeta(name)
 }
 
-func (s *StorageEngine) GetEdgeTableInternalIndexMeta(
+func (s *StorageEngine) GetEdgeTableSystemIndexMeta(
 	edgeTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
@@ -124,10 +124,10 @@ func (s *StorageEngine) GetEdgeTableInternalIndexMeta(
 		return storage.IndexMeta{}, err
 	}
 
-	return s.catalog.GetEdgeIndexMeta(getTableInternalIndexName(edgeTableFileID))
+	return s.catalog.GetEdgeIndexMeta(getTableSystemIndexName(edgeTableFileID))
 }
 
-func (s *StorageEngine) GetDirTableInternalIndexMeta(
+func (s *StorageEngine) GetDirTableSystemIndexMeta(
 	dirTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
@@ -141,7 +141,7 @@ func (s *StorageEngine) GetDirTableInternalIndexMeta(
 		return storage.IndexMeta{}, err
 	}
 
-	indexName := getTableInternalIndexName(dirTableFileID)
+	indexName := getTableSystemIndexName(dirTableFileID)
 	return s.catalog.GetDirIndexMeta(indexName)
 }
 

@@ -158,18 +158,18 @@ func (m *Metadata) Copy() Metadata {
 	}
 }
 
-type DirectoryItemInternalFields struct {
-	ID         DirItemInternalID
-	NextItemID DirItemInternalID
-	PrevItemID DirItemInternalID
+type DirectoryItemSystemFields struct {
+	ID         DirItemSystemID
+	NextItemID DirItemSystemID
+	PrevItemID DirItemSystemID
 }
 
-func NewDirectoryItemInternalFields(
-	ID DirItemInternalID,
-	NextItemID DirItemInternalID,
-	PrevItemID DirItemInternalID,
-) DirectoryItemInternalFields {
-	return DirectoryItemInternalFields{
+func NewDirectoryItemSystemFields(
+	ID DirItemSystemID,
+	NextItemID DirItemSystemID,
+	PrevItemID DirItemSystemID,
+) DirectoryItemSystemFields {
+	return DirectoryItemSystemFields{
 		ID:         ID,
 		NextItemID: NextItemID,
 		PrevItemID: PrevItemID,
@@ -177,15 +177,15 @@ func NewDirectoryItemInternalFields(
 }
 
 type DirectoryItemGraphFields struct {
-	VertexID   VertexInternalID
+	VertexID   VertexSystemID
 	EdgeFileID common.FileID
-	EdgeID     EdgeInternalID
+	EdgeID     EdgeSystemID
 }
 
 func NewDirectoryItemGraphFields(
-	VertexID VertexInternalID,
+	VertexID VertexSystemID,
 	EdgeFileID common.FileID,
-	EdgeID EdgeInternalID,
+	EdgeID EdgeSystemID,
 ) DirectoryItemGraphFields {
 	return DirectoryItemGraphFields{
 		VertexID:   VertexID,
@@ -195,28 +195,28 @@ func NewDirectoryItemGraphFields(
 }
 
 type DirectoryItem struct {
-	DirectoryItemInternalFields
+	DirectoryItemSystemFields
 	DirectoryItemGraphFields
 }
 
-type EdgeInternalFields struct {
-	ID              EdgeInternalID
-	DirectoryItemID DirItemInternalID
-	SrcVertexID     VertexInternalID
-	DstVertexID     VertexInternalID
-	NextEdgeID      EdgeInternalID
-	PrevEdgeID      EdgeInternalID
+type EdgeSystemFields struct {
+	ID              EdgeSystemID
+	DirectoryItemID DirItemSystemID
+	SrcVertexID     VertexSystemID
+	DstVertexID     VertexSystemID
+	NextEdgeID      EdgeSystemID
+	PrevEdgeID      EdgeSystemID
 }
 
-func NewEdgeInternalFields(
-	ID EdgeInternalID,
-	DirectoryItemID DirItemInternalID,
-	SrcVertexID VertexInternalID,
-	DstVertexID VertexInternalID,
-	PrevEdgeID EdgeInternalID,
-	NextEdgeID EdgeInternalID,
-) EdgeInternalFields {
-	return EdgeInternalFields{
+func NewEdgeSystemFields(
+	ID EdgeSystemID,
+	DirectoryItemID DirItemSystemID,
+	SrcVertexID VertexSystemID,
+	DstVertexID VertexSystemID,
+	PrevEdgeID EdgeSystemID,
+	NextEdgeID EdgeSystemID,
+) EdgeSystemFields {
+	return EdgeSystemFields{
 		ID:              ID,
 		DirectoryItemID: DirectoryItemID,
 		SrcVertexID:     SrcVertexID,
@@ -226,16 +226,16 @@ func NewEdgeInternalFields(
 	}
 }
 
-type VertexInternalFields struct {
-	ID        VertexInternalID
-	DirItemID DirItemInternalID
+type VertexSystemFields struct {
+	ID        VertexSystemID
+	DirItemID DirItemSystemID
 }
 
-func NewVertexInternalFields(
-	ID VertexInternalID,
-	DirItemID DirItemInternalID,
-) VertexInternalFields {
-	return VertexInternalFields{
+func NewVertexSystemFields(
+	ID VertexSystemID,
+	DirItemID DirItemSystemID,
+) VertexSystemFields {
+	return VertexSystemFields{
 		ID:        ID,
 		DirItemID: DirItemID,
 	}

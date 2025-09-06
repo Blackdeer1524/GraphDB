@@ -59,7 +59,7 @@ func (s *StorageEngine) AllVerticesWithValue(
 
 func (s *StorageEngine) CountOfFilteredEdges(
 	t common.TxnID,
-	v storage.VertexInternalID,
+	v storage.VertexSystemID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
@@ -104,7 +104,7 @@ func (s *StorageEngine) GetAllVertices(
 
 func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 	t common.TxnID,
-	v storage.VertexInternalID,
+	v storage.VertexSystemID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	edgeFilter storage.EdgeFilter,
@@ -125,14 +125,14 @@ func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 
 func (s *StorageEngine) Neighbours(
 	txnID common.TxnID,
-	startVertInternalID storage.VertexInternalID,
+	startVertSystemID storage.VertexSystemID,
 	startVertTableToken *txns.FileLockToken,
 	startVertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
 ) (storage.NeighborIDIter, error) {
 	return newNeighbourVertexIDsIter(
 		s,
-		startVertInternalID,
+		startVertSystemID,
 		startVertTableToken,
 		startVertIndex,
 		storage.AllowAllEdgesFilter,

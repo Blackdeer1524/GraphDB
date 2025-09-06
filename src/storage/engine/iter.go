@@ -37,7 +37,7 @@ func yieldErrorTripple[T, K any](err error, yield func(utils.Triple[T, K, error]
 
 type edgesIter struct {
 	se            *StorageEngine
-	curEdgeID     storage.EdgeInternalID
+	curEdgeID     storage.EdgeSystemID
 	schema        storage.Schema
 	edgeFilter    storage.EdgeFilter
 	edgeFileToken *txns.FileLockToken
@@ -46,7 +46,7 @@ type edgesIter struct {
 
 func newEdgesIter(
 	se *StorageEngine,
-	startEdgeID storage.EdgeInternalID,
+	startEdgeID storage.EdgeSystemID,
 	schema storage.Schema,
 	edgeFilter storage.EdgeFilter,
 	edgeFileToken *txns.FileLockToken,
@@ -93,7 +93,7 @@ func (e *edgesIter) getAndMoveForward() (bool, utils.Pair[common.RecordID, stora
 	edgeData := pg.LockedRead(rid.R.SlotNum)
 	e.se.pool.Unpin(pageIdent)
 
-	edgeInternalFields, edgeFields, err := parseEdgeRecord(edgeData, e.schema)
+	edgeSystemFields, edgeFields, err := parseEdgeRecord(edgeData, e.schema)
 	if err != nil {
 		nilEdgeInfo := utils.Pair[common.RecordID, storage.Edge]{
 			First:  common.RecordID{},
@@ -104,12 +104,12 @@ func (e *edgesIter) getAndMoveForward() (bool, utils.Pair[common.RecordID, stora
 	edgeInfo := utils.Pair[common.RecordID, storage.Edge]{
 		First: rid.R,
 		Second: storage.Edge{
-			EdgeInternalFields: edgeInternalFields,
+			EdgeSystemFields: edgeSystemFields,
 			Data:               edgeFields,
 		},
 	}
 
-	e.curEdgeID = edgeInternalFields.NextEdgeID
+	e.curEdgeID = edgeSystemFields.NextEdgeID
 	if e.curEdgeID.IsNil() {
 		return false, edgeInfo, nil
 	}
@@ -151,14 +151,14 @@ func (e *edgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Edge, e
 
 type dirItemsIter struct {
 	se           *StorageEngine
-	curDirItemID storage.DirItemInternalID
+	curDirItemID storage.DirItemSystemID
 	dirFileToken *txns.FileLockToken
 	dirIndex     storage.Index
 }
 
 func newDirItemsIter(
 	se *StorageEngine,
-	startDirItemID storage.DirItemInternalID,
+	startDirItemID storage.DirItemSystemID,
 	dirFileToken *txns.FileLockToken,
 	dirIndex storage.Index,
 ) (*dirItemsIter, error) {
@@ -227,10 +227,10 @@ func (d *dirItemsIter) Seq() iter.Seq[utils.Pair[storage.DirectoryItem, error]] 
 
 type neighboursEdgesIter struct {
 	se                *StorageEngine
-	startVertID       storage.VertexInternalID
+	startVertID       storage.VertexSystemID
 	edgeFilter        storage.EdgeFilter
 	vertTableToken    *txns.FileLockToken
-	vertInternalIndex storage.Index
+	vertSystemIndex storage.Index
 	logger            common.ITxnLoggerWithContext
 }
 
@@ -238,10 +238,10 @@ var _ storage.NeighborEdgesIter = &neighboursEdgesIter{}
 
 func newNeighboursEdgesIter(
 	se *StorageEngine,
-	startVertID storage.VertexInternalID,
+	startVertID storage.VertexSystemID,
 	edgeFilter storage.EdgeFilter,
 	vertTableToken *txns.FileLockToken,
-	vertInternalIndex storage.Index,
+	vertSystemIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
 ) *neighboursEdgesIter {
 	iter := &neighboursEdgesIter{
@@ -250,7 +250,7 @@ func newNeighboursEdgesIter(
 		startVertID:       startVertID,
 		edgeFilter:        edgeFilter,
 		vertTableToken:    vertTableToken,
-		vertInternalIndex: vertInternalIndex,
+		vertSystemIndex: vertSystemIndex,
 	}
 	return iter
 }
@@ -270,7 +270,7 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 	}
 	txnID := i.vertTableToken.GetTxnID()
 
-	vertRID, err := GetVertexRID(txnID, i.startVertID, i.vertInternalIndex)
+	vertRID, err := GetVertexRID(txnID, i.startVertID, i.vertSystemIndex)
 	if err != nil {
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
@@ -286,11 +286,11 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 	vertData := pg.LockedRead(vertRID.R.SlotNum)
 	i.se.pool.Unpin(vertRID.R.PageIdentity())
 
-	vertInternalFields, _, err := parseVertexRecordHeader(vertData)
+	vertSystemFields, _, err := parseVertexRecordHeader(vertData)
 	if err != nil {
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
-	if vertInternalFields.DirItemID.IsNil() {
+	if vertSystemFields.DirItemID.IsNil() {
 		return func(yield func(utils.Triple[common.RecordID, storage.Edge, error]) bool) {
 			return
 		}
@@ -302,7 +302,7 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
 
-	dirIndex, err := i.se.GetDirTableInternalIndex(
+	dirIndex, err := i.se.GetDirTableSystemIndex(
 		txnID,
 		dirTableMeta.FileID,
 		cToken,
@@ -316,7 +316,7 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 	return func(yield func(utils.Triple[common.RecordID, storage.Edge, error]) bool) {
 		dirItemsIter, err := newDirItemsIter(
 			i.se,
-			vertInternalFields.DirItemID,
+			vertSystemFields.DirItemID,
 			dirFileToken,
 			dirIndex,
 		)
@@ -337,7 +337,7 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 			}
 
 			edgesFileToken := txns.NewNilFileLockToken(cToken, dirItem.EdgeFileID)
-			edgesIndex, err := i.se.GetEdgeTableInternalIndex(
+			edgesIndex, err := i.se.GetEdgeTableSystemIndex(
 				txnID,
 				dirItem.EdgeFileID,
 				cToken,
@@ -388,7 +388,7 @@ func (i *neighboursEdgesIter) Close() error {
 
 type neighbourVertexIDsIter struct {
 	se             *StorageEngine
-	vID            storage.VertexInternalID
+	vID            storage.VertexSystemID
 	vertTableToken *txns.FileLockToken
 	vertIndex      storage.Index
 	edgeFilter     storage.EdgeFilter
@@ -399,7 +399,7 @@ var _ storage.NeighborIDIter = &neighbourVertexIDsIter{}
 
 func newNeighbourVertexIDsIter(
 	se *StorageEngine,
-	vID storage.VertexInternalID,
+	vID storage.VertexSystemID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	edgeFilter storage.EdgeFilter,
@@ -416,7 +416,7 @@ func newNeighbourVertexIDsIter(
 	return iter
 }
 
-func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexInternalIDWithRID, error]] {
+func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexSystemIDWithRID, error]] {
 	cToken := i.vertTableToken.GetCatalogLockToken()
 	edgesIter := newNeighboursEdgesIter(
 		i.se,
@@ -427,7 +427,7 @@ func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexInterna
 		i.logger,
 	)
 
-	return func(yield func(utils.Pair[storage.VertexInternalIDWithRID, error]) bool) {
+	return func(yield func(utils.Pair[storage.VertexSystemIDWithRID, error]) bool) {
 		lastEdgeFileID := common.NilFileID
 		var dstVertIndex storage.Index
 		for ridEdgeErr := range edgesIter.Seq() {
@@ -445,7 +445,7 @@ func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexInterna
 					return
 				}
 
-				dstVertIndex, err = i.se.GetVertexTableInternalIndex(
+				dstVertIndex, err = i.se.GetVertexTableSystemIndex(
 					cToken.GetTxnID(),
 					edgeMeta.DstVertexFileID,
 					cToken,
@@ -468,7 +468,7 @@ func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexInterna
 				return
 			}
 
-			dstVertInfo := utils.Pair[storage.VertexInternalIDWithRID, error]{
+			dstVertInfo := utils.Pair[storage.VertexSystemIDWithRID, error]{
 				First:  dstVertRID,
 				Second: nil,
 			}
@@ -485,7 +485,7 @@ func (i *neighbourVertexIDsIter) Close() error {
 
 type neighbourVertexIter struct {
 	se                 *StorageEngine
-	vID                storage.VertexInternalID
+	vID                storage.VertexSystemID
 	initVertTableToken *txns.FileLockToken
 	vertIndex          storage.Index
 	vertexFilter       storage.VertexFilter
@@ -498,7 +498,7 @@ var _ storage.VerticesIter = &neighbourVertexIter{}
 
 func newNeighbourVertexIter(
 	se *StorageEngine,
-	vID storage.VertexInternalID,
+	vID storage.VertexSystemID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	vertexFilter storage.VertexFilter,
@@ -580,7 +580,7 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 				return
 			}
 
-			vertexInternalFields, vertexFields, err := parseVertexRecord(
+			vertexSystemFields, vertexFields, err := parseVertexRecord(
 				vertexData,
 				vertexMeta.Schema,
 			)
@@ -590,7 +590,7 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 			}
 
 			vertex := storage.Vertex{
-				VertexInternalFields: vertexInternalFields,
+				VertexSystemFields: vertexSystemFields,
 				Data:                 vertexFields,
 			}
 
@@ -689,7 +689,7 @@ func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, st
 					}
 
 					data := pg.UnsafeRead(i)
-					vertexInternalFields, vertexFields, err := parseVertexRecord(
+					vertexSystemFields, vertexFields, err := parseVertexRecord(
 						data,
 						iter.tableSchema,
 					)
@@ -697,7 +697,7 @@ func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, st
 						return false, err
 					}
 					vertex := storage.Vertex{
-						VertexInternalFields: vertexInternalFields,
+						VertexSystemFields: vertexSystemFields,
 						Data:                 vertexFields,
 					}
 					if !iter.vertexFilter(&vertex) {

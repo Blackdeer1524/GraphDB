@@ -19,7 +19,7 @@ func (e *Executor) newTxnID() common.TxnID {
 // traverseNeighborsWithDepth enqueues unvisited neighbors at next depth if <= targetDepth.
 func (e *Executor) traverseNeighborsWithDepth(
 	t common.TxnID,
-	v storage.VertexInternalIDWithDepthAndRID,
+	v storage.VertexSystemIDWithDepthAndRID,
 	targetDepth uint32,
 	seen storage.BitMap,
 	q storage.Queue,
@@ -29,7 +29,7 @@ func (e *Executor) traverseNeighborsWithDepth(
 	curDepth := v.D
 
 	startFileToken := txns.NewNilFileLockToken(cToken, v.R.FileID)
-	vertIndex, err := e.se.GetVertexTableInternalIndex(t, v.R.FileID, cToken, logger)
+	vertIndex, err := e.se.GetVertexTableSystemIndex(t, v.R.FileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
@@ -54,7 +54,7 @@ func (e *Executor) traverseNeighborsWithDepth(
 
 		var ok bool
 
-		vID := storage.VertexID{InternalID: vIntID.V, TableID: vIntID.R.FileID}
+		vID := storage.VertexID{SystemID: vIntID.V, TableID: vIntID.R.FileID}
 		ok, err = seen.Get(vID)
 		if err != nil {
 			return fmt.Errorf("failed to get vertex visited status: %w", err)
@@ -78,7 +78,7 @@ func (e *Executor) traverseNeighborsWithDepth(
 
 		if nd <= targetDepth {
 			err = q.Enqueue(
-				storage.VertexInternalIDWithDepthAndRID{V: vIntID.V, D: nd, R: vIntID.R},
+				storage.VertexSystemIDWithDepthAndRID{V: vIntID.V, D: nd, R: vIntID.R},
 			)
 			if err != nil {
 				return fmt.Errorf("failed to enqueue vertex: %w", err)
@@ -91,12 +91,12 @@ func (e *Executor) traverseNeighborsWithDepth(
 
 func (e *Executor) bfsWithDepth(
 	tx common.TxnID,
-	start storage.VertexInternalIDWithRID,
+	start storage.VertexSystemIDWithRID,
 	targetDepth uint32,
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
-) (result []storage.VertexInternalIDWithRID, err error) {
-	result = make([]storage.VertexInternalIDWithRID, 0)
+) (result []storage.VertexSystemIDWithRID, err error) {
+	result = make([]storage.VertexSystemIDWithRID, 0)
 
 	q, err := e.se.NewQueue(tx)
 	if err != nil {
@@ -114,13 +114,13 @@ func (e *Executor) bfsWithDepth(
 		err = errors.Join(err, seen.Close())
 	}()
 
-	vID := storage.VertexID{InternalID: start.V, TableID: start.R.FileID}
+	vID := storage.VertexID{SystemID: start.V, TableID: start.R.FileID}
 	err = seen.Set(vID, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set start vertex: %w", err)
 	}
 
-	err = q.Enqueue(storage.VertexInternalIDWithDepthAndRID{V: start.V, D: 0, R: start.R})
+	err = q.Enqueue(storage.VertexSystemIDWithDepthAndRID{V: start.V, D: 0, R: start.R})
 	if err != nil {
 		return nil, fmt.Errorf("failed to enqueue start vertex: %w", err)
 	}
@@ -140,7 +140,7 @@ func (e *Executor) bfsWithDepth(
 		}
 
 		if v.D == targetDepth {
-			result = append(result, storage.VertexInternalIDWithRID{V: v.V, R: v.R})
+			result = append(result, storage.VertexSystemIDWithRID{V: v.V, R: v.R})
 
 			continue
 		}
@@ -158,9 +158,9 @@ func (e *Executor) bfsWithDepth(
 // We will use BFS on graph because DFS cannot calculate right depth on graphs (except trees).
 func (e *Executor) GetVertexesOnDepth(
 	vertTableID common.FileID,
-	start storage.VertexInternalID,
+	start storage.VertexSystemID,
 	targetDepth uint32,
-) (r []storage.VertexInternalIDWithRID, err error) {
+) (r []storage.VertexSystemIDWithRID, err error) {
 	if e.se == nil {
 		return nil, errors.New("storage engine is nil")
 	}
@@ -191,9 +191,9 @@ func (e *Executor) GetVertexesOnDepth(
 		}
 	}()
 
-	var st storage.VertexInternalIDWithRID
+	var st storage.VertexSystemIDWithRID
 	cToken := txns.NewNilCatalogLockToken(tx)
-	index, err := e.se.GetVertexTableInternalIndex(tx, vertTableID, cToken, logger)
+	index, err := e.se.GetVertexTableSystemIndex(tx, vertTableID, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
@@ -203,7 +203,7 @@ func (e *Executor) GetVertexesOnDepth(
 		return nil, fmt.Errorf("failed to get start vertex: %w", err)
 	}
 
-	var res []storage.VertexInternalIDWithRID
+	var res []storage.VertexSystemIDWithRID
 
 	res, err = e.bfsWithDepth(tx, st, targetDepth, cToken, logger)
 	if err != nil {
@@ -258,7 +258,7 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 		return nil, fmt.Errorf("failed to get vertex table meta: %w", err)
 	}
 
-	vertIndex, err := e.se.GetVertexTableInternalIndex(txnID, tableMeta.FileID, cToken, logger)
+	vertIndex, err := e.se.GetVertexTableSystemIndex(txnID, tableMeta.FileID, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
@@ -337,7 +337,7 @@ func (e *Executor) GetAllVertexesWithFieldValue2(
 		return nil, fmt.Errorf("failed to get vertex table meta: %w", err)
 	}
 
-	vertIndex, err := e.se.GetVertexTableInternalIndex(txnID, tableMeta.FileID, cToken, logger)
+	vertIndex, err := e.se.GetVertexTableSystemIndex(txnID, tableMeta.FileID, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
@@ -510,7 +510,7 @@ func (e *Executor) SumNeighborAttributes(
 		if vRID.FileID != lastVertexTableID {
 			lastVertexTableID = vRID.FileID
 			lastVertexToken = txns.NewNilFileLockToken(cToken, vRID.FileID)
-			lastVertexIndex, err = e.se.GetVertexTableInternalIndex(
+			lastVertexIndex, err = e.se.GetVertexTableSystemIndex(
 				txnID,
 				vRID.FileID,
 				cToken,
@@ -544,7 +544,7 @@ func (e *Executor) SumNeighborAttributes(
 		}
 
 		vertexID := storage.VertexID{
-			InternalID: nVert.ID,
+			SystemID: nVert.ID,
 			TableID:    vRID.FileID,
 		}
 		err = r.Set(vertexID, res)
@@ -558,7 +558,7 @@ func (e *Executor) SumNeighborAttributes(
 
 func (e *Executor) countCommonNeighbors(
 	tx common.TxnID,
-	left storage.VertexInternalID,
+	left storage.VertexSystemID,
 	leftNeighbours storage.AssociativeArray[storage.VertexID, struct{}],
 	leftFileToken *txns.FileLockToken,
 	leftIndex storage.Index,
@@ -583,7 +583,7 @@ func (e *Executor) countCommonNeighbors(
 			return 0, fmt.Errorf("failed to destruct vertex: %w", err)
 		}
 
-		rightVertID := storage.VertexID{InternalID: rightRID.V, TableID: rightRID.R.FileID}
+		rightVertID := storage.VertexID{SystemID: rightRID.V, TableID: rightRID.R.FileID}
 		_, ok := leftNeighbours.Get(rightVertID)
 		if !ok {
 			continue
@@ -596,7 +596,7 @@ func (e *Executor) countCommonNeighbors(
 
 func (e *Executor) getVertexTriangleCount(
 	txnID common.TxnID,
-	vInternalID storage.VertexInternalID,
+	vSystemID storage.VertexSystemID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
@@ -604,13 +604,13 @@ func (e *Executor) getVertexTriangleCount(
 	r = 0
 	leftNeighboursIter, err := e.se.Neighbours(
 		txnID,
-		vInternalID,
+		vSystemID,
 		vertTableToken,
 		vertIndex,
 		logger,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get neighbors of vertex %v: %w", vInternalID, err)
+		return 0, fmt.Errorf("failed to get neighbors of vertex %v: %w", vSystemID, err)
 	}
 	defer func() {
 		err1 := leftNeighboursIter.Close()
@@ -621,14 +621,14 @@ func (e *Executor) getVertexTriangleCount(
 
 	leftNeighbours := inmemory.NewInMemoryAssociativeArray[storage.VertexID, struct{}]()
 	for l := range leftNeighboursIter.Seq() {
-		vInternalIDwithRID, err := l.Destruct()
+		vSystemIDwithRID, err := l.Destruct()
 		if err != nil {
 			return 0, fmt.Errorf("failed to get neighbor vertex: %w", err)
 		}
 
 		vertID := storage.VertexID{
-			InternalID: vInternalIDwithRID.V,
-			TableID:    vInternalIDwithRID.R.FileID,
+			SystemID: vSystemIDwithRID.V,
+			TableID:    vSystemIDwithRID.R.FileID,
 		}
 		err = leftNeighbours.Set(vertID, struct{}{})
 		if err != nil {
@@ -643,14 +643,14 @@ func (e *Executor) getVertexTriangleCount(
 		var leftIndex storage.Index
 
 		leftFileToken := txns.NewNilFileLockToken(cToken, left.TableID)
-		leftIndex, err = e.se.GetVertexTableInternalIndex(txnID, left.TableID, cToken, logger)
+		leftIndex, err = e.se.GetVertexTableSystemIndex(txnID, left.TableID, cToken, logger)
 		if err != nil {
 			return false
 		}
 
 		add, err = e.countCommonNeighbors(
 			txnID,
-			left.InternalID,
+			left.SystemID,
 			leftNeighbours,
 			leftFileToken,
 			leftIndex,
@@ -706,7 +706,7 @@ func (e *Executor) GetAllTriangles(vertTableName string) (r uint64, err error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get vertex table meta: %w", err)
 	}
-	vertIndex, err := e.se.GetVertexTableInternalIndex(txnID, tableMeta.FileID, cToken, logger)
+	vertIndex, err := e.se.GetVertexTableSystemIndex(txnID, tableMeta.FileID, cToken, logger)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}

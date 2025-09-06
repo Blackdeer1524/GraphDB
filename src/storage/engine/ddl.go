@@ -56,7 +56,7 @@ func getIndexFilePath(basePath string, indexType tableType, prefixedName string)
 	return filepath.Join(basePath, "indexes", string(indexType), prefixedName+".idx")
 }
 
-func getTableInternalIndexName(tableID common.FileID) string {
+func getTableSystemIndexName(tableID common.FileID) string {
 	return "idx_internal_" + strconv.Itoa(int(tableID))
 }
 
@@ -154,7 +154,7 @@ func (s *StorageEngine) CreateVertexTable(
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
-	err = s.createInternalVertexTableIndex(txnID, tableName, tableFileID, cToken, logger)
+	err = s.createSystemVertexTableIndex(txnID, tableName, tableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal vertex index: %w", err)
 	}
@@ -220,7 +220,7 @@ func (s *StorageEngine) createDirTable(
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
-	err = s.createInternalDirTableIndex(txnID, vertexTableFileID, dirTableFileID, cToken, logger)
+	err = s.createSystemDirTableIndex(txnID, vertexTableFileID, dirTableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal directory index: %w", err)
 	}
@@ -316,7 +316,7 @@ func (s *StorageEngine) DropVertexTable(
 		return err
 	}
 
-	err = s.catalog.DropVertexIndex(getTableInternalIndexName(vertTableMeta.FileID))
+	err = s.catalog.DropVertexIndex(getTableSystemIndexName(vertTableMeta.FileID))
 	if err != nil {
 		return fmt.Errorf("unable to drop system index: %w", err)
 	}
@@ -358,7 +358,7 @@ func (s *StorageEngine) DropEdgeTable(
 		return err
 	}
 
-	err = s.catalog.DropEdgeIndex(getTableInternalIndexName(edgeTableMeta.FileID))
+	err = s.catalog.DropEdgeIndex(getTableSystemIndexName(edgeTableMeta.FileID))
 	if err != nil {
 		return fmt.Errorf("unable to drop system index: %w", err)
 	}
@@ -390,7 +390,7 @@ func (s *StorageEngine) dropDirTable(
 		return err
 	}
 
-	err = s.catalog.DropDirIndex(getTableInternalIndexName(vertexTableFileID))
+	err = s.catalog.DropDirIndex(getTableSystemIndexName(vertexTableFileID))
 	if err != nil {
 		return err
 	}
@@ -457,7 +457,7 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	return nil
 }
 
-func (s *StorageEngine) createInternalVertexTableIndex(
+func (s *StorageEngine) createSystemVertexTableIndex(
 	txnID common.TxnID,
 	tableName string,
 	vertexTableFileID common.FileID,
@@ -465,10 +465,10 @@ func (s *StorageEngine) createInternalVertexTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := uint32(storage.VertexInternalIDSize)
+	keyBytesCnt := uint32(storage.VertexSystemIDSize)
 	return s.CreateVertexTableIndex(
 		txnID,
-		getTableInternalIndexName(vertexTableFileID),
+		getTableSystemIndexName(vertexTableFileID),
 		tableName,
 		columns,
 		keyBytesCnt,
@@ -532,7 +532,7 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	return nil
 }
 
-func (s *StorageEngine) createInternalEdgeTableIndex(
+func (s *StorageEngine) createSystemEdgeTableIndex(
 	txnID common.TxnID,
 	tableName string,
 	edgeTableFileID common.FileID,
@@ -540,10 +540,10 @@ func (s *StorageEngine) createInternalEdgeTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := uint32(storage.EdgeInternalIDSize)
+	keyBytesCnt := uint32(storage.EdgeSystemIDSize)
 	return s.CreateEdgeTableIndex(
 		txnID,
-		getTableInternalIndexName(edgeTableFileID),
+		getTableSystemIndexName(edgeTableFileID),
 		tableName,
 		columns,
 		keyBytesCnt,
@@ -552,7 +552,7 @@ func (s *StorageEngine) createInternalEdgeTableIndex(
 	)
 }
 
-func (s *StorageEngine) GetVertexTableInternalIndex(
+func (s *StorageEngine) GetVertexTableSystemIndex(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
@@ -560,7 +560,7 @@ func (s *StorageEngine) GetVertexTableInternalIndex(
 ) (storage.Index, error) {
 	return s.GetVertexTableIndex(
 		txnID,
-		getTableInternalIndexName(vertexTableFileID),
+		getTableSystemIndexName(vertexTableFileID),
 		cToken,
 		logger,
 	)
@@ -598,13 +598,13 @@ func (s *StorageEngine) GetVertexTableIndex(
 	return s.indexLoader(indexMeta, s.locker, logger)
 }
 
-func (s *StorageEngine) GetEdgeTableInternalIndex(
+func (s *StorageEngine) GetEdgeTableSystemIndex(
 	txnID common.TxnID,
 	edgeTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.GetEdgeTableIndex(txnID, getTableInternalIndexName(edgeTableFileID), cToken, logger)
+	return s.GetEdgeTableIndex(txnID, getTableSystemIndexName(edgeTableFileID), cToken, logger)
 }
 
 func (s *StorageEngine) GetEdgeTableIndex(
@@ -639,13 +639,13 @@ func (s *StorageEngine) GetEdgeTableIndex(
 	return s.indexLoader(indexMeta, s.locker, logger)
 }
 
-func (s *StorageEngine) GetDirTableInternalIndex(
+func (s *StorageEngine) GetDirTableSystemIndex(
 	txnID common.TxnID,
 	dirTableFileID common.FileID,
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	return s.getDirTableIndex(txnID, getTableInternalIndexName(dirTableFileID), cToken, logger)
+	return s.getDirTableIndex(txnID, getTableSystemIndexName(dirTableFileID), cToken, logger)
 }
 
 func (s *StorageEngine) createDirTableIndex(
@@ -703,7 +703,7 @@ func (s *StorageEngine) createDirTableIndex(
 	return nil
 }
 
-func (s *StorageEngine) createInternalDirTableIndex(
+func (s *StorageEngine) createSystemDirTableIndex(
 	txnID common.TxnID,
 	vertexTableFileID common.FileID,
 	directoryTableFileID common.FileID,
@@ -711,10 +711,10 @@ func (s *StorageEngine) createInternalDirTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := storage.DirItemInternalIDSize
+	keyBytesCnt := storage.DirItemSystemIDSize
 	return s.createDirTableIndex(
 		txnID,
-		getTableInternalIndexName(directoryTableFileID),
+		getTableSystemIndexName(directoryTableFileID),
 		vertexTableFileID,
 		columns,
 		uint32(keyBytesCnt),

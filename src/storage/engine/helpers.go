@@ -60,13 +60,13 @@ func parseRecord(reader *bytes.Reader, schema storage.Schema) (map[string]any, e
 func parseVertexRecord(
 	data []byte,
 	vertexSchema storage.Schema,
-) (storage.VertexInternalFields, map[string]any, error) {
+) (storage.VertexSystemFields, map[string]any, error) {
 	reader := bytes.NewReader(data)
 
-	vertexInternalFields := storage.VertexInternalFields{}
-	err := binary.Read(reader, binary.BigEndian, &vertexInternalFields)
+	vertexSystemFields := storage.VertexSystemFields{}
+	err := binary.Read(reader, binary.BigEndian, &vertexSystemFields)
 	if err != nil {
-		return storage.VertexInternalFields{}, nil, fmt.Errorf(
+		return storage.VertexSystemFields{}, nil, fmt.Errorf(
 			"failed to read vertex internal fields: %w",
 			err,
 		)
@@ -74,20 +74,20 @@ func parseVertexRecord(
 
 	record, err := parseRecord(reader, vertexSchema)
 	if err != nil {
-		return storage.VertexInternalFields{}, nil, fmt.Errorf(
+		return storage.VertexSystemFields{}, nil, fmt.Errorf(
 			"failed to parse vertex record: %w",
 			err,
 		)
 	}
-	return vertexInternalFields, record, nil
+	return vertexSystemFields, record, nil
 }
 
-func parseVertexRecordHeader(data []byte) (storage.VertexInternalFields, []byte, error) {
+func parseVertexRecordHeader(data []byte) (storage.VertexSystemFields, []byte, error) {
 	reader := bytes.NewReader(data)
-	vertexInternalFields := storage.VertexInternalFields{}
-	err := binary.Read(reader, binary.BigEndian, &vertexInternalFields)
+	vertexSystemFields := storage.VertexSystemFields{}
+	err := binary.Read(reader, binary.BigEndian, &vertexSystemFields)
 	if err != nil {
-		return storage.VertexInternalFields{}, nil, fmt.Errorf(
+		return storage.VertexSystemFields{}, nil, fmt.Errorf(
 			"failed to read vertex internal fields: %w",
 			err,
 		)
@@ -95,23 +95,23 @@ func parseVertexRecordHeader(data []byte) (storage.VertexInternalFields, []byte,
 
 	tail, err := io.ReadAll(reader)
 	if err != nil {
-		return storage.VertexInternalFields{}, nil, fmt.Errorf(
+		return storage.VertexSystemFields{}, nil, fmt.Errorf(
 			"failed to read tail: %w",
 			err,
 		)
 	}
-	return vertexInternalFields, tail, nil
+	return vertexSystemFields, tail, nil
 }
 
 func parseEdgeRecord(
 	data []byte,
 	edgeSchema storage.Schema,
-) (storage.EdgeInternalFields, map[string]any, error) {
+) (storage.EdgeSystemFields, map[string]any, error) {
 	reader := bytes.NewReader(data)
-	edgeInternalFields := storage.EdgeInternalFields{}
-	err := binary.Read(reader, binary.BigEndian, &edgeInternalFields)
+	edgeSystemFields := storage.EdgeSystemFields{}
+	err := binary.Read(reader, binary.BigEndian, &edgeSystemFields)
 	if err != nil {
-		return storage.EdgeInternalFields{}, nil, fmt.Errorf(
+		return storage.EdgeSystemFields{}, nil, fmt.Errorf(
 			"failed to read edge internal fields: %w",
 			err,
 		)
@@ -119,45 +119,45 @@ func parseEdgeRecord(
 
 	record, err := parseRecord(reader, edgeSchema)
 	if err != nil {
-		return storage.EdgeInternalFields{}, nil, fmt.Errorf(
+		return storage.EdgeSystemFields{}, nil, fmt.Errorf(
 			"failed to parse edge record: %w",
 			err,
 		)
 	}
-	return edgeInternalFields, record, nil
+	return edgeSystemFields, record, nil
 }
 
-func parseEdgeRecordHeader(data []byte) (storage.EdgeInternalFields, []byte, error) {
+func parseEdgeRecordHeader(data []byte) (storage.EdgeSystemFields, []byte, error) {
 	reader := bytes.NewReader(data)
-	edgeInternalFields := storage.EdgeInternalFields{}
-	err := binary.Read(reader, binary.BigEndian, &edgeInternalFields)
+	edgeSystemFields := storage.EdgeSystemFields{}
+	err := binary.Read(reader, binary.BigEndian, &edgeSystemFields)
 	if err != nil {
-		return storage.EdgeInternalFields{}, nil, fmt.Errorf(
+		return storage.EdgeSystemFields{}, nil, fmt.Errorf(
 			"failed to read edge internal fields: %w",
 			err,
 		)
 	}
 	tail, err := io.ReadAll(reader)
 	if err != nil {
-		return storage.EdgeInternalFields{}, nil, fmt.Errorf(
+		return storage.EdgeSystemFields{}, nil, fmt.Errorf(
 			"failed to read tail: %w",
 			err,
 		)
 	}
-	return edgeInternalFields, tail, nil
+	return edgeSystemFields, tail, nil
 }
 
 func parseDirectoryRecord(data []byte) (storage.DirectoryItem, error) {
 	reader := bytes.NewReader(data)
-	directoryInternalFields := storage.DirectoryItem{}
-	err := binary.Read(reader, binary.BigEndian, &directoryInternalFields)
+	directorySystemFields := storage.DirectoryItem{}
+	err := binary.Read(reader, binary.BigEndian, &directorySystemFields)
 	if err != nil {
 		return storage.DirectoryItem{}, fmt.Errorf(
 			"failed to read directory internal fields: %w",
 			err,
 		)
 	}
-	return directoryInternalFields, nil
+	return directorySystemFields, nil
 }
 
 func serializeRecord(data map[string]any, schema storage.Schema) ([]byte, error) {
@@ -222,13 +222,13 @@ func serializeRecord(data map[string]any, schema storage.Schema) ([]byte, error)
 }
 
 func serializeVertexRecord(
-	vertexInternalFields storage.VertexInternalFields,
+	vertexSystemFields storage.VertexSystemFields,
 	record map[string]any,
 	vertexSchema storage.Schema,
 ) ([]byte, error) {
 	buf := bytes.Buffer{}
 
-	err := binary.Write(&buf, binary.BigEndian, vertexInternalFields)
+	err := binary.Write(&buf, binary.BigEndian, vertexSystemFields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write vertex internal fields: %w", err)
 	}
@@ -247,11 +247,11 @@ func serializeVertexRecord(
 }
 
 func serializeVertexRecordHeader(
-	vertexInternalFields storage.VertexInternalFields,
+	vertexSystemFields storage.VertexSystemFields,
 	tail []byte,
 ) ([]byte, error) {
 	buf := bytes.Buffer{}
-	err := binary.Write(&buf, binary.BigEndian, vertexInternalFields)
+	err := binary.Write(&buf, binary.BigEndian, vertexSystemFields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write vertex internal fields: %w", err)
 	}
@@ -265,12 +265,12 @@ func serializeVertexRecordHeader(
 }
 
 func serializeEdgeRecord(
-	edgeInternalFields storage.EdgeInternalFields,
+	edgeSystemFields storage.EdgeSystemFields,
 	record map[string]any,
 	edgeSchema storage.Schema,
 ) ([]byte, error) {
 	buf := bytes.Buffer{}
-	err := binary.Write(&buf, binary.BigEndian, edgeInternalFields)
+	err := binary.Write(&buf, binary.BigEndian, edgeSystemFields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write edge internal fields: %w", err)
 	}
@@ -289,11 +289,11 @@ func serializeEdgeRecord(
 }
 
 func serializeEdgeRecordHeader(
-	edgeInternalFields storage.EdgeInternalFields,
+	edgeSystemFields storage.EdgeSystemFields,
 	tail []byte,
 ) ([]byte, error) {
 	buf := bytes.Buffer{}
-	err := binary.Write(&buf, binary.BigEndian, edgeInternalFields)
+	err := binary.Write(&buf, binary.BigEndian, edgeSystemFields)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write edge internal fields: %w", err)
 	}
