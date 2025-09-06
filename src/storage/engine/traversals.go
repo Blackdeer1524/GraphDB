@@ -9,7 +9,7 @@ import (
 // NewAggregationAssociativeArray implements storage.StorageEngine.
 func (s *StorageEngine) NewAggregationAssociativeArray(
 	common.TxnID,
-) (storage.AssociativeArray[storage.VertexInternalID, float64], error) {
+) (storage.AssociativeArray[storage.VertexID, float64], error) {
 	panic("unimplemented")
 }
 
@@ -125,16 +125,16 @@ func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 
 func (s *StorageEngine) Neighbours(
 	txnID common.TxnID,
-	vID storage.VertexInternalID,
-	vertTableToken *txns.FileLockToken,
-	vertIndex storage.Index,
+	startVertInternalID storage.VertexInternalID,
+	startVertTableToken *txns.FileLockToken,
+	startVertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
 ) (storage.NeighborIDIter, error) {
 	return newNeighbourVertexIDsIter(
 		s,
-		vID,
-		vertTableToken,
-		vertIndex,
+		startVertInternalID,
+		startVertTableToken,
+		startVertIndex,
 		storage.AllowAllEdgesFilter,
 		logger,
 	), nil

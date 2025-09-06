@@ -3,14 +3,12 @@ package query
 import (
 	"sync/atomic"
 
-	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 type Executor struct {
-	pool      bufferpool.BufferPool
 	se        storage.StorageEngine
 	txnTicker atomic.Uint64
 	locker    txns.ILockManager

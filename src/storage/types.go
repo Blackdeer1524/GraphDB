@@ -65,8 +65,8 @@ func (v *DirItemInternalID) UnmarshalBinary(data []byte) error {
 }
 
 type VertexID struct {
-	ID      VertexInternalID
-	TableID common.FileID
+	InternalID VertexInternalID
+	TableID    common.FileID
 }
 
 type EdgeID struct {
@@ -234,23 +234,21 @@ type AssociativeArray[K comparable, V any] interface {
 
 type StorageEngine interface {
 	// Data structures
-	NewAggregationAssociativeArray(
-		common.TxnID,
-	) (AssociativeArray[VertexInternalID, float64], error)
+	NewAggregationAssociativeArray(common.TxnID) (AssociativeArray[VertexID, float64], error)
 	NewBitMap(common.TxnID) (BitMap, error)
 	NewQueue(common.TxnID) (Queue, error)
 
 	// Graph traversals
-	GetAllVertices(t common.TxnID, vertTableToken *txns.FileLockToken) (VerticesIter, error)
+	GetAllVertices(txnID common.TxnID, vertTableToken *txns.FileLockToken) (VerticesIter, error)
 	Neighbours(
 		txnID common.TxnID,
-		vID VertexInternalID,
-		vertTableToken *txns.FileLockToken,
-		vertIndex Index,
+		startVertInternalID VertexInternalID,
+		startVertTableToken *txns.FileLockToken,
+		startVertIndex Index,
 		logger common.ITxnLoggerWithContext,
 	) (NeighborIDIter, error)
 	AllVerticesWithValue(
-		t common.TxnID,
+		txnID common.TxnID,
 		vertTableToken *txns.FileLockToken,
 		vertIndex Index,
 		logger common.ITxnLoggerWithContext,
@@ -258,15 +256,15 @@ type StorageEngine interface {
 		value []byte,
 	) (VerticesIter, error)
 	CountOfFilteredEdges(
-		t common.TxnID,
-		v VertexInternalID,
+		txnID common.TxnID,
+		vertInternalID VertexInternalID,
 		vertTableToken *txns.FileLockToken,
 		vertIndex Index,
 		logger common.ITxnLoggerWithContext,
 		filter EdgeFilter,
 	) (uint64, error)
 	GetNeighborsWithEdgeFilter(
-		t common.TxnID,
+		txnID common.TxnID,
 		v VertexInternalID,
 		vertTableToken *txns.FileLockToken,
 		vertIndex Index,

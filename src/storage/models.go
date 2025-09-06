@@ -20,6 +20,20 @@ const (
 	ColumnTypeUUID    ColumnType = "uuid" // 16 bytes
 )
 
+func ColumnToFloat(left any) (float64, error) {
+	switch left := left.(type) {
+	case int64:
+		return float64(left), nil
+	case uint64:
+		return float64(left), nil
+	case float64:
+		return left, nil
+	case uuid.UUID:
+		return 0, fmt.Errorf("can't cast a column of type UUID to float64: %v", left)
+	}
+	panic("unsupported column type: " + fmt.Sprintf("%#v", left))
+}
+
 func CmpColumnValue(left any, right []byte) bool {
 	switch left := left.(type) {
 	case int64:
