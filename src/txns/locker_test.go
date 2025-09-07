@@ -138,59 +138,56 @@ func TestLockManagerLockToken_RequestWeakerLockModeRequestGranted(t *testing.T) 
 	}
 
 	for _, test := range tests {
-		t.Run(
-			test.name,
-			func(t *testing.T) {
-				for strongerMode, weakerModes := range weakerLockModes {
-					for _, weakerMode := range weakerModes {
-						name := fmt.Sprintf(
-							"strongerMode: %s, weakerMode: %s",
-							strongerMode.String(),
-							weakerMode.String(),
+		for strongerMode, weakerModes := range weakerLockModes {
+			for _, weakerMode := range weakerModes {
+				name := fmt.Sprintf(
+					"[%s] strongerMode: %s, weakerMode: %s",
+					test.name,
+					strongerMode.String(),
+					weakerMode.String(),
+				)
+				t.Run(name, func(t *testing.T) {
+					cToken := NewNilCatalogLockToken(txnID)
+					// initial lock
+					test.lockFunc(txnID, strongerMode, cToken)
+					defer l.Unlock(txnID)
+					// later lock request
+					test.lockFunc(txnID, weakerMode, cToken)
+
+					switch test.name {
+					case "catalog":
+						qAny, ok := test.lockManager.(*lockGranularityManager[GranularLockMode, struct{}]).qs.Load(
+							struct{}{},
 						)
-						t.Run(name, func(t *testing.T) {
-							cToken := NewNilCatalogLockToken(txnID)
-							// initial lock
-							test.lockFunc(txnID, strongerMode, cToken)
-							defer l.Unlock(txnID)
-							// later lock request
-							test.lockFunc(txnID, weakerMode, cToken)
+						require.True(t, ok)
 
-							switch test.name {
-							case "catalog":
-								qAny, ok := test.lockManager.(*lockGranularityManager[GranularLockMode, struct{}]).qs.Load(
-									struct{}{},
-								)
-								require.True(t, ok)
+						q := qAny.(*txnQueue[GranularLockMode, struct{}])
+						txnQueueEntryAny, ok := q.txnNodes.Load(txnID)
+						require.True(t, ok)
+						txnQueueEntry := txnQueueEntryAny.(*txnQueueEntry[GranularLockMode, struct{}])
+						require.Equal(
+							t,
+							strongerMode.String(),
+							txnQueueEntry.r.lockMode.String(),
+						)
+					case "file":
+						qAny, ok := test.lockManager.(*lockGranularityManager[GranularLockMode, common.FileID]).qs.Load(
+							fileID,
+						)
+						require.True(t, ok)
 
-								q := qAny.(*txnQueue[GranularLockMode, struct{}])
-								txnQueueEntryAny, ok := q.txnNodes.Load(txnID)
-								require.True(t, ok)
-								txnQueueEntry := txnQueueEntryAny.(*txnQueueEntry[GranularLockMode, struct{}])
-								require.Equal(
-									t,
-									strongerMode.String(),
-									txnQueueEntry.r.lockMode.String(),
-								)
-							case "file":
-								qAny, ok := test.lockManager.(*lockGranularityManager[GranularLockMode, common.FileID]).qs.Load(
-									fileID,
-								)
-								require.True(t, ok)
-
-								q := qAny.(*txnQueue[GranularLockMode, common.FileID])
-								txnQueueEntryAny, ok := q.txnNodes.Load(txnID)
-								require.True(t, ok)
-								txnQueueEntry := txnQueueEntryAny.(*txnQueueEntry[GranularLockMode, common.FileID])
-								require.Equal(
-									t,
-									strongerMode.String(),
-									txnQueueEntry.r.lockMode.String(),
-								)
-							}
-						})
+						q := qAny.(*txnQueue[GranularLockMode, common.FileID])
+						txnQueueEntryAny, ok := q.txnNodes.Load(txnID)
+						require.True(t, ok)
+						txnQueueEntry := txnQueueEntryAny.(*txnQueueEntry[GranularLockMode, common.FileID])
+						require.Equal(
+							t,
+							strongerMode.String(),
+							txnQueueEntry.r.lockMode.String(),
+						)
 					}
-				}
-			})
+				})
+			}
+		}
 	}
 }
