@@ -545,7 +545,7 @@ func (e *Executor) SumNeighborAttributes(
 
 		vertexID := storage.VertexID{
 			SystemID: nVert.ID,
-			TableID:    vRID.FileID,
+			TableID:  vRID.FileID,
 		}
 		err = r.Set(vertexID, res)
 		if err != nil {
@@ -628,7 +628,7 @@ func (e *Executor) getVertexTriangleCount(
 
 		vertID := storage.VertexID{
 			SystemID: vSystemIDwithRID.V,
-			TableID:    vSystemIDwithRID.R.FileID,
+			TableID:  vSystemIDwithRID.R.FileID,
 		}
 		err = leftNeighbours.Set(vertID, struct{}{})
 		if err != nil {

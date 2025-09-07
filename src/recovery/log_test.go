@@ -35,22 +35,20 @@ func TestUndoInsertOnNonExistingPage(t *testing.T) {
 		FileID: logPageId.FileID,
 		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
+	pool := bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
+
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		masterRecordPageIdent.FileID,
 		common.LogRecordLocInfo{
 			Lsn:      common.NilLSN,
 			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 		},
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
+	logger := NewTxnLogger(debugPool, logPageId.FileID)
 
 	ctxLogger := logger.WithContext(common.TxnID(100))
 
@@ -65,12 +63,12 @@ func TestUndoInsertOnNonExistingPage(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ctxLogger.AppendCommit())
 
-	_, err = pool.GetPageNoCreate(dataRecordID.PageIdentity())
+	_, err = debugPool.GetPageNoCreate(dataRecordID.PageIdentity())
 	require.ErrorIs(t, err, disk.ErrNoSuchPage)
 	logger.Recover()
-	page, err := pool.GetPageNoCreate(dataRecordID.PageIdentity())
+	page, err := debugPool.GetPageNoCreate(dataRecordID.PageIdentity())
 	require.NoError(t, err)
-	defer pool.Unpin(dataRecordID.PageIdentity())
+	defer debugPool.Unpin(dataRecordID.PageIdentity())
 
 	data := page.LockedRead(dataRecordID.SlotNum)
 	require.Equal(t, []byte("bef000"), data)
@@ -87,23 +85,20 @@ func TestValidRecovery(t *testing.T) {
 		FileID: logPageId.FileID,
 		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
+	pool_ := bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool_)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
 	loggerStart := common.LogRecordLocInfo{
 		Lsn:      common.NilLSN,
 		Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 	}
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		masterRecordPageIdent.FileID,
 		loggerStart,
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
+	logger := NewTxnLogger(debugPool, logPageId.FileID)
 
 	defer func() {
 		if recover() != nil {
@@ -111,11 +106,11 @@ func TestValidRecovery(t *testing.T) {
 			logger.Dump(loggerStart.Location, b)
 			println(b.String())
 		}
-		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+		assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 	}()
 
 	dataPageID := common.PageIdentity{FileID: 42, PageID: 123}
-	slotNumOpt, err := insertValueNoLogs(t, pool, dataPageID, []byte("bef000"))
+	slotNumOpt, err := insertValueNoLogs(t, debugPool, dataPageID, []byte("bef000"))
 	require.True(t, slotNumOpt.IsSome())
 	slotNum := slotNumOpt.Unwrap()
 	require.NoError(t, err)
@@ -146,12 +141,12 @@ func TestValidRecovery(t *testing.T) {
 	}
 
 	// Simulate a crash and recovery
-	logger2 := NewTxnLogger(pool, logger.logfileID)
+	logger2 := NewTxnLogger(debugPool, logger.logfileID)
 	logger2.Recover()
 
 	// Check that the page contains the "after" value
-	p, err := pool.GetPage(dataPageID)
-	defer func(pageID common.PageIdentity) { pool.Unpin(pageID) }(
+	p, err := debugPool.GetPage(dataPageID)
+	defer func(pageID common.PageIdentity) { debugPool.Unpin(pageID) }(
 		dataPageID,
 	)
 
@@ -181,12 +176,9 @@ func TestFailedTxn(t *testing.T) {
 		FileID: logPageId.FileID,
 		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
+	pool := bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
 
 	checkpointLocation := common.LogRecordLocInfo{
 		Lsn:      common.NilLSN,
@@ -194,18 +186,18 @@ func TestFailedTxn(t *testing.T) {
 	}
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		masterRecordPageIdent.FileID,
 		checkpointLocation,
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
+	logger := NewTxnLogger(debugPool, logPageId.FileID)
 
 	pageIdent := common.PageIdentity{FileID: 13, PageID: 7}
 
 	TransactionID := common.TxnID(100)
 	before := []byte("before")
 
-	slotNumOpt, err := insertValueNoLogs(t, pool, pageIdent, before)
+	slotNumOpt, err := insertValueNoLogs(t, debugPool, pageIdent, before)
 	require.NoError(t, err, "couldn't insert a record")
 	require.True(t, slotNumOpt.IsSome())
 	slotNum := slotNumOpt.Unwrap()
@@ -301,25 +293,22 @@ func TestMassiveRecovery(t *testing.T) {
 	}
 
 	diskManager := disk.NewInMemoryManager()
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
+	pool := bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
 
-	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	defer func() { assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		masterRecordPageIdent.FileID,
 		common.LogRecordLocInfo{
 			Lsn:      common.NilLSN,
 			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 		},
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
+	logger := NewTxnLogger(debugPool, logPageId.FileID)
 
 	INIT := []byte("init")
 	NEW := []byte("new1")
@@ -341,7 +330,7 @@ func TestMassiveRecovery(t *testing.T) {
 		succ := func() bool {
 			var err error
 
-			slot, err = insertValueNoLogs(t, pool, dataPageId, INIT)
+			slot, err = insertValueNoLogs(t, debugPool, dataPageId, INIT)
 			if slot.IsNone() {
 				dataPageId.PageID++
 				return false
@@ -407,10 +396,10 @@ func TestMassiveRecovery(t *testing.T) {
 							SlotNum: recordLoc.SlotNum,
 						}, NEW, NEW2)
 					func() {
-						p, err := pool.GetPageNoCreate(pageID)
+						p, err := debugPool.GetPageNoCreate(pageID)
 						require.NoError(t, err)
 
-						defer pool.Unpin(pageID)
+						defer debugPool.Unpin(pageID)
 
 						p.Lock()
 						defer p.Unlock()
@@ -449,9 +438,9 @@ func TestMassiveRecovery(t *testing.T) {
 				FileID: DataFileID,
 				PageID: location.PageID,
 			}
-			p, err := pool.GetPageNoCreate(dataPageId)
+			p, err := debugPool.GetPageNoCreate(dataPageId)
 			require.NoError(t, err)
-			defer func() { pool.Unpin(dataPageId) }()
+			defer func() { debugPool.Unpin(dataPageId) }()
 
 			p.RLock()
 			defer p.RUnlock()
@@ -549,23 +538,21 @@ func TestLoggerValidConcurrentWrites(t *testing.T) {
 		FileID: logFileID,
 		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
-	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	pool_ := bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool_)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
+
+	defer func() { assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		masterRecordPageIdent.FileID,
 		common.LogRecordLocInfo{
 			Lsn:      common.NilLSN,
 			Location: common.FileLocation{PageID: 53, SlotNum: 0},
 		},
 	)
-	logger := NewTxnLogger(pool, logFileID)
+	logger := NewTxnLogger(debugPool, logFileID)
 
 	dataPageId := common.PageIdentity{
 		FileID: 33,
@@ -756,12 +743,9 @@ func TestLoggerRollback(t *testing.T) {
 		FileID: logFileID,
 		PageID: common.CheckpointInfoPageID,
 	}
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(100, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
+	pool_ := bufferpool.New(100, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool_)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
 
 	logStartLocation := common.FileLocation{
 		PageID:  common.CheckpointInfoPageID + 1,
@@ -770,17 +754,17 @@ func TestLoggerRollback(t *testing.T) {
 
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		masterRecordPageIdent.FileID,
 		common.LogRecordLocInfo{
 			Lsn:      common.NilLSN,
 			Location: logStartLocation,
 		},
 	)
-	logger := NewTxnLogger(pool, logFileID)
+	logger := NewTxnLogger(debugPool, logFileID)
 
 	defer func() {
-		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+		assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 	}()
 
 	files := []common.FileID{}
@@ -796,7 +780,7 @@ func TestLoggerRollback(t *testing.T) {
 	}
 
 	recordValues := fillPages(t, logger, math.MaxUint64, 20_000, files, 1024, 40)
-	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	updatedValues := make(map[common.RecordID]uint32, len(recordValues))
 	maps.Copy(updatedValues, recordValues)
@@ -881,11 +865,11 @@ func TestLoggerRollback(t *testing.T) {
 
 				newValue := rand.Uint32()
 				t.Logf("[%d] getting page %+v", txnID, info.key.PageIdentity())
-				pg, err := pool.GetPageNoCreate(info.key.PageIdentity())
+				pg, err := debugPool.GetPageNoCreate(info.key.PageIdentity())
 				require.NoError(t, err)
 				t.Logf("[%d] updating page %+v", txnID, info.key.PageIdentity())
 
-				err = pool.WithMarkDirty(
+				err = debugPool.WithMarkDirty(
 					txnID,
 					info.key.PageIdentity(),
 					pg,
@@ -897,7 +881,7 @@ func TestLoggerRollback(t *testing.T) {
 						)
 					},
 				)
-				pool.Unpin(info.key.PageIdentity())
+				debugPool.Unpin(info.key.PageIdentity())
 				t.Logf("[%d] done updating page %+v", txnID, info.key.PageIdentity())
 				assert.NoError(t, err)
 			}
@@ -928,10 +912,10 @@ func TestLoggerRollback(t *testing.T) {
 				}
 
 				t.Logf("[%d] getting page %+v", txnID, info.key.PageIdentity())
-				pg, err := pool.GetPageNoCreate(info.key.PageIdentity())
+				pg, err := debugPool.GetPageNoCreate(info.key.PageIdentity())
 				require.NoError(t, err)
 				t.Logf("[%d] deleting page %+v", txnID, info.key.PageIdentity())
-				err = pool.WithMarkDirty(
+				err = debugPool.WithMarkDirty(
 					txnID,
 					info.key.PageIdentity(),
 					pg,
@@ -939,7 +923,7 @@ func TestLoggerRollback(t *testing.T) {
 						return lockedPage.DeleteWithLogs(info.key, logger)
 					},
 				)
-				pool.Unpin(info.key.PageIdentity())
+				debugPool.Unpin(info.key.PageIdentity())
 				t.Logf("[%d] done deleting page %+v", txnID, info.key.PageIdentity())
 				require.NoError(t, err)
 			}
@@ -957,9 +941,9 @@ func TestLoggerRollback(t *testing.T) {
 				FileID: k.FileID,
 				PageID: k.PageID,
 			}
-			page, err := pool.GetPageNoCreate(pageID)
+			page, err := debugPool.GetPageNoCreate(pageID)
 			assert.NoError(t, err)
-			defer func() { pool.Unpin(pageID) }()
+			defer func() { debugPool.Unpin(pageID) }()
 
 			data := page.LockedRead(k.SlotNum)
 			assert.Equal(t, data, utils.ToBytes[uint32](v))
@@ -1074,30 +1058,27 @@ func TestTxnLoggerWithContext_Rollback(t *testing.T) {
 	}
 
 	diskManager := disk.NewInMemoryManager()
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
+	pool := bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
 
 	defer func() {
-		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+		assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 	}()
-	logger := NewTxnLogger(pool, 42)
+	logger := NewTxnLogger(debugPool, 42)
 
 	dataPageID := common.PageIdentity{
 		FileID: 321,
 		PageID: 64,
 	}
 
-	pg, err := pool.GetPage(dataPageID)
+	pg, err := debugPool.GetPage(dataPageID)
 	require.NoError(t, err)
-	defer pool.Unpin(dataPageID)
+	defer debugPool.Unpin(dataPageID)
 
 	txnID := common.TxnID(100)
 	slot := uint16(123)
-	require.NoError(t, pool.WithMarkDirty(
+	require.NoError(t, debugPool.WithMarkDirty(
 		txnID,
 		dataPageID,
 		pg,

@@ -599,8 +599,8 @@ func (m *Manager) GetDPTandATT() (map[common.PageIdentity]common.LogRecordLocInf
 }
 
 type DebugBufferPool struct {
-	m           *Manager
-	leakedPages map[common.PageIdentity]struct{}
+	m            *Manager
+	leakingPages map[common.PageIdentity]struct{}
 }
 
 func (d *DebugBufferPool) SetLogger(logger common.ITxnLogger) {
@@ -611,11 +611,12 @@ var (
 	_ BufferPool = &DebugBufferPool{}
 )
 
-func NewDebugBufferPool(
-	m *Manager,
-	leakedPages map[common.PageIdentity]struct{},
-) *DebugBufferPool {
-	return &DebugBufferPool{m: m, leakedPages: leakedPages}
+func NewDebugBufferPool(m *Manager) *DebugBufferPool {
+	return &DebugBufferPool{m: m, leakingPages: map[common.PageIdentity]struct{}{}}
+}
+
+func (d *DebugBufferPool) MarkPageAsLeaking(pIdent common.PageIdentity) {
+	d.leakingPages[pIdent] = struct{}{}
 }
 
 func (d *DebugBufferPool) FlushLogs() error {
@@ -688,7 +689,7 @@ func (d *DebugBufferPool) EnsureAllPagesUnpinnedAndUnlocked() error {
 
 	for pageID, pageInfo := range d.m.pageTable {
 		pinCount := pageInfo.pinCount
-		if _, ok := d.leakedPages[pageID]; ok {
+		if _, ok := d.leakingPages[pageID]; ok {
 			if pinCount <= 0 {
 				unpinnedLeaked[pageID] = struct{}{}
 			}

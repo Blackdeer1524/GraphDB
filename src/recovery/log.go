@@ -19,8 +19,15 @@ import (
 type loggerInfoPage page.SlottedPage
 
 const (
-	loggerCheckpointLocationSlot = iota
+	loggerCheckpointLocationSlot = 0
 )
+
+func GetMasterPageIdent(logfileID common.FileID) common.PageIdentity {
+	return common.PageIdentity{
+		FileID: logfileID,
+		PageID: common.CheckpointInfoPageID,
+	}
+}
 
 func (p *loggerInfoPage) GetCheckpointLocation() common.LogRecordLocInfo {
 	o := (*page.SlottedPage)(p)
@@ -76,13 +83,10 @@ type txnLogger struct {
  * 2. № страницы последней записи <---- куда начать писать
  *    после инициализации (флашить НЕ обязательно)
  */
-func NewTxnLogger(
-	pool bufferpool.BufferPool,
-	logFileID common.FileID,
-) *txnLogger {
+func NewTxnLogger(pool bufferpool.BufferPool, logfileID common.FileID) *txnLogger {
 	l := &txnLogger{
 		pool:            pool,
-		logfileID:       logFileID,
+		logfileID:       logfileID,
 		masterPage:      &loggerInfoPage{},
 		seqMu:           sync.Mutex{},
 		logRecordsCount: 0,
@@ -91,10 +95,7 @@ func NewTxnLogger(
 	}
 
 	pool.SetLogger(l)
-	masterRecordIdent := common.PageIdentity{
-		FileID: logFileID,
-		PageID: common.CheckpointInfoPageID,
-	}
+	masterRecordIdent := GetMasterPageIdent(logfileID)
 
 	// this will load master log record's page into memory
 	// note that we don't call `Unpin()`. We are going to need this
@@ -105,12 +106,15 @@ func NewTxnLogger(
 	if errors.Is(err, disk.ErrNoSuchPage) {
 		pg, err = pool.GetPage(masterRecordIdent)
 		assert.NoError(err)
-		pool.MarkDirtyNoLogsAssumeLocked(masterRecordIdent)
-		l.masterPage = (*loggerInfoPage)(pg)
-		l.masterPage.Setup()
 	} else {
 		assert.NoError(err)
-		l.masterPage = (*loggerInfoPage)(pg)
+	}
+
+	l.masterPage = (*loggerInfoPage)(pg)
+	if pg.NumSlots() == 0 {
+		l.masterPage.Setup()
+		pool.MarkDirtyNoLogsAssumeLocked(masterRecordIdent)
+		l.masterPage.setCheckpointLocation(common.NewNilLogRecordLocation())
 	}
 
 	checkpointLocation := l.masterPage.GetCheckpointLocation()

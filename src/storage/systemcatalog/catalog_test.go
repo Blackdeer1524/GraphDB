@@ -16,18 +16,21 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
-func newTestCatalogManager(t *testing.T) (*Manager, afero.Fs, bufferpool.BufferPool, string) {
+func newTestCatalogManager(t *testing.T) (*Catalog, afero.Fs, bufferpool.BufferPool, string) {
 	fs := afero.NewMemMapFs()
 	basePath := "/tmp/graphdb_syscat_test"
 	require.NoError(t, fs.MkdirAll(basePath, 0o700))
 
 	require.NoError(t, InitSystemCatalog(basePath, fs))
-	versionFilePath := GetSystemCatalogVersionFileName(basePath)
+	versionFilePath := GetSystemCatalogVersionFilePath(basePath)
 	dm := disk.New(
-		map[common.FileID]string{CatalogVersionFileID: versionFilePath},
-		func(_ common.FileID, _ common.PageID) *page.SlottedPage { return page.NewSlottedPage() },
+		func(_ common.FileID, _ common.PageID) *page.SlottedPage {
+			return page.NewSlottedPage()
+		},
 		fs,
 	)
+	dm.InsertToFileMap(CatalogVersionFileID, versionFilePath)
+
 	replacer := bufferpool.NewLRUReplacer()
 	pool := bufferpool.New(8, replacer, dm)
 

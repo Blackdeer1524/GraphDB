@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math/rand"
+	"os"
+
+	"github.com/spf13/afero"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 )
@@ -104,4 +107,17 @@ func GenerateUniqueInts[T Integer](n, min, max int) []T {
 	}
 
 	return res
+}
+
+func IsFileExists(fs afero.Fs, path string) (bool, error) {
+	_, err := fs.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return false, err
 }

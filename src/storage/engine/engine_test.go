@@ -21,7 +21,7 @@ func newTestEngineWithMockCatalog(
 		return storage.NewMockIndex(t), nil
 	}
 
-	eng := newInjectedEngine(cat, nil, nil, locker, fs, indexLoader)
+	eng := New(cat, nil, nil, locker, fs, indexLoader)
 	return eng, cat, locker
 }
 

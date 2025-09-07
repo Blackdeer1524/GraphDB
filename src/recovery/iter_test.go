@@ -111,24 +111,21 @@ func TestIterSanity(t *testing.T) {
 	}
 
 	diskManager := disk.NewInMemoryManager()
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
-	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	pool := bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
+	defer func() { assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		masterRecordPageIdent.FileID,
 		common.LogRecordLocInfo{
 			Lsn:      common.NilLSN,
 			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 		},
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
+	logger := NewTxnLogger(debugPool, logPageId.FileID)
 
 	dataPageId := common.PageIdentity{
 		FileID: 123,
@@ -139,7 +136,7 @@ func TestIterSanity(t *testing.T) {
 	chain := NewTxnLogChain(logger, txnID)
 
 	types := generateSequence(t, chain, dataPageId, 1)
-	assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	iter, err := logger.iter(common.FileLocation{
 		PageID:  logPageId.PageID,

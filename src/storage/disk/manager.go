@@ -32,12 +32,11 @@ var (
 )
 
 func New(
-	fileIDToPath map[common.FileID]string,
 	newPageFunc func(fileID common.FileID, pageID common.PageID) *page.SlottedPage,
 	fs afero.Fs,
 ) *Manager {
 	return &Manager{
-		fileIDToPath: fileIDToPath,
+		fileIDToPath: map[common.FileID]string{},
 		newPageFunc:  newPageFunc,
 		mu:           sync.Mutex{},
 		fs:           fs,
@@ -79,9 +78,12 @@ func (m *Manager) ReadPageAssumeLocked(
 
 	_, err = file.ReadAt(data, offset)
 	if errors.Is(err, io.EOF) {
-		// TODO: CHECK THIS !!!
-		m.newPageFunc(pageIdent.FileID, pageIdent.PageID)
-		pg.UnsafeClear()
+		newPage := m.newPageFunc(pageIdent.FileID, pageIdent.PageID)
+		_, err := file.WriteAt(newPage.GetData(), offset)
+		if err != nil {
+			return err
+		}
+		pg.SetData(newPage.GetData())
 		return nil
 	} else if err != nil {
 		return err

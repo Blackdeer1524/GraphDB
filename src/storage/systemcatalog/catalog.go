@@ -25,6 +25,8 @@ const (
 	CatalogVersionFileID  = common.FileID(0)
 	catalogVersionPageID  = common.PageID(0)
 	catalogVersionSlotNum = uint16(0)
+
+	LogFileID = common.FileID(1)
 )
 
 var (
@@ -32,9 +34,9 @@ var (
 	ErrEntityExists   = errors.New("entity already exists")
 )
 
-// catalogVersionPageIdent return page identity of page with current version of system catalog.
+// CatalogVersionPageIdent return page identity of page with current version of system catalog.
 // We reserve zero fileID and zero pageID for this page.
-func catalogVersionPageIdent() common.PageIdentity {
+func CatalogVersionPageIdent() common.PageIdentity {
 	return common.PageIdentity{FileID: CatalogVersionFileID, PageID: catalogVersionPageID}
 }
 
@@ -126,7 +128,7 @@ func (d *Data) Copy() Data {
 	}
 }
 
-type Manager struct {
+type Catalog struct {
 	fs        afero.Fs
 	basePath  string
 	data      *Data
@@ -143,27 +145,18 @@ type Manager struct {
 	mu sync.RWMutex
 }
 
-var _ storage.SystemCatalog = &Manager{}
+var _ storage.SystemCatalog = &Catalog{}
 
-func GetSystemCatalogVersionFileName(basePath string) string {
+func GetSystemCatalogVersionFilePath(basePath string) string {
 	return filepath.Join(basePath, currentVersionFile)
+}
+
+func GetLogFilePath(basePath string) string {
+	return filepath.Join(basePath, "log.bin")
 }
 
 func getSystemCatalogFilename(basePath string, v uint64) string {
 	return filepath.Join(basePath, "system_catalog_"+fmt.Sprint(v)+".json")
-}
-
-func isFileExists(fs afero.Fs, path string) (bool, error) {
-	_, err := fs.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-
-	return false, err
 }
 
 func initializeVersionFile(fs afero.Fs, versionFile string) (err error) {
@@ -203,9 +196,9 @@ func initializeVersionFile(fs afero.Fs, versionFile string) (err error) {
 // If there is no current version file then we have to create it
 // and fill it with zeroVersion and create default system catalog file.
 func InitSystemCatalog(basePath string, fs afero.Fs) error {
-	versionFile := GetSystemCatalogVersionFileName(basePath)
+	versionFile := GetSystemCatalogVersionFilePath(basePath)
 
-	ok, err := isFileExists(fs, versionFile)
+	ok, err := utils.IsFileExists(fs, versionFile)
 	if err != nil {
 		return fmt.Errorf("failed to check existence of current version file: %w", err)
 	}
@@ -250,13 +243,46 @@ func InitSystemCatalog(basePath string, fs afero.Fs) error {
 	return nil
 }
 
+func createLogFile(logFilePath string, fs afero.Fs) error {
+	file, err := fs.OpenFile(
+		filepath.Clean(logFilePath),
+		os.O_WRONLY|os.O_CREATE,
+		0600,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, file.Close())
+	}()
+	return nil
+}
+
+func CreateLogFileIfDoesntExist(basePath string, fs afero.Fs) error {
+	logFilePath := GetLogFilePath(basePath)
+	ok, err := utils.IsFileExists(fs, logFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to check existence of log file: %w", err)
+	}
+
+	if ok {
+		return nil
+	}
+
+	err = createLogFile(logFilePath, fs)
+	if err != nil {
+		return fmt.Errorf("failed to create log file: %w", err)
+	}
+	return nil
+}
+
 // New creates new system catalog manager. It reads current version from current version file
 // and reads system catalog file with this version. Also, it allocates page for current version.
 // Page is used for concurrency control.
-func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Manager, error) {
-	versionFile := GetSystemCatalogVersionFileName(basePath)
+func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Catalog, error) {
+	versionFile := GetSystemCatalogVersionFilePath(basePath)
 
-	ok, err := isFileExists(fs, versionFile)
+	ok, err := utils.IsFileExists(fs, versionFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check existence of current version file: %w", err)
 	}
@@ -268,7 +294,7 @@ func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Manager, erro
 		)
 	}
 
-	cvp, err := bp.GetPage(catalogVersionPageIdent())
+	cvp, err := bp.GetPage(CatalogVersionPageIdent())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get page with version: %w", err)
 	}
@@ -277,7 +303,6 @@ func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Manager, erro
 	versionNum := utils.FromBytes[uint64](cvp.LockedRead(catalogVersionSlotNum))
 
 	sysCatFilename := getSystemCatalogFilename(basePath, versionNum)
-
 	dataBytes, err := afero.ReadFile(fs, sysCatFilename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read system catalog file: %w", err)
@@ -290,7 +315,7 @@ func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Manager, erro
 		return nil, fmt.Errorf("failed to unmarshal system catalog file: %w", err)
 	}
 
-	return &Manager{
+	return &Catalog{
 		bp:                 bp,
 		currentVersionPage: cvp,
 		masterVersion:      versionNum,
@@ -303,7 +328,7 @@ func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Manager, erro
 	}, nil
 }
 
-func (m *Manager) Load() error {
+func (m *Catalog) Load() error {
 	m.mu.RLock()
 	onDiskVersionNum := utils.FromBytes[uint64](
 		m.currentVersionPage.LockedRead(catalogVersionSlotNum),
@@ -343,14 +368,14 @@ func (m *Manager) Load() error {
 	return nil
 }
 
-func (m *Manager) GetBasePath() string {
+func (m *Catalog) GetBasePath() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	return m.basePath
 }
 
-func (m *Manager) CommitChanges(logger common.ITxnLoggerWithContext) (err error) {
+func (m *Catalog) CommitChanges(logger common.ITxnLoggerWithContext) (err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.isDirty {
@@ -401,7 +426,7 @@ func (m *Manager) CommitChanges(logger common.ITxnLoggerWithContext) (err error)
 
 	err = m.bp.WithMarkDirty(
 		logger.GetTxnID(),
-		catalogVersionPageIdent(),
+		CatalogVersionPageIdent(),
 		m.currentVersionPage,
 		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 			loc, err := lockedPage.UpdateWithLogs(
@@ -424,7 +449,7 @@ func (m *Manager) CommitChanges(logger common.ITxnLoggerWithContext) (err error)
 	return nil
 }
 
-func (m *Manager) GetNewFileID() common.FileID {
+func (m *Catalog) GetNewFileID() common.FileID {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -432,7 +457,7 @@ func (m *Manager) GetNewFileID() common.FileID {
 	return common.FileID(m.maxFileID)
 }
 
-func (m *Manager) AddDirTable(req storage.DirTableMeta) error {
+func (m *Catalog) AddDirTable(req storage.DirTableMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -446,7 +471,7 @@ func (m *Manager) AddDirTable(req storage.DirTableMeta) error {
 	return nil
 }
 
-func (m *Manager) DirTableExists(vertexTableID common.FileID) (bool, error) {
+func (m *Catalog) DirTableExists(vertexTableID common.FileID) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -454,7 +479,7 @@ func (m *Manager) DirTableExists(vertexTableID common.FileID) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) DropDirTable(vertexTableID common.FileID) error {
+func (m *Catalog) DropDirTable(vertexTableID common.FileID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -468,7 +493,7 @@ func (m *Manager) DropDirTable(vertexTableID common.FileID) error {
 	return nil
 }
 
-func (m *Manager) GetDirTableMeta(
+func (m *Catalog) GetDirTableMeta(
 	vertexTableID common.FileID,
 ) (storage.DirTableMeta, error) {
 	m.mu.RLock()
@@ -482,7 +507,7 @@ func (m *Manager) GetDirTableMeta(
 	return table, nil
 }
 
-func (m *Manager) GetEdgeTableNameByFileID(fileID common.FileID) (string, error) {
+func (m *Catalog) GetEdgeTableNameByFileID(fileID common.FileID) (string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -494,7 +519,7 @@ func (m *Manager) GetEdgeTableNameByFileID(fileID common.FileID) (string, error)
 	return name, nil
 }
 
-func (m *Manager) GetVertexTableNameByFileID(fileID common.FileID) (string, error) {
+func (m *Catalog) GetVertexTableNameByFileID(fileID common.FileID) (string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -506,7 +531,7 @@ func (m *Manager) GetVertexTableNameByFileID(fileID common.FileID) (string, erro
 	return name, nil
 }
 
-func (m *Manager) GetVertexTableMeta(name string) (storage.VertexTableMeta, error) {
+func (m *Catalog) GetVertexTableMeta(name string) (storage.VertexTableMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -518,7 +543,7 @@ func (m *Manager) GetVertexTableMeta(name string) (storage.VertexTableMeta, erro
 	return table, nil
 }
 
-func (m *Manager) GetEdgeTableMeta(name string) (storage.EdgeTableMeta, error) {
+func (m *Catalog) GetEdgeTableMeta(name string) (storage.EdgeTableMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -530,7 +555,7 @@ func (m *Manager) GetEdgeTableMeta(name string) (storage.EdgeTableMeta, error) {
 	return table, nil
 }
 
-func (m *Manager) VertexTableExists(name string) (bool, error) {
+func (m *Catalog) VertexTableExists(name string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -539,7 +564,7 @@ func (m *Manager) VertexTableExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) EdgeTableExists(name string) (bool, error) {
+func (m *Catalog) EdgeTableExists(name string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -548,7 +573,7 @@ func (m *Manager) EdgeTableExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) AddVertexTable(req storage.VertexTableMeta) error {
+func (m *Catalog) AddVertexTable(req storage.VertexTableMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -563,7 +588,7 @@ func (m *Manager) AddVertexTable(req storage.VertexTableMeta) error {
 	return nil
 }
 
-func (m *Manager) AddEdgeTable(req storage.EdgeTableMeta) error {
+func (m *Catalog) AddEdgeTable(req storage.EdgeTableMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -578,7 +603,7 @@ func (m *Manager) AddEdgeTable(req storage.EdgeTableMeta) error {
 	return nil
 }
 
-func (m *Manager) DropVertexTable(name string) error {
+func (m *Catalog) DropVertexTable(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -593,7 +618,7 @@ func (m *Manager) DropVertexTable(name string) error {
 	return nil
 }
 
-func (m *Manager) DropEdgeTable(name string) error {
+func (m *Catalog) DropEdgeTable(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -608,7 +633,7 @@ func (m *Manager) DropEdgeTable(name string) error {
 	return nil
 }
 
-func (m *Manager) GetVertexTableIndexes(name string) ([]storage.IndexMeta, error) {
+func (m *Catalog) GetVertexTableIndexes(name string) ([]storage.IndexMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -628,7 +653,7 @@ func (m *Manager) GetVertexTableIndexes(name string) ([]storage.IndexMeta, error
 	return indexes, nil
 }
 
-func (m *Manager) GetEdgeTableIndexes(name string) ([]storage.IndexMeta, error) {
+func (m *Catalog) GetEdgeTableIndexes(name string) ([]storage.IndexMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -647,7 +672,7 @@ func (m *Manager) GetEdgeTableIndexes(name string) ([]storage.IndexMeta, error) 
 	return indexes, nil
 }
 
-func (m *Manager) VertexIndexExists(name string) (bool, error) {
+func (m *Catalog) VertexIndexExists(name string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -655,7 +680,7 @@ func (m *Manager) VertexIndexExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) EdgeIndexExists(name string) (bool, error) {
+func (m *Catalog) EdgeIndexExists(name string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -663,7 +688,7 @@ func (m *Manager) EdgeIndexExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) DirIndexExists(name string) (bool, error) {
+func (m *Catalog) DirIndexExists(name string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -671,7 +696,7 @@ func (m *Manager) DirIndexExists(name string) (bool, error) {
 	return exists, nil
 }
 
-func (m *Manager) GetVertexTableIndexMeta(name string) (storage.IndexMeta, error) {
+func (m *Catalog) GetVertexTableIndexMeta(name string) (storage.IndexMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -683,7 +708,7 @@ func (m *Manager) GetVertexTableIndexMeta(name string) (storage.IndexMeta, error
 	return index, nil
 }
 
-func (m *Manager) GetEdgeIndexMeta(name string) (storage.IndexMeta, error) {
+func (m *Catalog) GetEdgeIndexMeta(name string) (storage.IndexMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -695,7 +720,7 @@ func (m *Manager) GetEdgeIndexMeta(name string) (storage.IndexMeta, error) {
 	return index, nil
 }
 
-func (m *Manager) GetDirIndexMeta(name string) (storage.IndexMeta, error) {
+func (m *Catalog) GetDirIndexMeta(name string) (storage.IndexMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -706,7 +731,7 @@ func (m *Manager) GetDirIndexMeta(name string) (storage.IndexMeta, error) {
 	return index, nil
 }
 
-func (m *Manager) AddVertexIndex(index storage.IndexMeta) error {
+func (m *Catalog) AddVertexIndex(index storage.IndexMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -724,7 +749,7 @@ func (m *Manager) AddVertexIndex(index storage.IndexMeta) error {
 	return nil
 }
 
-func (m *Manager) AddEdgeIndex(index storage.IndexMeta) error {
+func (m *Catalog) AddEdgeIndex(index storage.IndexMeta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -742,7 +767,7 @@ func (m *Manager) AddEdgeIndex(index storage.IndexMeta) error {
 	return nil
 }
 
-func (m *Manager) AddDirIndex(index storage.IndexMeta) error {
+func (m *Catalog) AddDirIndex(index storage.IndexMeta) error {
 	assert.Assert(len(index.Columns) == 1, "directory index must have exactly 1 column")
 	assert.Assert(index.Columns[0] == "ID", "directory index must have only `ID` column")
 
@@ -758,7 +783,7 @@ func (m *Manager) AddDirIndex(index storage.IndexMeta) error {
 	return nil
 }
 
-func (m *Manager) DropVertexIndex(name string) error {
+func (m *Catalog) DropVertexIndex(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -771,7 +796,7 @@ func (m *Manager) DropVertexIndex(name string) error {
 	return nil
 }
 
-func (m *Manager) DropEdgeIndex(name string) error {
+func (m *Catalog) DropEdgeIndex(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -784,7 +809,7 @@ func (m *Manager) DropEdgeIndex(name string) error {
 	return nil
 }
 
-func (m *Manager) DropDirIndex(name string) error {
+func (m *Catalog) DropDirIndex(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -797,14 +822,14 @@ func (m *Manager) DropDirIndex(name string) error {
 	return nil
 }
 
-func (m *Manager) CopyData() (Data, error) {
+func (m *Catalog) CopyData() (Data, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	return m.data.Copy(), nil
 }
 
-func (m *Manager) GetFileIDToPathMap() map[common.FileID]string {
+func (m *Catalog) GetFileIDToPathMap() map[common.FileID]string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -879,7 +904,7 @@ func calcMaxFileID(data *Data) uint64 {
 	return maxFileID
 }
 
-func (m *Manager) CurrentVersion() uint64 {
+func (m *Catalog) CurrentVersion() uint64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

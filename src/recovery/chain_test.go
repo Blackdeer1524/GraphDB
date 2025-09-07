@@ -44,17 +44,14 @@ func TestChainSanity(t *testing.T) {
 	}
 
 	diskManager := disk.NewInMemoryManager()
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
-	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	pool := bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
+	defer func() { assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		logPageId.FileID,
 		common.LogRecordLocInfo{
 			Lsn: common.NilLSN,
@@ -64,7 +61,7 @@ func TestChainSanity(t *testing.T) {
 			},
 		},
 	)
-	logger := NewTxnLogger(pool, logPageId.FileID)
+	logger := NewTxnLogger(debugPool, logPageId.FileID)
 
 	txnID := common.TxnID(89)
 	chain := NewTxnLogChain(logger, txnID)
@@ -124,12 +121,12 @@ func TestChainSanity(t *testing.T) {
 		TxnEnd()
 
 	require.NoError(t, chain.Err())
-	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 
-	page, err := pool.GetPage(logPageId)
+	page, err := debugPool.GetPage(logPageId)
 	require.NoError(t, err)
 
-	defer func() { pool.Unpin(logPageId) }()
+	defer func() { debugPool.Unpin(logPageId) }()
 
 	page.RLock()
 	defer page.RUnlock()
@@ -287,15 +284,12 @@ func TestChain(t *testing.T) {
 	}
 
 	diskManager := disk.NewInMemoryManager()
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
+	pool := bufferpool.New(10, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		logFileID,
 		common.LogRecordLocInfo{
 			Lsn: common.NilLSN,
@@ -305,7 +299,7 @@ func TestChain(t *testing.T) {
 			},
 		},
 	)
-	logger := NewTxnLogger(pool, logFileID)
+	logger := NewTxnLogger(debugPool, logFileID)
 
 	dataPageId := common.PageIdentity{
 		FileID: 1,
@@ -328,12 +322,12 @@ func TestChain(t *testing.T) {
 		Update(common.RecordID{FileID: dataPageId.FileID, PageID: dataPageId.PageID, SlotNum: 0}, []byte("first"), []byte("updat"))
 
 	require.NoError(t, chain.Err())
-	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 
-	page, err := pool.GetPage(logPageIdent)
+	page, err := debugPool.GetPage(logPageIdent)
 	require.NoError(t, err)
 
-	defer func() { pool.Unpin(logPageIdent) }()
+	defer func() { debugPool.Unpin(logPageIdent) }()
 
 	page.RLock()
 	defer page.RUnlock()

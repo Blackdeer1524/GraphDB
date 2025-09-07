@@ -60,7 +60,7 @@ func (e *Executor) SelectVertex(
 
 	vert := storage.Vertex{
 		VertexSystemFields: vertSystems,
-		Data:                 data,
+		Data:               data,
 	}
 	return vert, nil
 }

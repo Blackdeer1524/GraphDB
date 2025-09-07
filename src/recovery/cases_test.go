@@ -47,27 +47,24 @@ func TestBankTransactions(t *testing.T) {
 	// pagesUpperBound := uint64(clientsCount) + 10
 
 	diskManager := disk.NewInMemoryManager()
-	pool := bufferpool.NewDebugBufferPool(
-		bufferpool.New(pagesLowerBound, bufferpool.NewLRUReplacer(), diskManager),
-		map[common.PageIdentity]struct{}{
-			masterRecordPageIdent: {},
-		},
-	)
+	pool := bufferpool.New(pagesLowerBound, bufferpool.NewLRUReplacer(), diskManager)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
 	files := generatedFileIDs[1:]
 	defer func() {
-		assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+		assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 	}()
 
 	setupLoggerMasterPage(
 		t,
-		pool,
+		debugPool,
 		masterRecordPageIdent.FileID,
 		common.LogRecordLocInfo{
 			Lsn:      common.NilLSN,
 			Location: common.FileLocation{PageID: common.CheckpointInfoPageID + 1, SlotNum: 0},
 		},
 	)
-	logger := NewTxnLogger(pool, generatedFileIDs[0])
+	logger := NewTxnLogger(debugPool, generatedFileIDs[0])
 
 	workerPool, err := ants.NewPool(workersCount)
 	require.NoError(t, err)
@@ -82,15 +79,15 @@ func TestBankTransactions(t *testing.T) {
 		startBalance,
 		maxEntriesPerPage,
 	)
-	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 	t.Logf("filled pages")
 
 	totalMoney := uint32(0)
 	for id := range recordValues {
-		pg, err := pool.GetPageNoCreate(id.PageIdentity())
+		pg, err := debugPool.GetPageNoCreate(id.PageIdentity())
 		require.NoError(t, err)
 		require.NoError(t,
-			pool.WithMarkDirty(
+			debugPool.WithMarkDirty(
 				common.NilTxnID,
 				id.PageIdentity(),
 				pg,
@@ -100,7 +97,7 @@ func TestBankTransactions(t *testing.T) {
 				},
 			))
 		totalMoney += startBalance
-		pool.Unpin(id.PageIdentity())
+		debugPool.Unpin(id.PageIdentity())
 	}
 
 	IDs := []common.RecordID{}
@@ -191,9 +188,9 @@ func TestBankTransactions(t *testing.T) {
 		}
 		t.Logf("[%d] locked page %d", txnID, me.PageID)
 
-		myPage, err := pool.GetPageNoCreate(me.PageIdentity())
+		myPage, err := debugPool.GetPageNoCreate(me.PageIdentity())
 		require.NoError(t, err)
-		defer func() { pool.Unpin(me.PageIdentity()) }()
+		defer func() { debugPool.Unpin(me.PageIdentity()) }()
 
 		myBalance := utils.FromBytes[uint32](myPage.LockedRead(me.SlotNum))
 
@@ -224,16 +221,16 @@ func TestBankTransactions(t *testing.T) {
 		}
 		t.Logf("[%d] locked first page %d", txnID, first.PageID)
 
-		firstPage, err := pool.GetPageNoCreate(first.PageIdentity())
+		firstPage, err := debugPool.GetPageNoCreate(first.PageIdentity())
 		require.NoError(t, err)
-		defer func() { pool.Unpin(first.PageIdentity()) }()
+		defer func() { debugPool.Unpin(first.PageIdentity()) }()
 
 		firstBalance := utils.FromBytes[uint32](firstPage.LockedRead(first.SlotNum))
 
 		// transfering
 		t.Logf("[%d] upgrading page lock %d", txnID, me.PageID)
 		transferAmount := uint32(rand.Intn(int(myBalance)))
-		if !locker.UpgradePageLock(myPageToken) {
+		if !locker.UpgradePageLock(myPageToken, txns.PageLockExclusive) {
 			t.Logf("[%d] failed to upgrade page lock %d", txnID, me.PageID)
 			myPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
@@ -244,7 +241,7 @@ func TestBankTransactions(t *testing.T) {
 		t.Logf("[%d] upgraded page lock %d", txnID, me.PageID)
 
 		t.Logf("[%d] upgrading first page lock %d", txnID, first.PageID)
-		if !locker.UpgradePageLock(firstPageToken) {
+		if !locker.UpgradePageLock(firstPageToken, txns.PageLockExclusive) {
 			t.Logf("[%d] failed to upgrade first page lock %d", txnID, first.PageID)
 			firstPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
@@ -256,7 +253,7 @@ func TestBankTransactions(t *testing.T) {
 
 		t.Logf("[%d] updating my page %d", txnID, me.PageID)
 		myNewBalance := utils.ToBytes[uint32](myBalance - transferAmount)
-		err = pool.WithMarkDirty(
+		err = debugPool.WithMarkDirty(
 			txnID,
 			me.PageIdentity(),
 			myPage,
@@ -269,7 +266,7 @@ func TestBankTransactions(t *testing.T) {
 
 		t.Logf("[%d] updating first page %d", txnID, first.PageID)
 		firstNewBalance := utils.ToBytes[uint32](firstBalance + transferAmount)
-		err = pool.WithMarkDirty(
+		err = debugPool.WithMarkDirty(
 			txnID,
 			first.PageIdentity(),
 			firstPage,
@@ -380,11 +377,11 @@ func TestBankTransactions(t *testing.T) {
 	t.Log("ensuring consistency...")
 	finalTotalMoney := uint32(0)
 	for id := range recordValues {
-		page, err := pool.GetPageNoCreate(id.PageIdentity())
+		page, err := debugPool.GetPageNoCreate(id.PageIdentity())
 		require.NoError(t, err)
 		curMoney := utils.FromBytes[uint32](page.LockedRead(id.SlotNum))
 		finalTotalMoney += curMoney
-		pool.Unpin(id.PageIdentity())
+		debugPool.Unpin(id.PageIdentity())
 	}
 	require.Equal(t, finalTotalMoney, totalMoney)
 }
