@@ -315,3 +315,108 @@ func serializeDirectoryRecord(
 	}
 	return buf.Bytes(), nil
 }
+
+func extractDirectoryColumns(directory storage.DirectoryItem, columns []string) ([]byte, error) {
+	buf := bytes.Buffer{}
+	if len(columns) != 1 || columns[0] != "ID" {
+		return nil, fmt.Errorf("directory item has only one indexable column: `ID`")
+	}
+
+	for _, colName := range columns {
+		if colName == "ID" {
+			err := binary.Write(&buf, binary.BigEndian, directory.DirectoryItemSystemFields.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write directory ID: %w", err)
+			}
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+func extractVertexColumns(vertex storage.Vertex, columns []string) ([]byte, error) {
+	buf := bytes.Buffer{}
+
+	for _, colName := range columns {
+		if colName == "ID" {
+			err := binary.Write(&buf, binary.BigEndian, vertex.VertexSystemFields.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write vertex ID: %w", err)
+			}
+			continue
+		}
+		value, exists := vertex.Data[colName]
+		if !exists {
+			continue
+		}
+
+		switch v := value.(type) {
+		case int64:
+			err := binary.Write(&buf, binary.BigEndian, v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write int64 column %s: %w", colName, err)
+			}
+		case uint64:
+			err := binary.Write(&buf, binary.BigEndian, v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write uint64 column %s: %w", colName, err)
+			}
+		case float64:
+			err := binary.Write(&buf, binary.BigEndian, v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write float64 column %s: %w", colName, err)
+			}
+		case uuid.UUID:
+			_, err := buf.Write(v[:])
+			if err != nil {
+				return nil, fmt.Errorf("failed to write UUID column %s: %w", colName, err)
+			}
+		}
+
+	}
+
+	return buf.Bytes(), nil
+}
+
+func extractEdgeColumns(edge storage.Edge, columns []string) ([]byte, error) {
+	buf := bytes.Buffer{}
+
+	for _, colName := range columns {
+		if colName == "ID" {
+			err := binary.Write(&buf, binary.BigEndian, edge.EdgeSystemFields.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write edge ID: %w", err)
+			}
+		}
+		value, exists := edge.Data[colName]
+		if !exists {
+			continue
+		}
+
+		switch v := value.(type) {
+		case int64:
+			err := binary.Write(&buf, binary.BigEndian, v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write int64 column %s: %w", colName, err)
+			}
+		case uint64:
+			err := binary.Write(&buf, binary.BigEndian, v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write uint64 column %s: %w", colName, err)
+			}
+		case float64:
+			err := binary.Write(&buf, binary.BigEndian, v)
+			if err != nil {
+				return nil, fmt.Errorf("failed to write float64 column %s: %w", colName, err)
+			}
+		case uuid.UUID:
+			_, err := buf.Write(v[:])
+			if err != nil {
+				return nil, fmt.Errorf("failed to write UUID column %s: %w", colName, err)
+			}
+		}
+
+	}
+
+	return buf.Bytes(), nil
+}

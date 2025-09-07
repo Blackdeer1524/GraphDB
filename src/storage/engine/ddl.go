@@ -556,6 +556,13 @@ func (s *StorageEngine) buildEdgeIndex(
 			return fmt.Errorf("unable to destruct edge: %w", err)
 		}
 		
+		for _, col := range indexMeta.Columns {
+
+		}
+
+		
+		
+		
 		indexMeta.Columns
 	}
 
