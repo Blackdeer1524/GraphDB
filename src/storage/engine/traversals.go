@@ -82,7 +82,7 @@ func (s *StorageEngine) CountOfFilteredEdges(
 }
 
 func (s *StorageEngine) GetAllVertices(
-	t common.TxnID,
+	txnID common.TxnID,
 	vertTableToken *txns.FileLockToken,
 ) (storage.VerticesIter, error) {
 	cToken := vertTableToken.GetCatalogLockToken()
@@ -97,6 +97,27 @@ func (s *StorageEngine) GetAllVertices(
 		storage.AllowAllVerticesFilter,
 		vertTableToken,
 		vertTableMeta.Schema,
+		s.locker,
+	)
+	return iter, nil
+}
+
+func (s *StorageEngine) GetAllEdges(
+	txnID common.TxnID,
+	edgeTableToken *txns.FileLockToken,
+) (storage.EdgesIter, error) {
+	cToken := edgeTableToken.GetCatalogLockToken()
+	edgeTableMeta, err := s.GetEdgeTableMetaByFileID(edgeTableToken.GetFileID(), cToken)
+	if err != nil {
+		return nil, err
+	}
+
+	iter := newEdgeTableScanIter(
+		s,
+		s.pool,
+		storage.AllowAllEdgesFilter,
+		edgeTableToken,
+		edgeTableMeta.Schema,
 		s.locker,
 	)
 	return iter, nil

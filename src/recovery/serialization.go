@@ -15,7 +15,7 @@ type LogRecordTypeTag byte
 
 // Type tags for each log record type.
 const (
-	TypeBegin LogRecordTypeTag = iota + 1
+	TypeBegin LogRecordTypeTag = iota
 	TypeUpdate
 	TypeInsert
 	TypeDelete

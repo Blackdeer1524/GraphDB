@@ -87,7 +87,7 @@ func NewTxnLogger(pool bufferpool.BufferPool, logfileID common.FileID) *txnLogge
 	l := &txnLogger{
 		pool:            pool,
 		logfileID:       logfileID,
-		masterPage:      &loggerInfoPage{},
+		masterPage:      nil,
 		seqMu:           sync.Mutex{},
 		logRecordsCount: 0,
 		firstDirtyPage:  0,
@@ -125,11 +125,7 @@ func NewTxnLogger(pool bufferpool.BufferPool, logfileID common.FileID) *txnLogge
 		FileID: l.logfileID,
 		PageID: checkpointLocation.Location.PageID,
 	}
-	checkpointPage, err := pool.GetPageNoCreate(checkpointPageIdent)
-	if errors.Is(err, disk.ErrNoSuchPage) {
-		return l
-	}
-	if checkpointPage.NumSlots() == 0 {
+	if checkpointLocation.IsNil() {
 		pool.Unpin(checkpointPageIdent)
 		return l
 	}

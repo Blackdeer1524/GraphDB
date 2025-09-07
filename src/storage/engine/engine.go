@@ -16,10 +16,10 @@ type StorageEngine struct {
 	locker                 *txns.LockManager
 	fs                     afero.Fs
 
-	indexLoader func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error)
+	loadIndex func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error)
 }
 
-var _ storage.StorageEngine = &StorageEngine{}
+var _ storage.Engine = &StorageEngine{}
 
 // func New(
 // 	catalogBasePath string,
@@ -70,6 +70,6 @@ func New(
 		locker:                 locker,
 		fs:                     fs,
 		pool:                   pool,
-		indexLoader:            indexLoader,
+		loadIndex:              indexLoader,
 	}
 }

@@ -497,7 +497,7 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
-	tableFilePath := getEdgeTableIndexFilePath(basePath, indexName)
+	indexFilePath := getEdgeTableIndexFilePath(basePath, indexName)
 	ok, err := s.catalog.EdgeIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
@@ -506,14 +506,14 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 		return fmt.Errorf("index %s already exists", indexName)
 	}
 
-	err = prepareFSforTable(s.fs, tableFilePath)
+	err = prepareFSforTable(s.fs, indexFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to prepare file system for table: %w", err)
 	}
 
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
-		PathToFile:  tableFilePath,
+		PathToFile:  indexFilePath,
 		FileID:      fileID,
 		TableName:   tableName,
 		Columns:     columns,
@@ -528,7 +528,37 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	s.diskMgrInsertToFileMap(common.FileID(fileID), tableFilePath)
+	s.diskMgrInsertToFileMap(common.FileID(fileID), indexFilePath)
+
+	err = s.buildEdgeIndex(txnID, idxCreateReq, cToken, logger)
+	if err != nil {
+		return fmt.Errorf("unable to build index: %w", err)
+	}
+
+	return nil
+}
+
+func (s *StorageEngine) buildEdgeIndex(
+	txnID common.TxnID,
+	indexMeta storage.IndexMeta,
+	cToken *txns.CatalogLockToken,
+	logger common.ITxnLoggerWithContext,
+) error {
+	edgeTableToken := txns.NewNilFileLockToken(cToken, indexMeta.FileID)
+
+	edgesIter, err := s.GetAllEdges(txnID, edgeTableToken)
+	if err != nil {
+		return fmt.Errorf("unable to get all edges: %w", err)
+	}
+	for ridEdgeErr := range edgesIter.Seq() {
+		edgeRID, edge, err := ridEdgeErr.Destruct()
+		if err != nil {
+			return fmt.Errorf("unable to destruct edge: %w", err)
+		}
+		
+		indexMeta.Columns
+	}
+
 	return nil
 }
 
@@ -595,7 +625,7 @@ func (s *StorageEngine) GetVertexTableIndex(
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}
 
-	return s.indexLoader(indexMeta, s.locker, logger)
+	return s.loadIndex(indexMeta, s.locker, logger)
 }
 
 func (s *StorageEngine) GetEdgeTableSystemIndex(
@@ -636,7 +666,7 @@ func (s *StorageEngine) GetEdgeTableIndex(
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}
 
-	return s.indexLoader(indexMeta, s.locker, logger)
+	return s.loadIndex(indexMeta, s.locker, logger)
 }
 
 func (s *StorageEngine) GetDirTableSystemIndex(
@@ -752,7 +782,7 @@ func (s *StorageEngine) getDirTableIndex(
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}
 
-	return s.indexLoader(indexMeta, s.locker, logger)
+	return s.loadIndex(indexMeta, s.locker, logger)
 }
 
 func (s *StorageEngine) DropVertexTableIndex(

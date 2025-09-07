@@ -66,7 +66,7 @@ func (v *DirItemSystemID) UnmarshalBinary(data []byte) error {
 
 type VertexID struct {
 	SystemID VertexSystemID
-	TableID    common.FileID
+	TableID  common.FileID
 }
 
 type EdgeID struct {
@@ -207,6 +207,11 @@ type VerticesIter interface {
 	Close() error
 }
 
+type EdgesIter interface {
+	Seq() iter.Seq[utils.Triple[common.RecordID, Edge, error]]
+	Close() error
+}
+
 type Edge struct {
 	EdgeSystemFields
 	Data map[string]any
@@ -232,7 +237,7 @@ type AssociativeArray[K comparable, V any] interface {
 	Seq(yield func(K, V) bool)
 }
 
-type StorageEngine interface {
+type Engine interface {
 	// Data structures
 	NewAggregationAssociativeArray(common.TxnID) (AssociativeArray[VertexID, float64], error)
 	NewBitMap(common.TxnID) (BitMap, error)

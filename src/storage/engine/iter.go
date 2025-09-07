@@ -616,7 +616,7 @@ func (i *neighbourVertexIter) Close() error {
 }
 
 type vertexTableScanIter struct {
-	se           storage.StorageEngine
+	se           storage.Engine
 	pool         bufferpool.BufferPool
 	vertexFilter storage.VertexFilter
 	tableToken   *txns.FileLockToken
@@ -729,5 +729,124 @@ func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, st
 }
 
 func (iter *vertexTableScanIter) Close() error {
+	return nil
+}
+
+/// ================================
+
+type edgeTableScanIter struct {
+	se           storage.Engine
+	pool         bufferpool.BufferPool
+	edgeFilter storage.EdgeFilter
+	tableToken   *txns.FileLockToken
+	tableSchema  storage.Schema
+	locker       *txns.LockManager
+}
+
+var _ storage.EdgesIter = &edgeTableScanIter{}
+
+func newEdgeTableScanIter(
+	se *StorageEngine,
+	pool bufferpool.BufferPool,
+	edgeFilter storage.EdgeFilter,
+	edgeTableToken *txns.FileLockToken,
+	edgeTableSchema storage.Schema,
+	locker *txns.LockManager,
+) *edgeTableScanIter {
+	return &edgeTableScanIter{
+		se:           se,
+		pool:         pool,
+		edgeFilter: edgeFilter,
+		tableToken:   edgeTableToken,
+		tableSchema:  edgeTableSchema,
+		locker:       locker,
+	}
+}
+
+func (iter *edgeTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Edge, error]] {
+	return func(yield func(utils.Triple[common.RecordID, storage.Edge, error]) bool) {
+		if !iter.locker.UpgradeFileLock(iter.tableToken, txns.GranularLockShared) {
+			yieldErrorTripple(fmt.Errorf("failed to upgrade file lock"), yield)
+			return
+		}
+
+		pageID := uint64(0)
+		for {
+			pageIdent := common.PageIdentity{
+				FileID: iter.tableToken.GetFileID(),
+				PageID: common.PageID(pageID),
+			}
+
+			pToken := iter.locker.LockPage(
+				iter.tableToken,
+				common.PageID(pageID),
+				txns.PageLockShared,
+			)
+			assert.Assert(
+				pToken != nil,
+				"should have locked the page (the table is locked in the shared mode)",
+			)
+
+			pg, err := iter.pool.GetPageNoCreate(pageIdent)
+			if err != nil {
+				if !errors.Is(err, disk.ErrNoSuchPage) {
+					yieldErrorTripple(err, yield)
+				}
+				return
+			}
+			continueFlag, err := func() (bool, error) {
+				pg.RLock()
+				defer pg.RUnlock()
+				recordID := common.RecordID{
+					FileID:  pageIdent.FileID,
+					PageID:  pageIdent.PageID,
+					SlotNum: 0,
+				}
+				for i := uint16(0); i < pg.NumSlots(); i++ {
+					if pg.SlotInfo(i) != page.SlotStatusInserted {
+						continue
+					}
+
+					data := pg.UnsafeRead(i)
+					edgeSystemFields, edgeFields, err := parseEdgeRecord(
+						data,
+						iter.tableSchema,
+					)
+					if err != nil {
+						return false, err
+					}
+					edge := storage.Edge{
+						EdgeSystemFields: edgeSystemFields,
+						Data:             edgeFields,
+					}
+					if !iter.edgeFilter(&edge) {
+						continue
+					}
+
+					recordID.SlotNum = i
+					item := utils.Triple[common.RecordID, storage.Edge, error]{
+						First:  recordID,
+						Second: edge,
+						Third:  nil,
+					}
+					if !yield(item) {
+						return false, nil
+					}
+				}
+				return true, nil
+			}()
+			if err != nil {
+				yieldErrorTripple(err, yield)
+				return
+			}
+			if !continueFlag {
+				return
+			}
+			pageID++
+		}
+	}
+}
+
+func (iter *edgeTableScanIter) Close() error {
 	return nil
 }

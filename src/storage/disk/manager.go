@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
@@ -66,7 +65,7 @@ func (m *Manager) ReadPageAssumeLocked(
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	file, err := m.fs.Open(filepath.Clean(path))
+	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR, 0o644)
 	if err != nil {
 		return err
 	}
@@ -110,14 +109,11 @@ func (m *Manager) GetPageNoNewAssumeLocked(
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	simpleFile, err := m.fs.Open(filepath.Clean(path))
+	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer simpleFile.Close()
-
-	file, ok := simpleFile.(afero.File)
-	assert.Assert(ok, "file is not afero.File")
+	defer file.Close()
 
 	//nolint:gosec
 	offset := int64(pageIdent.PageID * PageSize)

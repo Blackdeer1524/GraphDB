@@ -9,14 +9,14 @@ import (
 )
 
 type Executor struct {
-	se        storage.StorageEngine
+	se        storage.Engine
 	txnTicker atomic.Uint64
 	locker    txns.ILockManager
 	logger    common.ITxnLogger
 }
 
 func New(
-	se storage.StorageEngine,
+	se storage.Engine,
 	locker txns.ILockManager,
 	logger common.ITxnLogger,
 ) *Executor {

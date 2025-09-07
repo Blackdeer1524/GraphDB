@@ -247,7 +247,7 @@ func createLogFile(logFilePath string, fs afero.Fs) error {
 	file, err := fs.OpenFile(
 		filepath.Clean(logFilePath),
 		os.O_WRONLY|os.O_CREATE,
-		0600,
+		0o600,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
@@ -863,7 +863,7 @@ func (m *Catalog) GetFileIDToPathMap() map[common.FileID]string {
 }
 
 func calcMaxFileID(data *Data) uint64 {
-	maxFileID := uint64(0)
+	maxFileID := uint64(1)
 
 	for _, v := range data.VertexTables {
 		if uint64(v.FileID) > maxFileID {
