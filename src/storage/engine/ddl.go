@@ -195,7 +195,7 @@ func (s *StorageEngine) createDirTable(
 		return fmt.Errorf("unable to check if table exists: %w", err)
 	}
 	if ok {
-		return fmt.Errorf("table %s already exists", vertexTableFileID)
+		return fmt.Errorf("table %v already exists", vertexTableFileID)
 	}
 
 	err = prepareFSforTable(s.fs, tableFilePath)

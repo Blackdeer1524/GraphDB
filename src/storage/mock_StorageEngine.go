@@ -22,9 +22,9 @@ func (_m *MockStorageEngine) EXPECT() *MockStorageEngine_Expecter {
 	return &MockStorageEngine_Expecter{mock: &_m.Mock}
 }
 
-// AllVerticesWithValue provides a mock function with given fields: t, vertTableToken, vertIndex, logger, field, value
-func (_m *MockStorageEngine) AllVerticesWithValue(t common.TxnID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext, field string, value []byte) (VerticesIter, error) {
-	ret := _m.Called(t, vertTableToken, vertIndex, logger, field, value)
+// AllVerticesWithValue provides a mock function with given fields: txnID, vertTableToken, vertIndex, logger, field, value
+func (_m *MockStorageEngine) AllVerticesWithValue(txnID common.TxnID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext, field string, value []byte) (VerticesIter, error) {
+	ret := _m.Called(txnID, vertTableToken, vertIndex, logger, field, value)
 
 	if len(ret) == 0 {
 		panic("no return value specified for AllVerticesWithValue")
@@ -33,10 +33,10 @@ func (_m *MockStorageEngine) AllVerticesWithValue(t common.TxnID, vertTableToken
 	var r0 VerticesIter
 	var r1 error
 	if rf, ok := ret.Get(0).(func(common.TxnID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, string, []byte) (VerticesIter, error)); ok {
-		return rf(t, vertTableToken, vertIndex, logger, field, value)
+		return rf(txnID, vertTableToken, vertIndex, logger, field, value)
 	}
 	if rf, ok := ret.Get(0).(func(common.TxnID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, string, []byte) VerticesIter); ok {
-		r0 = rf(t, vertTableToken, vertIndex, logger, field, value)
+		r0 = rf(txnID, vertTableToken, vertIndex, logger, field, value)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(VerticesIter)
@@ -44,7 +44,7 @@ func (_m *MockStorageEngine) AllVerticesWithValue(t common.TxnID, vertTableToken
 	}
 
 	if rf, ok := ret.Get(1).(func(common.TxnID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, string, []byte) error); ok {
-		r1 = rf(t, vertTableToken, vertIndex, logger, field, value)
+		r1 = rf(txnID, vertTableToken, vertIndex, logger, field, value)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -58,17 +58,17 @@ type MockStorageEngine_AllVerticesWithValue_Call struct {
 }
 
 // AllVerticesWithValue is a helper method to define mock.On call
-//   - t common.TxnID
+//   - txnID common.TxnID
 //   - vertTableToken *txns.FileLockToken
 //   - vertIndex Index
 //   - logger common.ITxnLoggerWithContext
 //   - field string
 //   - value []byte
-func (_e *MockStorageEngine_Expecter) AllVerticesWithValue(t interface{}, vertTableToken interface{}, vertIndex interface{}, logger interface{}, field interface{}, value interface{}) *MockStorageEngine_AllVerticesWithValue_Call {
-	return &MockStorageEngine_AllVerticesWithValue_Call{Call: _e.mock.On("AllVerticesWithValue", t, vertTableToken, vertIndex, logger, field, value)}
+func (_e *MockStorageEngine_Expecter) AllVerticesWithValue(txnID interface{}, vertTableToken interface{}, vertIndex interface{}, logger interface{}, field interface{}, value interface{}) *MockStorageEngine_AllVerticesWithValue_Call {
+	return &MockStorageEngine_AllVerticesWithValue_Call{Call: _e.mock.On("AllVerticesWithValue", txnID, vertTableToken, vertIndex, logger, field, value)}
 }
 
-func (_c *MockStorageEngine_AllVerticesWithValue_Call) Run(run func(t common.TxnID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext, field string, value []byte)) *MockStorageEngine_AllVerticesWithValue_Call {
+func (_c *MockStorageEngine_AllVerticesWithValue_Call) Run(run func(txnID common.TxnID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext, field string, value []byte)) *MockStorageEngine_AllVerticesWithValue_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(common.TxnID), args[1].(*txns.FileLockToken), args[2].(Index), args[3].(common.ITxnLoggerWithContext), args[4].(string), args[5].([]byte))
 	})
@@ -85,9 +85,9 @@ func (_c *MockStorageEngine_AllVerticesWithValue_Call) RunAndReturn(run func(com
 	return _c
 }
 
-// CountOfFilteredEdges provides a mock function with given fields: t, v, vertTableToken, vertIndex, logger, filter
-func (_m *MockStorageEngine) CountOfFilteredEdges(t common.TxnID, v VertexInternalID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext, filter EdgeFilter) (uint64, error) {
-	ret := _m.Called(t, v, vertTableToken, vertIndex, logger, filter)
+// CountOfFilteredEdges provides a mock function with given fields: txnID, vertSystemID, vertTableToken, vertIndex, logger, filter
+func (_m *MockStorageEngine) CountOfFilteredEdges(txnID common.TxnID, vertSystemID VertexSystemID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext, filter EdgeFilter) (uint64, error) {
+	ret := _m.Called(txnID, vertSystemID, vertTableToken, vertIndex, logger, filter)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CountOfFilteredEdges")
@@ -95,17 +95,17 @@ func (_m *MockStorageEngine) CountOfFilteredEdges(t common.TxnID, v VertexIntern
 
 	var r0 uint64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, EdgeFilter) (uint64, error)); ok {
-		return rf(t, v, vertTableToken, vertIndex, logger, filter)
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, EdgeFilter) (uint64, error)); ok {
+		return rf(txnID, vertSystemID, vertTableToken, vertIndex, logger, filter)
 	}
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, EdgeFilter) uint64); ok {
-		r0 = rf(t, v, vertTableToken, vertIndex, logger, filter)
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, EdgeFilter) uint64); ok {
+		r0 = rf(txnID, vertSystemID, vertTableToken, vertIndex, logger, filter)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, EdgeFilter) error); ok {
-		r1 = rf(t, v, vertTableToken, vertIndex, logger, filter)
+	if rf, ok := ret.Get(1).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, EdgeFilter) error); ok {
+		r1 = rf(txnID, vertSystemID, vertTableToken, vertIndex, logger, filter)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -119,19 +119,19 @@ type MockStorageEngine_CountOfFilteredEdges_Call struct {
 }
 
 // CountOfFilteredEdges is a helper method to define mock.On call
-//   - t common.TxnID
-//   - v VertexInternalID
+//   - txnID common.TxnID
+//   - vertSystemID VertexSystemID
 //   - vertTableToken *txns.FileLockToken
 //   - vertIndex Index
 //   - logger common.ITxnLoggerWithContext
 //   - filter EdgeFilter
-func (_e *MockStorageEngine_Expecter) CountOfFilteredEdges(t interface{}, v interface{}, vertTableToken interface{}, vertIndex interface{}, logger interface{}, filter interface{}) *MockStorageEngine_CountOfFilteredEdges_Call {
-	return &MockStorageEngine_CountOfFilteredEdges_Call{Call: _e.mock.On("CountOfFilteredEdges", t, v, vertTableToken, vertIndex, logger, filter)}
+func (_e *MockStorageEngine_Expecter) CountOfFilteredEdges(txnID interface{}, vertSystemID interface{}, vertTableToken interface{}, vertIndex interface{}, logger interface{}, filter interface{}) *MockStorageEngine_CountOfFilteredEdges_Call {
+	return &MockStorageEngine_CountOfFilteredEdges_Call{Call: _e.mock.On("CountOfFilteredEdges", txnID, vertSystemID, vertTableToken, vertIndex, logger, filter)}
 }
 
-func (_c *MockStorageEngine_CountOfFilteredEdges_Call) Run(run func(t common.TxnID, v VertexInternalID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext, filter EdgeFilter)) *MockStorageEngine_CountOfFilteredEdges_Call {
+func (_c *MockStorageEngine_CountOfFilteredEdges_Call) Run(run func(txnID common.TxnID, vertSystemID VertexSystemID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext, filter EdgeFilter)) *MockStorageEngine_CountOfFilteredEdges_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(VertexInternalID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(common.ITxnLoggerWithContext), args[5].(EdgeFilter))
+		run(args[0].(common.TxnID), args[1].(VertexSystemID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(common.ITxnLoggerWithContext), args[5].(EdgeFilter))
 	})
 	return _c
 }
@@ -141,7 +141,7 @@ func (_c *MockStorageEngine_CountOfFilteredEdges_Call) Return(_a0 uint64, _a1 er
 	return _c
 }
 
-func (_c *MockStorageEngine_CountOfFilteredEdges_Call) RunAndReturn(run func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, EdgeFilter) (uint64, error)) *MockStorageEngine_CountOfFilteredEdges_Call {
+func (_c *MockStorageEngine_CountOfFilteredEdges_Call) RunAndReturn(run func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext, EdgeFilter) (uint64, error)) *MockStorageEngine_CountOfFilteredEdges_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -353,7 +353,7 @@ func (_c *MockStorageEngine_CreateVertexTableIndex_Call) RunAndReturn(run func(c
 }
 
 // DeleteEdge provides a mock function with given fields: txnID, edgeID, edgesFileToken, edgeSystemIndex, dirFileToken, dirSystemIndex, ctxLogger
-func (_m *MockStorageEngine) DeleteEdge(txnID common.TxnID, edgeID EdgeInternalID, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, dirFileToken *txns.FileLockToken, dirSystemIndex Index, ctxLogger common.ITxnLoggerWithContext) error {
+func (_m *MockStorageEngine) DeleteEdge(txnID common.TxnID, edgeID EdgeSystemID, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, dirFileToken *txns.FileLockToken, dirSystemIndex Index, ctxLogger common.ITxnLoggerWithContext) error {
 	ret := _m.Called(txnID, edgeID, edgesFileToken, edgeSystemIndex, dirFileToken, dirSystemIndex, ctxLogger)
 
 	if len(ret) == 0 {
@@ -361,7 +361,7 @@ func (_m *MockStorageEngine) DeleteEdge(txnID common.TxnID, edgeID EdgeInternalI
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, EdgeInternalID, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID, EdgeSystemID, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
 		r0 = rf(txnID, edgeID, edgesFileToken, edgeSystemIndex, dirFileToken, dirSystemIndex, ctxLogger)
 	} else {
 		r0 = ret.Error(0)
@@ -377,7 +377,7 @@ type MockStorageEngine_DeleteEdge_Call struct {
 
 // DeleteEdge is a helper method to define mock.On call
 //   - txnID common.TxnID
-//   - edgeID EdgeInternalID
+//   - edgeID EdgeSystemID
 //   - edgesFileToken *txns.FileLockToken
 //   - edgeSystemIndex Index
 //   - dirFileToken *txns.FileLockToken
@@ -387,9 +387,9 @@ func (_e *MockStorageEngine_Expecter) DeleteEdge(txnID interface{}, edgeID inter
 	return &MockStorageEngine_DeleteEdge_Call{Call: _e.mock.On("DeleteEdge", txnID, edgeID, edgesFileToken, edgeSystemIndex, dirFileToken, dirSystemIndex, ctxLogger)}
 }
 
-func (_c *MockStorageEngine_DeleteEdge_Call) Run(run func(txnID common.TxnID, edgeID EdgeInternalID, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, dirFileToken *txns.FileLockToken, dirSystemIndex Index, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_DeleteEdge_Call {
+func (_c *MockStorageEngine_DeleteEdge_Call) Run(run func(txnID common.TxnID, edgeID EdgeSystemID, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, dirFileToken *txns.FileLockToken, dirSystemIndex Index, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_DeleteEdge_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(EdgeInternalID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(*txns.FileLockToken), args[5].(Index), args[6].(common.ITxnLoggerWithContext))
+		run(args[0].(common.TxnID), args[1].(EdgeSystemID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(*txns.FileLockToken), args[5].(Index), args[6].(common.ITxnLoggerWithContext))
 	})
 	return _c
 }
@@ -399,13 +399,13 @@ func (_c *MockStorageEngine_DeleteEdge_Call) Return(_a0 error) *MockStorageEngin
 	return _c
 }
 
-func (_c *MockStorageEngine_DeleteEdge_Call) RunAndReturn(run func(common.TxnID, EdgeInternalID, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error) *MockStorageEngine_DeleteEdge_Call {
+func (_c *MockStorageEngine_DeleteEdge_Call) RunAndReturn(run func(common.TxnID, EdgeSystemID, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error) *MockStorageEngine_DeleteEdge_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // DeleteVertex provides a mock function with given fields: txnID, vertexID, vertexFileToken, vertexIndex, ctxLogger
-func (_m *MockStorageEngine) DeleteVertex(txnID common.TxnID, vertexID VertexInternalID, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext) error {
+func (_m *MockStorageEngine) DeleteVertex(txnID common.TxnID, vertexID VertexSystemID, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext) error {
 	ret := _m.Called(txnID, vertexID, vertexFileToken, vertexIndex, ctxLogger)
 
 	if len(ret) == 0 {
@@ -413,7 +413,7 @@ func (_m *MockStorageEngine) DeleteVertex(txnID common.TxnID, vertexID VertexInt
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
 		r0 = rf(txnID, vertexID, vertexFileToken, vertexIndex, ctxLogger)
 	} else {
 		r0 = ret.Error(0)
@@ -429,7 +429,7 @@ type MockStorageEngine_DeleteVertex_Call struct {
 
 // DeleteVertex is a helper method to define mock.On call
 //   - txnID common.TxnID
-//   - vertexID VertexInternalID
+//   - vertexID VertexSystemID
 //   - vertexFileToken *txns.FileLockToken
 //   - vertexIndex Index
 //   - ctxLogger common.ITxnLoggerWithContext
@@ -437,9 +437,9 @@ func (_e *MockStorageEngine_Expecter) DeleteVertex(txnID interface{}, vertexID i
 	return &MockStorageEngine_DeleteVertex_Call{Call: _e.mock.On("DeleteVertex", txnID, vertexID, vertexFileToken, vertexIndex, ctxLogger)}
 }
 
-func (_c *MockStorageEngine_DeleteVertex_Call) Run(run func(txnID common.TxnID, vertexID VertexInternalID, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_DeleteVertex_Call {
+func (_c *MockStorageEngine_DeleteVertex_Call) Run(run func(txnID common.TxnID, vertexID VertexSystemID, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_DeleteVertex_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(VertexInternalID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(common.ITxnLoggerWithContext))
+		run(args[0].(common.TxnID), args[1].(VertexSystemID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(common.ITxnLoggerWithContext))
 	})
 	return _c
 }
@@ -449,7 +449,7 @@ func (_c *MockStorageEngine_DeleteVertex_Call) Return(_a0 error) *MockStorageEng
 	return _c
 }
 
-func (_c *MockStorageEngine_DeleteVertex_Call) RunAndReturn(run func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error) *MockStorageEngine_DeleteVertex_Call {
+func (_c *MockStorageEngine_DeleteVertex_Call) RunAndReturn(run func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error) *MockStorageEngine_DeleteVertex_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -650,9 +650,9 @@ func (_c *MockStorageEngine_DropVertexTableIndex_Call) RunAndReturn(run func(com
 	return _c
 }
 
-// GetAllVertices provides a mock function with given fields: t, vertTableToken
-func (_m *MockStorageEngine) GetAllVertices(t common.TxnID, vertTableToken *txns.FileLockToken) (VerticesIter, error) {
-	ret := _m.Called(t, vertTableToken)
+// GetAllVertices provides a mock function with given fields: txnID, vertTableToken
+func (_m *MockStorageEngine) GetAllVertices(txnID common.TxnID, vertTableToken *txns.FileLockToken) (VerticesIter, error) {
+	ret := _m.Called(txnID, vertTableToken)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAllVertices")
@@ -661,10 +661,10 @@ func (_m *MockStorageEngine) GetAllVertices(t common.TxnID, vertTableToken *txns
 	var r0 VerticesIter
 	var r1 error
 	if rf, ok := ret.Get(0).(func(common.TxnID, *txns.FileLockToken) (VerticesIter, error)); ok {
-		return rf(t, vertTableToken)
+		return rf(txnID, vertTableToken)
 	}
 	if rf, ok := ret.Get(0).(func(common.TxnID, *txns.FileLockToken) VerticesIter); ok {
-		r0 = rf(t, vertTableToken)
+		r0 = rf(txnID, vertTableToken)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(VerticesIter)
@@ -672,7 +672,7 @@ func (_m *MockStorageEngine) GetAllVertices(t common.TxnID, vertTableToken *txns
 	}
 
 	if rf, ok := ret.Get(1).(func(common.TxnID, *txns.FileLockToken) error); ok {
-		r1 = rf(t, vertTableToken)
+		r1 = rf(txnID, vertTableToken)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -686,13 +686,13 @@ type MockStorageEngine_GetAllVertices_Call struct {
 }
 
 // GetAllVertices is a helper method to define mock.On call
-//   - t common.TxnID
+//   - txnID common.TxnID
 //   - vertTableToken *txns.FileLockToken
-func (_e *MockStorageEngine_Expecter) GetAllVertices(t interface{}, vertTableToken interface{}) *MockStorageEngine_GetAllVertices_Call {
-	return &MockStorageEngine_GetAllVertices_Call{Call: _e.mock.On("GetAllVertices", t, vertTableToken)}
+func (_e *MockStorageEngine_Expecter) GetAllVertices(txnID interface{}, vertTableToken interface{}) *MockStorageEngine_GetAllVertices_Call {
+	return &MockStorageEngine_GetAllVertices_Call{Call: _e.mock.On("GetAllVertices", txnID, vertTableToken)}
 }
 
-func (_c *MockStorageEngine_GetAllVertices_Call) Run(run func(t common.TxnID, vertTableToken *txns.FileLockToken)) *MockStorageEngine_GetAllVertices_Call {
+func (_c *MockStorageEngine_GetAllVertices_Call) Run(run func(txnID common.TxnID, vertTableToken *txns.FileLockToken)) *MockStorageEngine_GetAllVertices_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(common.TxnID), args[1].(*txns.FileLockToken))
 	})
@@ -705,124 +705,6 @@ func (_c *MockStorageEngine_GetAllVertices_Call) Return(_a0 VerticesIter, _a1 er
 }
 
 func (_c *MockStorageEngine_GetAllVertices_Call) RunAndReturn(run func(common.TxnID, *txns.FileLockToken) (VerticesIter, error)) *MockStorageEngine_GetAllVertices_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetDirTableInternalIndex provides a mock function with given fields: txnID, dirTableFileID, cToken, logger
-func (_m *MockStorageEngine) GetDirTableInternalIndex(txnID common.TxnID, dirTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext) (Index, error) {
-	ret := _m.Called(txnID, dirTableFileID, cToken, logger)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetDirTableInternalIndex")
-	}
-
-	var r0 Index
-	var r1 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)); ok {
-		return rf(txnID, dirTableFileID, cToken, logger)
-	}
-	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) Index); ok {
-		r0 = rf(txnID, dirTableFileID, cToken, logger)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(Index)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) error); ok {
-		r1 = rf(txnID, dirTableFileID, cToken, logger)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockStorageEngine_GetDirTableInternalIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDirTableInternalIndex'
-type MockStorageEngine_GetDirTableInternalIndex_Call struct {
-	*mock.Call
-}
-
-// GetDirTableInternalIndex is a helper method to define mock.On call
-//   - txnID common.TxnID
-//   - dirTableFileID common.FileID
-//   - cToken *txns.CatalogLockToken
-//   - logger common.ITxnLoggerWithContext
-func (_e *MockStorageEngine_Expecter) GetDirTableInternalIndex(txnID interface{}, dirTableFileID interface{}, cToken interface{}, logger interface{}) *MockStorageEngine_GetDirTableInternalIndex_Call {
-	return &MockStorageEngine_GetDirTableInternalIndex_Call{Call: _e.mock.On("GetDirTableInternalIndex", txnID, dirTableFileID, cToken, logger)}
-}
-
-func (_c *MockStorageEngine_GetDirTableInternalIndex_Call) Run(run func(txnID common.TxnID, dirTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext)) *MockStorageEngine_GetDirTableInternalIndex_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(common.FileID), args[2].(*txns.CatalogLockToken), args[3].(common.ITxnLoggerWithContext))
-	})
-	return _c
-}
-
-func (_c *MockStorageEngine_GetDirTableInternalIndex_Call) Return(_a0 Index, _a1 error) *MockStorageEngine_GetDirTableInternalIndex_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockStorageEngine_GetDirTableInternalIndex_Call) RunAndReturn(run func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)) *MockStorageEngine_GetDirTableInternalIndex_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetDirTableInternalIndexMeta provides a mock function with given fields: dirTableFileID, cToken
-func (_m *MockStorageEngine) GetDirTableInternalIndexMeta(dirTableFileID common.FileID, cToken *txns.CatalogLockToken) (IndexMeta, error) {
-	ret := _m.Called(dirTableFileID, cToken)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetDirTableInternalIndexMeta")
-	}
-
-	var r0 IndexMeta
-	var r1 error
-	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)); ok {
-		return rf(dirTableFileID, cToken)
-	}
-	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) IndexMeta); ok {
-		r0 = rf(dirTableFileID, cToken)
-	} else {
-		r0 = ret.Get(0).(IndexMeta)
-	}
-
-	if rf, ok := ret.Get(1).(func(common.FileID, *txns.CatalogLockToken) error); ok {
-		r1 = rf(dirTableFileID, cToken)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockStorageEngine_GetDirTableInternalIndexMeta_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDirTableInternalIndexMeta'
-type MockStorageEngine_GetDirTableInternalIndexMeta_Call struct {
-	*mock.Call
-}
-
-// GetDirTableInternalIndexMeta is a helper method to define mock.On call
-//   - dirTableFileID common.FileID
-//   - cToken *txns.CatalogLockToken
-func (_e *MockStorageEngine_Expecter) GetDirTableInternalIndexMeta(dirTableFileID interface{}, cToken interface{}) *MockStorageEngine_GetDirTableInternalIndexMeta_Call {
-	return &MockStorageEngine_GetDirTableInternalIndexMeta_Call{Call: _e.mock.On("GetDirTableInternalIndexMeta", dirTableFileID, cToken)}
-}
-
-func (_c *MockStorageEngine_GetDirTableInternalIndexMeta_Call) Run(run func(dirTableFileID common.FileID, cToken *txns.CatalogLockToken)) *MockStorageEngine_GetDirTableInternalIndexMeta_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.FileID), args[1].(*txns.CatalogLockToken))
-	})
-	return _c
-}
-
-func (_c *MockStorageEngine_GetDirTableInternalIndexMeta_Call) Return(_a0 IndexMeta, _a1 error) *MockStorageEngine_GetDirTableInternalIndexMeta_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockStorageEngine_GetDirTableInternalIndexMeta_Call) RunAndReturn(run func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)) *MockStorageEngine_GetDirTableInternalIndexMeta_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -880,6 +762,124 @@ func (_c *MockStorageEngine_GetDirTableMeta_Call) Return(_a0 DirTableMeta, _a1 e
 }
 
 func (_c *MockStorageEngine_GetDirTableMeta_Call) RunAndReturn(run func(*txns.CatalogLockToken, common.FileID) (DirTableMeta, error)) *MockStorageEngine_GetDirTableMeta_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetDirTableSystemIndex provides a mock function with given fields: txnID, dirTableFileID, cToken, logger
+func (_m *MockStorageEngine) GetDirTableSystemIndex(txnID common.TxnID, dirTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext) (Index, error) {
+	ret := _m.Called(txnID, dirTableFileID, cToken, logger)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDirTableSystemIndex")
+	}
+
+	var r0 Index
+	var r1 error
+	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)); ok {
+		return rf(txnID, dirTableFileID, cToken, logger)
+	}
+	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) Index); ok {
+		r0 = rf(txnID, dirTableFileID, cToken, logger)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(Index)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) error); ok {
+		r1 = rf(txnID, dirTableFileID, cToken, logger)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStorageEngine_GetDirTableSystemIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDirTableSystemIndex'
+type MockStorageEngine_GetDirTableSystemIndex_Call struct {
+	*mock.Call
+}
+
+// GetDirTableSystemIndex is a helper method to define mock.On call
+//   - txnID common.TxnID
+//   - dirTableFileID common.FileID
+//   - cToken *txns.CatalogLockToken
+//   - logger common.ITxnLoggerWithContext
+func (_e *MockStorageEngine_Expecter) GetDirTableSystemIndex(txnID interface{}, dirTableFileID interface{}, cToken interface{}, logger interface{}) *MockStorageEngine_GetDirTableSystemIndex_Call {
+	return &MockStorageEngine_GetDirTableSystemIndex_Call{Call: _e.mock.On("GetDirTableSystemIndex", txnID, dirTableFileID, cToken, logger)}
+}
+
+func (_c *MockStorageEngine_GetDirTableSystemIndex_Call) Run(run func(txnID common.TxnID, dirTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext)) *MockStorageEngine_GetDirTableSystemIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(common.TxnID), args[1].(common.FileID), args[2].(*txns.CatalogLockToken), args[3].(common.ITxnLoggerWithContext))
+	})
+	return _c
+}
+
+func (_c *MockStorageEngine_GetDirTableSystemIndex_Call) Return(_a0 Index, _a1 error) *MockStorageEngine_GetDirTableSystemIndex_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStorageEngine_GetDirTableSystemIndex_Call) RunAndReturn(run func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)) *MockStorageEngine_GetDirTableSystemIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetDirTableSystemIndexMeta provides a mock function with given fields: dirTableFileID, cToken
+func (_m *MockStorageEngine) GetDirTableSystemIndexMeta(dirTableFileID common.FileID, cToken *txns.CatalogLockToken) (IndexMeta, error) {
+	ret := _m.Called(dirTableFileID, cToken)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDirTableSystemIndexMeta")
+	}
+
+	var r0 IndexMeta
+	var r1 error
+	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)); ok {
+		return rf(dirTableFileID, cToken)
+	}
+	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) IndexMeta); ok {
+		r0 = rf(dirTableFileID, cToken)
+	} else {
+		r0 = ret.Get(0).(IndexMeta)
+	}
+
+	if rf, ok := ret.Get(1).(func(common.FileID, *txns.CatalogLockToken) error); ok {
+		r1 = rf(dirTableFileID, cToken)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStorageEngine_GetDirTableSystemIndexMeta_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDirTableSystemIndexMeta'
+type MockStorageEngine_GetDirTableSystemIndexMeta_Call struct {
+	*mock.Call
+}
+
+// GetDirTableSystemIndexMeta is a helper method to define mock.On call
+//   - dirTableFileID common.FileID
+//   - cToken *txns.CatalogLockToken
+func (_e *MockStorageEngine_Expecter) GetDirTableSystemIndexMeta(dirTableFileID interface{}, cToken interface{}) *MockStorageEngine_GetDirTableSystemIndexMeta_Call {
+	return &MockStorageEngine_GetDirTableSystemIndexMeta_Call{Call: _e.mock.On("GetDirTableSystemIndexMeta", dirTableFileID, cToken)}
+}
+
+func (_c *MockStorageEngine_GetDirTableSystemIndexMeta_Call) Run(run func(dirTableFileID common.FileID, cToken *txns.CatalogLockToken)) *MockStorageEngine_GetDirTableSystemIndexMeta_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(common.FileID), args[1].(*txns.CatalogLockToken))
+	})
+	return _c
+}
+
+func (_c *MockStorageEngine_GetDirTableSystemIndexMeta_Call) Return(_a0 IndexMeta, _a1 error) *MockStorageEngine_GetDirTableSystemIndexMeta_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStorageEngine_GetDirTableSystemIndexMeta_Call) RunAndReturn(run func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)) *MockStorageEngine_GetDirTableSystemIndexMeta_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1002,124 +1002,6 @@ func (_c *MockStorageEngine_GetEdgeTableIndex_Call) RunAndReturn(run func(common
 	return _c
 }
 
-// GetEdgeTableInternalIndex provides a mock function with given fields: txnID, edgeTableFileID, cToken, logger
-func (_m *MockStorageEngine) GetEdgeTableInternalIndex(txnID common.TxnID, edgeTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext) (Index, error) {
-	ret := _m.Called(txnID, edgeTableFileID, cToken, logger)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetEdgeTableInternalIndex")
-	}
-
-	var r0 Index
-	var r1 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)); ok {
-		return rf(txnID, edgeTableFileID, cToken, logger)
-	}
-	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) Index); ok {
-		r0 = rf(txnID, edgeTableFileID, cToken, logger)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(Index)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) error); ok {
-		r1 = rf(txnID, edgeTableFileID, cToken, logger)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockStorageEngine_GetEdgeTableInternalIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetEdgeTableInternalIndex'
-type MockStorageEngine_GetEdgeTableInternalIndex_Call struct {
-	*mock.Call
-}
-
-// GetEdgeTableInternalIndex is a helper method to define mock.On call
-//   - txnID common.TxnID
-//   - edgeTableFileID common.FileID
-//   - cToken *txns.CatalogLockToken
-//   - logger common.ITxnLoggerWithContext
-func (_e *MockStorageEngine_Expecter) GetEdgeTableInternalIndex(txnID interface{}, edgeTableFileID interface{}, cToken interface{}, logger interface{}) *MockStorageEngine_GetEdgeTableInternalIndex_Call {
-	return &MockStorageEngine_GetEdgeTableInternalIndex_Call{Call: _e.mock.On("GetEdgeTableInternalIndex", txnID, edgeTableFileID, cToken, logger)}
-}
-
-func (_c *MockStorageEngine_GetEdgeTableInternalIndex_Call) Run(run func(txnID common.TxnID, edgeTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext)) *MockStorageEngine_GetEdgeTableInternalIndex_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(common.FileID), args[2].(*txns.CatalogLockToken), args[3].(common.ITxnLoggerWithContext))
-	})
-	return _c
-}
-
-func (_c *MockStorageEngine_GetEdgeTableInternalIndex_Call) Return(_a0 Index, _a1 error) *MockStorageEngine_GetEdgeTableInternalIndex_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockStorageEngine_GetEdgeTableInternalIndex_Call) RunAndReturn(run func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)) *MockStorageEngine_GetEdgeTableInternalIndex_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetEdgeTableInternalIndexMeta provides a mock function with given fields: edgeTableFileID, cToken
-func (_m *MockStorageEngine) GetEdgeTableInternalIndexMeta(edgeTableFileID common.FileID, cToken *txns.CatalogLockToken) (IndexMeta, error) {
-	ret := _m.Called(edgeTableFileID, cToken)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetEdgeTableInternalIndexMeta")
-	}
-
-	var r0 IndexMeta
-	var r1 error
-	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)); ok {
-		return rf(edgeTableFileID, cToken)
-	}
-	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) IndexMeta); ok {
-		r0 = rf(edgeTableFileID, cToken)
-	} else {
-		r0 = ret.Get(0).(IndexMeta)
-	}
-
-	if rf, ok := ret.Get(1).(func(common.FileID, *txns.CatalogLockToken) error); ok {
-		r1 = rf(edgeTableFileID, cToken)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockStorageEngine_GetEdgeTableInternalIndexMeta_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetEdgeTableInternalIndexMeta'
-type MockStorageEngine_GetEdgeTableInternalIndexMeta_Call struct {
-	*mock.Call
-}
-
-// GetEdgeTableInternalIndexMeta is a helper method to define mock.On call
-//   - edgeTableFileID common.FileID
-//   - cToken *txns.CatalogLockToken
-func (_e *MockStorageEngine_Expecter) GetEdgeTableInternalIndexMeta(edgeTableFileID interface{}, cToken interface{}) *MockStorageEngine_GetEdgeTableInternalIndexMeta_Call {
-	return &MockStorageEngine_GetEdgeTableInternalIndexMeta_Call{Call: _e.mock.On("GetEdgeTableInternalIndexMeta", edgeTableFileID, cToken)}
-}
-
-func (_c *MockStorageEngine_GetEdgeTableInternalIndexMeta_Call) Run(run func(edgeTableFileID common.FileID, cToken *txns.CatalogLockToken)) *MockStorageEngine_GetEdgeTableInternalIndexMeta_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.FileID), args[1].(*txns.CatalogLockToken))
-	})
-	return _c
-}
-
-func (_c *MockStorageEngine_GetEdgeTableInternalIndexMeta_Call) Return(_a0 IndexMeta, _a1 error) *MockStorageEngine_GetEdgeTableInternalIndexMeta_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockStorageEngine_GetEdgeTableInternalIndexMeta_Call) RunAndReturn(run func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)) *MockStorageEngine_GetEdgeTableInternalIndexMeta_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetEdgeTableMeta provides a mock function with given fields: name, cToken
 func (_m *MockStorageEngine) GetEdgeTableMeta(name string, cToken *txns.CatalogLockToken) (EdgeTableMeta, error) {
 	ret := _m.Called(name, cToken)
@@ -1234,9 +1116,127 @@ func (_c *MockStorageEngine_GetEdgeTableMetaByFileID_Call) RunAndReturn(run func
 	return _c
 }
 
-// GetNeighborsWithEdgeFilter provides a mock function with given fields: t, v, vertTableToken, vertIndex, edgeFilter, logger
-func (_m *MockStorageEngine) GetNeighborsWithEdgeFilter(t common.TxnID, v VertexInternalID, vertTableToken *txns.FileLockToken, vertIndex Index, edgeFilter EdgeFilter, logger common.ITxnLoggerWithContext) (VerticesIter, error) {
-	ret := _m.Called(t, v, vertTableToken, vertIndex, edgeFilter, logger)
+// GetEdgeTableSystemIndex provides a mock function with given fields: txnID, edgeTableFileID, cToken, logger
+func (_m *MockStorageEngine) GetEdgeTableSystemIndex(txnID common.TxnID, edgeTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext) (Index, error) {
+	ret := _m.Called(txnID, edgeTableFileID, cToken, logger)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetEdgeTableSystemIndex")
+	}
+
+	var r0 Index
+	var r1 error
+	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)); ok {
+		return rf(txnID, edgeTableFileID, cToken, logger)
+	}
+	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) Index); ok {
+		r0 = rf(txnID, edgeTableFileID, cToken, logger)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(Index)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) error); ok {
+		r1 = rf(txnID, edgeTableFileID, cToken, logger)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStorageEngine_GetEdgeTableSystemIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetEdgeTableSystemIndex'
+type MockStorageEngine_GetEdgeTableSystemIndex_Call struct {
+	*mock.Call
+}
+
+// GetEdgeTableSystemIndex is a helper method to define mock.On call
+//   - txnID common.TxnID
+//   - edgeTableFileID common.FileID
+//   - cToken *txns.CatalogLockToken
+//   - logger common.ITxnLoggerWithContext
+func (_e *MockStorageEngine_Expecter) GetEdgeTableSystemIndex(txnID interface{}, edgeTableFileID interface{}, cToken interface{}, logger interface{}) *MockStorageEngine_GetEdgeTableSystemIndex_Call {
+	return &MockStorageEngine_GetEdgeTableSystemIndex_Call{Call: _e.mock.On("GetEdgeTableSystemIndex", txnID, edgeTableFileID, cToken, logger)}
+}
+
+func (_c *MockStorageEngine_GetEdgeTableSystemIndex_Call) Run(run func(txnID common.TxnID, edgeTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext)) *MockStorageEngine_GetEdgeTableSystemIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(common.TxnID), args[1].(common.FileID), args[2].(*txns.CatalogLockToken), args[3].(common.ITxnLoggerWithContext))
+	})
+	return _c
+}
+
+func (_c *MockStorageEngine_GetEdgeTableSystemIndex_Call) Return(_a0 Index, _a1 error) *MockStorageEngine_GetEdgeTableSystemIndex_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStorageEngine_GetEdgeTableSystemIndex_Call) RunAndReturn(run func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)) *MockStorageEngine_GetEdgeTableSystemIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetEdgeTableSystemIndexMeta provides a mock function with given fields: edgeTableFileID, cToken
+func (_m *MockStorageEngine) GetEdgeTableSystemIndexMeta(edgeTableFileID common.FileID, cToken *txns.CatalogLockToken) (IndexMeta, error) {
+	ret := _m.Called(edgeTableFileID, cToken)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetEdgeTableSystemIndexMeta")
+	}
+
+	var r0 IndexMeta
+	var r1 error
+	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)); ok {
+		return rf(edgeTableFileID, cToken)
+	}
+	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) IndexMeta); ok {
+		r0 = rf(edgeTableFileID, cToken)
+	} else {
+		r0 = ret.Get(0).(IndexMeta)
+	}
+
+	if rf, ok := ret.Get(1).(func(common.FileID, *txns.CatalogLockToken) error); ok {
+		r1 = rf(edgeTableFileID, cToken)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStorageEngine_GetEdgeTableSystemIndexMeta_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetEdgeTableSystemIndexMeta'
+type MockStorageEngine_GetEdgeTableSystemIndexMeta_Call struct {
+	*mock.Call
+}
+
+// GetEdgeTableSystemIndexMeta is a helper method to define mock.On call
+//   - edgeTableFileID common.FileID
+//   - cToken *txns.CatalogLockToken
+func (_e *MockStorageEngine_Expecter) GetEdgeTableSystemIndexMeta(edgeTableFileID interface{}, cToken interface{}) *MockStorageEngine_GetEdgeTableSystemIndexMeta_Call {
+	return &MockStorageEngine_GetEdgeTableSystemIndexMeta_Call{Call: _e.mock.On("GetEdgeTableSystemIndexMeta", edgeTableFileID, cToken)}
+}
+
+func (_c *MockStorageEngine_GetEdgeTableSystemIndexMeta_Call) Run(run func(edgeTableFileID common.FileID, cToken *txns.CatalogLockToken)) *MockStorageEngine_GetEdgeTableSystemIndexMeta_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(common.FileID), args[1].(*txns.CatalogLockToken))
+	})
+	return _c
+}
+
+func (_c *MockStorageEngine_GetEdgeTableSystemIndexMeta_Call) Return(_a0 IndexMeta, _a1 error) *MockStorageEngine_GetEdgeTableSystemIndexMeta_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStorageEngine_GetEdgeTableSystemIndexMeta_Call) RunAndReturn(run func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)) *MockStorageEngine_GetEdgeTableSystemIndexMeta_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetNeighborsWithEdgeFilter provides a mock function with given fields: txnID, v, vertTableToken, vertIndex, edgeFilter, logger
+func (_m *MockStorageEngine) GetNeighborsWithEdgeFilter(txnID common.TxnID, v VertexSystemID, vertTableToken *txns.FileLockToken, vertIndex Index, edgeFilter EdgeFilter, logger common.ITxnLoggerWithContext) (VerticesIter, error) {
+	ret := _m.Called(txnID, v, vertTableToken, vertIndex, edgeFilter, logger)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetNeighborsWithEdgeFilter")
@@ -1244,19 +1244,19 @@ func (_m *MockStorageEngine) GetNeighborsWithEdgeFilter(t common.TxnID, v Vertex
 
 	var r0 VerticesIter
 	var r1 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, EdgeFilter, common.ITxnLoggerWithContext) (VerticesIter, error)); ok {
-		return rf(t, v, vertTableToken, vertIndex, edgeFilter, logger)
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, EdgeFilter, common.ITxnLoggerWithContext) (VerticesIter, error)); ok {
+		return rf(txnID, v, vertTableToken, vertIndex, edgeFilter, logger)
 	}
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, EdgeFilter, common.ITxnLoggerWithContext) VerticesIter); ok {
-		r0 = rf(t, v, vertTableToken, vertIndex, edgeFilter, logger)
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, EdgeFilter, common.ITxnLoggerWithContext) VerticesIter); ok {
+		r0 = rf(txnID, v, vertTableToken, vertIndex, edgeFilter, logger)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(VerticesIter)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, EdgeFilter, common.ITxnLoggerWithContext) error); ok {
-		r1 = rf(t, v, vertTableToken, vertIndex, edgeFilter, logger)
+	if rf, ok := ret.Get(1).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, EdgeFilter, common.ITxnLoggerWithContext) error); ok {
+		r1 = rf(txnID, v, vertTableToken, vertIndex, edgeFilter, logger)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -1270,19 +1270,19 @@ type MockStorageEngine_GetNeighborsWithEdgeFilter_Call struct {
 }
 
 // GetNeighborsWithEdgeFilter is a helper method to define mock.On call
-//   - t common.TxnID
-//   - v VertexInternalID
+//   - txnID common.TxnID
+//   - v VertexSystemID
 //   - vertTableToken *txns.FileLockToken
 //   - vertIndex Index
 //   - edgeFilter EdgeFilter
 //   - logger common.ITxnLoggerWithContext
-func (_e *MockStorageEngine_Expecter) GetNeighborsWithEdgeFilter(t interface{}, v interface{}, vertTableToken interface{}, vertIndex interface{}, edgeFilter interface{}, logger interface{}) *MockStorageEngine_GetNeighborsWithEdgeFilter_Call {
-	return &MockStorageEngine_GetNeighborsWithEdgeFilter_Call{Call: _e.mock.On("GetNeighborsWithEdgeFilter", t, v, vertTableToken, vertIndex, edgeFilter, logger)}
+func (_e *MockStorageEngine_Expecter) GetNeighborsWithEdgeFilter(txnID interface{}, v interface{}, vertTableToken interface{}, vertIndex interface{}, edgeFilter interface{}, logger interface{}) *MockStorageEngine_GetNeighborsWithEdgeFilter_Call {
+	return &MockStorageEngine_GetNeighborsWithEdgeFilter_Call{Call: _e.mock.On("GetNeighborsWithEdgeFilter", txnID, v, vertTableToken, vertIndex, edgeFilter, logger)}
 }
 
-func (_c *MockStorageEngine_GetNeighborsWithEdgeFilter_Call) Run(run func(t common.TxnID, v VertexInternalID, vertTableToken *txns.FileLockToken, vertIndex Index, edgeFilter EdgeFilter, logger common.ITxnLoggerWithContext)) *MockStorageEngine_GetNeighborsWithEdgeFilter_Call {
+func (_c *MockStorageEngine_GetNeighborsWithEdgeFilter_Call) Run(run func(txnID common.TxnID, v VertexSystemID, vertTableToken *txns.FileLockToken, vertIndex Index, edgeFilter EdgeFilter, logger common.ITxnLoggerWithContext)) *MockStorageEngine_GetNeighborsWithEdgeFilter_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(VertexInternalID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(EdgeFilter), args[5].(common.ITxnLoggerWithContext))
+		run(args[0].(common.TxnID), args[1].(VertexSystemID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(EdgeFilter), args[5].(common.ITxnLoggerWithContext))
 	})
 	return _c
 }
@@ -1292,7 +1292,7 @@ func (_c *MockStorageEngine_GetNeighborsWithEdgeFilter_Call) Return(_a0 Vertices
 	return _c
 }
 
-func (_c *MockStorageEngine_GetNeighborsWithEdgeFilter_Call) RunAndReturn(run func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, EdgeFilter, common.ITxnLoggerWithContext) (VerticesIter, error)) *MockStorageEngine_GetNeighborsWithEdgeFilter_Call {
+func (_c *MockStorageEngine_GetNeighborsWithEdgeFilter_Call) RunAndReturn(run func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, EdgeFilter, common.ITxnLoggerWithContext) (VerticesIter, error)) *MockStorageEngine_GetNeighborsWithEdgeFilter_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1415,124 +1415,6 @@ func (_c *MockStorageEngine_GetVertexTableIndexMeta_Call) RunAndReturn(run func(
 	return _c
 }
 
-// GetVertexTableInternalIndex provides a mock function with given fields: txnID, vertexTableFileID, cToken, logger
-func (_m *MockStorageEngine) GetVertexTableInternalIndex(txnID common.TxnID, vertexTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext) (Index, error) {
-	ret := _m.Called(txnID, vertexTableFileID, cToken, logger)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetVertexTableInternalIndex")
-	}
-
-	var r0 Index
-	var r1 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)); ok {
-		return rf(txnID, vertexTableFileID, cToken, logger)
-	}
-	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) Index); ok {
-		r0 = rf(txnID, vertexTableFileID, cToken, logger)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(Index)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) error); ok {
-		r1 = rf(txnID, vertexTableFileID, cToken, logger)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockStorageEngine_GetVertexTableInternalIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVertexTableInternalIndex'
-type MockStorageEngine_GetVertexTableInternalIndex_Call struct {
-	*mock.Call
-}
-
-// GetVertexTableInternalIndex is a helper method to define mock.On call
-//   - txnID common.TxnID
-//   - vertexTableFileID common.FileID
-//   - cToken *txns.CatalogLockToken
-//   - logger common.ITxnLoggerWithContext
-func (_e *MockStorageEngine_Expecter) GetVertexTableInternalIndex(txnID interface{}, vertexTableFileID interface{}, cToken interface{}, logger interface{}) *MockStorageEngine_GetVertexTableInternalIndex_Call {
-	return &MockStorageEngine_GetVertexTableInternalIndex_Call{Call: _e.mock.On("GetVertexTableInternalIndex", txnID, vertexTableFileID, cToken, logger)}
-}
-
-func (_c *MockStorageEngine_GetVertexTableInternalIndex_Call) Run(run func(txnID common.TxnID, vertexTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext)) *MockStorageEngine_GetVertexTableInternalIndex_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(common.FileID), args[2].(*txns.CatalogLockToken), args[3].(common.ITxnLoggerWithContext))
-	})
-	return _c
-}
-
-func (_c *MockStorageEngine_GetVertexTableInternalIndex_Call) Return(_a0 Index, _a1 error) *MockStorageEngine_GetVertexTableInternalIndex_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockStorageEngine_GetVertexTableInternalIndex_Call) RunAndReturn(run func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)) *MockStorageEngine_GetVertexTableInternalIndex_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetVertexTableInternalIndexMeta provides a mock function with given fields: vertexTableFileID, cToken
-func (_m *MockStorageEngine) GetVertexTableInternalIndexMeta(vertexTableFileID common.FileID, cToken *txns.CatalogLockToken) (IndexMeta, error) {
-	ret := _m.Called(vertexTableFileID, cToken)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetVertexTableInternalIndexMeta")
-	}
-
-	var r0 IndexMeta
-	var r1 error
-	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)); ok {
-		return rf(vertexTableFileID, cToken)
-	}
-	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) IndexMeta); ok {
-		r0 = rf(vertexTableFileID, cToken)
-	} else {
-		r0 = ret.Get(0).(IndexMeta)
-	}
-
-	if rf, ok := ret.Get(1).(func(common.FileID, *txns.CatalogLockToken) error); ok {
-		r1 = rf(vertexTableFileID, cToken)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockStorageEngine_GetVertexTableInternalIndexMeta_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVertexTableInternalIndexMeta'
-type MockStorageEngine_GetVertexTableInternalIndexMeta_Call struct {
-	*mock.Call
-}
-
-// GetVertexTableInternalIndexMeta is a helper method to define mock.On call
-//   - vertexTableFileID common.FileID
-//   - cToken *txns.CatalogLockToken
-func (_e *MockStorageEngine_Expecter) GetVertexTableInternalIndexMeta(vertexTableFileID interface{}, cToken interface{}) *MockStorageEngine_GetVertexTableInternalIndexMeta_Call {
-	return &MockStorageEngine_GetVertexTableInternalIndexMeta_Call{Call: _e.mock.On("GetVertexTableInternalIndexMeta", vertexTableFileID, cToken)}
-}
-
-func (_c *MockStorageEngine_GetVertexTableInternalIndexMeta_Call) Run(run func(vertexTableFileID common.FileID, cToken *txns.CatalogLockToken)) *MockStorageEngine_GetVertexTableInternalIndexMeta_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.FileID), args[1].(*txns.CatalogLockToken))
-	})
-	return _c
-}
-
-func (_c *MockStorageEngine_GetVertexTableInternalIndexMeta_Call) Return(_a0 IndexMeta, _a1 error) *MockStorageEngine_GetVertexTableInternalIndexMeta_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockStorageEngine_GetVertexTableInternalIndexMeta_Call) RunAndReturn(run func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)) *MockStorageEngine_GetVertexTableInternalIndexMeta_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetVertexTableMeta provides a mock function with given fields: name, cToken
 func (_m *MockStorageEngine) GetVertexTableMeta(name string, cToken *txns.CatalogLockToken) (VertexTableMeta, error) {
 	ret := _m.Called(name, cToken)
@@ -1591,22 +1473,22 @@ func (_c *MockStorageEngine_GetVertexTableMeta_Call) RunAndReturn(run func(strin
 }
 
 // GetVertexTableMetaByFileID provides a mock function with given fields: vertexTableID, cToken
-func (_m *MockStorageEngine) GetVertexTableMetaByFileID(vertexTableID common.FileID, cToken *txns.CatalogLockToken) (EdgeTableMeta, error) {
+func (_m *MockStorageEngine) GetVertexTableMetaByFileID(vertexTableID common.FileID, cToken *txns.CatalogLockToken) (VertexTableMeta, error) {
 	ret := _m.Called(vertexTableID, cToken)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetVertexTableMetaByFileID")
 	}
 
-	var r0 EdgeTableMeta
+	var r0 VertexTableMeta
 	var r1 error
-	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) (EdgeTableMeta, error)); ok {
+	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) (VertexTableMeta, error)); ok {
 		return rf(vertexTableID, cToken)
 	}
-	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) EdgeTableMeta); ok {
+	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) VertexTableMeta); ok {
 		r0 = rf(vertexTableID, cToken)
 	} else {
-		r0 = ret.Get(0).(EdgeTableMeta)
+		r0 = ret.Get(0).(VertexTableMeta)
 	}
 
 	if rf, ok := ret.Get(1).(func(common.FileID, *txns.CatalogLockToken) error); ok {
@@ -1637,32 +1519,162 @@ func (_c *MockStorageEngine_GetVertexTableMetaByFileID_Call) Run(run func(vertex
 	return _c
 }
 
-func (_c *MockStorageEngine_GetVertexTableMetaByFileID_Call) Return(_a0 EdgeTableMeta, _a1 error) *MockStorageEngine_GetVertexTableMetaByFileID_Call {
+func (_c *MockStorageEngine_GetVertexTableMetaByFileID_Call) Return(_a0 VertexTableMeta, _a1 error) *MockStorageEngine_GetVertexTableMetaByFileID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockStorageEngine_GetVertexTableMetaByFileID_Call) RunAndReturn(run func(common.FileID, *txns.CatalogLockToken) (EdgeTableMeta, error)) *MockStorageEngine_GetVertexTableMetaByFileID_Call {
+func (_c *MockStorageEngine_GetVertexTableMetaByFileID_Call) RunAndReturn(run func(common.FileID, *txns.CatalogLockToken) (VertexTableMeta, error)) *MockStorageEngine_GetVertexTableMetaByFileID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetVertexTableSystemIndex provides a mock function with given fields: txnID, vertexTableFileID, cToken, logger
+func (_m *MockStorageEngine) GetVertexTableSystemIndex(txnID common.TxnID, vertexTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext) (Index, error) {
+	ret := _m.Called(txnID, vertexTableFileID, cToken, logger)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetVertexTableSystemIndex")
+	}
+
+	var r0 Index
+	var r1 error
+	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)); ok {
+		return rf(txnID, vertexTableFileID, cToken, logger)
+	}
+	if rf, ok := ret.Get(0).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) Index); ok {
+		r0 = rf(txnID, vertexTableFileID, cToken, logger)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(Index)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) error); ok {
+		r1 = rf(txnID, vertexTableFileID, cToken, logger)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStorageEngine_GetVertexTableSystemIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVertexTableSystemIndex'
+type MockStorageEngine_GetVertexTableSystemIndex_Call struct {
+	*mock.Call
+}
+
+// GetVertexTableSystemIndex is a helper method to define mock.On call
+//   - txnID common.TxnID
+//   - vertexTableFileID common.FileID
+//   - cToken *txns.CatalogLockToken
+//   - logger common.ITxnLoggerWithContext
+func (_e *MockStorageEngine_Expecter) GetVertexTableSystemIndex(txnID interface{}, vertexTableFileID interface{}, cToken interface{}, logger interface{}) *MockStorageEngine_GetVertexTableSystemIndex_Call {
+	return &MockStorageEngine_GetVertexTableSystemIndex_Call{Call: _e.mock.On("GetVertexTableSystemIndex", txnID, vertexTableFileID, cToken, logger)}
+}
+
+func (_c *MockStorageEngine_GetVertexTableSystemIndex_Call) Run(run func(txnID common.TxnID, vertexTableFileID common.FileID, cToken *txns.CatalogLockToken, logger common.ITxnLoggerWithContext)) *MockStorageEngine_GetVertexTableSystemIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(common.TxnID), args[1].(common.FileID), args[2].(*txns.CatalogLockToken), args[3].(common.ITxnLoggerWithContext))
+	})
+	return _c
+}
+
+func (_c *MockStorageEngine_GetVertexTableSystemIndex_Call) Return(_a0 Index, _a1 error) *MockStorageEngine_GetVertexTableSystemIndex_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStorageEngine_GetVertexTableSystemIndex_Call) RunAndReturn(run func(common.TxnID, common.FileID, *txns.CatalogLockToken, common.ITxnLoggerWithContext) (Index, error)) *MockStorageEngine_GetVertexTableSystemIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetVertexTableSystemIndexMeta provides a mock function with given fields: vertexTableFileID, cToken
+func (_m *MockStorageEngine) GetVertexTableSystemIndexMeta(vertexTableFileID common.FileID, cToken *txns.CatalogLockToken) (IndexMeta, error) {
+	ret := _m.Called(vertexTableFileID, cToken)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetVertexTableSystemIndexMeta")
+	}
+
+	var r0 IndexMeta
+	var r1 error
+	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)); ok {
+		return rf(vertexTableFileID, cToken)
+	}
+	if rf, ok := ret.Get(0).(func(common.FileID, *txns.CatalogLockToken) IndexMeta); ok {
+		r0 = rf(vertexTableFileID, cToken)
+	} else {
+		r0 = ret.Get(0).(IndexMeta)
+	}
+
+	if rf, ok := ret.Get(1).(func(common.FileID, *txns.CatalogLockToken) error); ok {
+		r1 = rf(vertexTableFileID, cToken)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStorageEngine_GetVertexTableSystemIndexMeta_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVertexTableSystemIndexMeta'
+type MockStorageEngine_GetVertexTableSystemIndexMeta_Call struct {
+	*mock.Call
+}
+
+// GetVertexTableSystemIndexMeta is a helper method to define mock.On call
+//   - vertexTableFileID common.FileID
+//   - cToken *txns.CatalogLockToken
+func (_e *MockStorageEngine_Expecter) GetVertexTableSystemIndexMeta(vertexTableFileID interface{}, cToken interface{}) *MockStorageEngine_GetVertexTableSystemIndexMeta_Call {
+	return &MockStorageEngine_GetVertexTableSystemIndexMeta_Call{Call: _e.mock.On("GetVertexTableSystemIndexMeta", vertexTableFileID, cToken)}
+}
+
+func (_c *MockStorageEngine_GetVertexTableSystemIndexMeta_Call) Run(run func(vertexTableFileID common.FileID, cToken *txns.CatalogLockToken)) *MockStorageEngine_GetVertexTableSystemIndexMeta_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(common.FileID), args[1].(*txns.CatalogLockToken))
+	})
+	return _c
+}
+
+func (_c *MockStorageEngine_GetVertexTableSystemIndexMeta_Call) Return(_a0 IndexMeta, _a1 error) *MockStorageEngine_GetVertexTableSystemIndexMeta_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStorageEngine_GetVertexTableSystemIndexMeta_Call) RunAndReturn(run func(common.FileID, *txns.CatalogLockToken) (IndexMeta, error)) *MockStorageEngine_GetVertexTableSystemIndexMeta_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // InsertEdge provides a mock function with given fields: txnID, srcVertexID, dstVertexID, edgeFields, schema, srcVertToken, srcVertSystemIndex, srcVertDirToken, srcVertDirSystemIndex, edgesFileToken, edgeSystemIndex, ctxLogger
-func (_m *MockStorageEngine) InsertEdge(txnID common.TxnID, srcVertexID VertexInternalID, dstVertexID VertexInternalID, edgeFields map[string]interface{}, schema Schema, srcVertToken *txns.FileLockToken, srcVertSystemIndex Index, srcVertDirToken *txns.FileLockToken, srcVertDirSystemIndex Index, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, ctxLogger common.ITxnLoggerWithContext) error {
+func (_m *MockStorageEngine) InsertEdge(txnID common.TxnID, srcVertexID VertexSystemID, dstVertexID VertexSystemID, edgeFields map[string]interface{}, schema Schema, srcVertToken *txns.FileLockToken, srcVertSystemIndex Index, srcVertDirToken *txns.FileLockToken, srcVertDirSystemIndex Index, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, ctxLogger common.ITxnLoggerWithContext) (EdgeSystemID, error) {
 	ret := _m.Called(txnID, srcVertexID, dstVertexID, edgeFields, schema, srcVertToken, srcVertSystemIndex, srcVertDirToken, srcVertDirSystemIndex, edgesFileToken, edgeSystemIndex, ctxLogger)
 
 	if len(ret) == 0 {
 		panic("no return value specified for InsertEdge")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, VertexInternalID, map[string]interface{}, Schema, *txns.FileLockToken, Index, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
+	var r0 EdgeSystemID
+	var r1 error
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, VertexSystemID, map[string]interface{}, Schema, *txns.FileLockToken, Index, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) (EdgeSystemID, error)); ok {
+		return rf(txnID, srcVertexID, dstVertexID, edgeFields, schema, srcVertToken, srcVertSystemIndex, srcVertDirToken, srcVertDirSystemIndex, edgesFileToken, edgeSystemIndex, ctxLogger)
+	}
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, VertexSystemID, map[string]interface{}, Schema, *txns.FileLockToken, Index, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) EdgeSystemID); ok {
 		r0 = rf(txnID, srcVertexID, dstVertexID, edgeFields, schema, srcVertToken, srcVertSystemIndex, srcVertDirToken, srcVertDirSystemIndex, edgesFileToken, edgeSystemIndex, ctxLogger)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(EdgeSystemID)
+		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(common.TxnID, VertexSystemID, VertexSystemID, map[string]interface{}, Schema, *txns.FileLockToken, Index, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
+		r1 = rf(txnID, srcVertexID, dstVertexID, edgeFields, schema, srcVertToken, srcVertSystemIndex, srcVertDirToken, srcVertDirSystemIndex, edgesFileToken, edgeSystemIndex, ctxLogger)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockStorageEngine_InsertEdge_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertEdge'
@@ -1672,8 +1684,8 @@ type MockStorageEngine_InsertEdge_Call struct {
 
 // InsertEdge is a helper method to define mock.On call
 //   - txnID common.TxnID
-//   - srcVertexID VertexInternalID
-//   - dstVertexID VertexInternalID
+//   - srcVertexID VertexSystemID
+//   - dstVertexID VertexSystemID
 //   - edgeFields map[string]interface{}
 //   - schema Schema
 //   - srcVertToken *txns.FileLockToken
@@ -1687,39 +1699,51 @@ func (_e *MockStorageEngine_Expecter) InsertEdge(txnID interface{}, srcVertexID 
 	return &MockStorageEngine_InsertEdge_Call{Call: _e.mock.On("InsertEdge", txnID, srcVertexID, dstVertexID, edgeFields, schema, srcVertToken, srcVertSystemIndex, srcVertDirToken, srcVertDirSystemIndex, edgesFileToken, edgeSystemIndex, ctxLogger)}
 }
 
-func (_c *MockStorageEngine_InsertEdge_Call) Run(run func(txnID common.TxnID, srcVertexID VertexInternalID, dstVertexID VertexInternalID, edgeFields map[string]interface{}, schema Schema, srcVertToken *txns.FileLockToken, srcVertSystemIndex Index, srcVertDirToken *txns.FileLockToken, srcVertDirSystemIndex Index, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_InsertEdge_Call {
+func (_c *MockStorageEngine_InsertEdge_Call) Run(run func(txnID common.TxnID, srcVertexID VertexSystemID, dstVertexID VertexSystemID, edgeFields map[string]interface{}, schema Schema, srcVertToken *txns.FileLockToken, srcVertSystemIndex Index, srcVertDirToken *txns.FileLockToken, srcVertDirSystemIndex Index, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_InsertEdge_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(VertexInternalID), args[2].(VertexInternalID), args[3].(map[string]interface{}), args[4].(Schema), args[5].(*txns.FileLockToken), args[6].(Index), args[7].(*txns.FileLockToken), args[8].(Index), args[9].(*txns.FileLockToken), args[10].(Index), args[11].(common.ITxnLoggerWithContext))
+		run(args[0].(common.TxnID), args[1].(VertexSystemID), args[2].(VertexSystemID), args[3].(map[string]interface{}), args[4].(Schema), args[5].(*txns.FileLockToken), args[6].(Index), args[7].(*txns.FileLockToken), args[8].(Index), args[9].(*txns.FileLockToken), args[10].(Index), args[11].(common.ITxnLoggerWithContext))
 	})
 	return _c
 }
 
-func (_c *MockStorageEngine_InsertEdge_Call) Return(_a0 error) *MockStorageEngine_InsertEdge_Call {
-	_c.Call.Return(_a0)
+func (_c *MockStorageEngine_InsertEdge_Call) Return(_a0 EdgeSystemID, _a1 error) *MockStorageEngine_InsertEdge_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockStorageEngine_InsertEdge_Call) RunAndReturn(run func(common.TxnID, VertexInternalID, VertexInternalID, map[string]interface{}, Schema, *txns.FileLockToken, Index, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error) *MockStorageEngine_InsertEdge_Call {
+func (_c *MockStorageEngine_InsertEdge_Call) RunAndReturn(run func(common.TxnID, VertexSystemID, VertexSystemID, map[string]interface{}, Schema, *txns.FileLockToken, Index, *txns.FileLockToken, Index, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) (EdgeSystemID, error)) *MockStorageEngine_InsertEdge_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // InsertVertex provides a mock function with given fields: txnID, data, schema, vertexFileToken, vertexIndex, ctxLogger
-func (_m *MockStorageEngine) InsertVertex(txnID common.TxnID, data map[string]interface{}, schema Schema, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext) error {
+func (_m *MockStorageEngine) InsertVertex(txnID common.TxnID, data map[string]interface{}, schema Schema, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext) (VertexSystemID, error) {
 	ret := _m.Called(txnID, data, schema, vertexFileToken, vertexIndex, ctxLogger)
 
 	if len(ret) == 0 {
 		panic("no return value specified for InsertVertex")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
+	var r0 VertexSystemID
+	var r1 error
+	if rf, ok := ret.Get(0).(func(common.TxnID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) (VertexSystemID, error)); ok {
+		return rf(txnID, data, schema, vertexFileToken, vertexIndex, ctxLogger)
+	}
+	if rf, ok := ret.Get(0).(func(common.TxnID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) VertexSystemID); ok {
 		r0 = rf(txnID, data, schema, vertexFileToken, vertexIndex, ctxLogger)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(VertexSystemID)
+		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(common.TxnID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
+		r1 = rf(txnID, data, schema, vertexFileToken, vertexIndex, ctxLogger)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockStorageEngine_InsertVertex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertVertex'
@@ -1745,19 +1769,19 @@ func (_c *MockStorageEngine_InsertVertex_Call) Run(run func(txnID common.TxnID, 
 	return _c
 }
 
-func (_c *MockStorageEngine_InsertVertex_Call) Return(_a0 error) *MockStorageEngine_InsertVertex_Call {
-	_c.Call.Return(_a0)
+func (_c *MockStorageEngine_InsertVertex_Call) Return(_a0 VertexSystemID, _a1 error) *MockStorageEngine_InsertVertex_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockStorageEngine_InsertVertex_Call) RunAndReturn(run func(common.TxnID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error) *MockStorageEngine_InsertVertex_Call {
+func (_c *MockStorageEngine_InsertVertex_Call) RunAndReturn(run func(common.TxnID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) (VertexSystemID, error)) *MockStorageEngine_InsertVertex_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Neighbours provides a mock function with given fields: txnID, vID, vertTableToken, vertIndex, logger
-func (_m *MockStorageEngine) Neighbours(txnID common.TxnID, vID VertexInternalID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext) (NeighborIDIter, error) {
-	ret := _m.Called(txnID, vID, vertTableToken, vertIndex, logger)
+// Neighbours provides a mock function with given fields: txnID, startVertSystemID, startVertTableToken, startVertIndex, logger
+func (_m *MockStorageEngine) Neighbours(txnID common.TxnID, startVertSystemID VertexSystemID, startVertTableToken *txns.FileLockToken, startVertIndex Index, logger common.ITxnLoggerWithContext) (NeighborIDIter, error) {
+	ret := _m.Called(txnID, startVertSystemID, startVertTableToken, startVertIndex, logger)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Neighbours")
@@ -1765,19 +1789,19 @@ func (_m *MockStorageEngine) Neighbours(txnID common.TxnID, vID VertexInternalID
 
 	var r0 NeighborIDIter
 	var r1 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) (NeighborIDIter, error)); ok {
-		return rf(txnID, vID, vertTableToken, vertIndex, logger)
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) (NeighborIDIter, error)); ok {
+		return rf(txnID, startVertSystemID, startVertTableToken, startVertIndex, logger)
 	}
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) NeighborIDIter); ok {
-		r0 = rf(txnID, vID, vertTableToken, vertIndex, logger)
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) NeighborIDIter); ok {
+		r0 = rf(txnID, startVertSystemID, startVertTableToken, startVertIndex, logger)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(NeighborIDIter)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
-		r1 = rf(txnID, vID, vertTableToken, vertIndex, logger)
+	if rf, ok := ret.Get(1).(func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
+		r1 = rf(txnID, startVertSystemID, startVertTableToken, startVertIndex, logger)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -1792,17 +1816,17 @@ type MockStorageEngine_Neighbours_Call struct {
 
 // Neighbours is a helper method to define mock.On call
 //   - txnID common.TxnID
-//   - vID VertexInternalID
-//   - vertTableToken *txns.FileLockToken
-//   - vertIndex Index
+//   - startVertSystemID VertexSystemID
+//   - startVertTableToken *txns.FileLockToken
+//   - startVertIndex Index
 //   - logger common.ITxnLoggerWithContext
-func (_e *MockStorageEngine_Expecter) Neighbours(txnID interface{}, vID interface{}, vertTableToken interface{}, vertIndex interface{}, logger interface{}) *MockStorageEngine_Neighbours_Call {
-	return &MockStorageEngine_Neighbours_Call{Call: _e.mock.On("Neighbours", txnID, vID, vertTableToken, vertIndex, logger)}
+func (_e *MockStorageEngine_Expecter) Neighbours(txnID interface{}, startVertSystemID interface{}, startVertTableToken interface{}, startVertIndex interface{}, logger interface{}) *MockStorageEngine_Neighbours_Call {
+	return &MockStorageEngine_Neighbours_Call{Call: _e.mock.On("Neighbours", txnID, startVertSystemID, startVertTableToken, startVertIndex, logger)}
 }
 
-func (_c *MockStorageEngine_Neighbours_Call) Run(run func(txnID common.TxnID, vID VertexInternalID, vertTableToken *txns.FileLockToken, vertIndex Index, logger common.ITxnLoggerWithContext)) *MockStorageEngine_Neighbours_Call {
+func (_c *MockStorageEngine_Neighbours_Call) Run(run func(txnID common.TxnID, startVertSystemID VertexSystemID, startVertTableToken *txns.FileLockToken, startVertIndex Index, logger common.ITxnLoggerWithContext)) *MockStorageEngine_Neighbours_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(VertexInternalID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(common.ITxnLoggerWithContext))
+		run(args[0].(common.TxnID), args[1].(VertexSystemID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(common.ITxnLoggerWithContext))
 	})
 	return _c
 }
@@ -1812,29 +1836,29 @@ func (_c *MockStorageEngine_Neighbours_Call) Return(_a0 NeighborIDIter, _a1 erro
 	return _c
 }
 
-func (_c *MockStorageEngine_Neighbours_Call) RunAndReturn(run func(common.TxnID, VertexInternalID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) (NeighborIDIter, error)) *MockStorageEngine_Neighbours_Call {
+func (_c *MockStorageEngine_Neighbours_Call) RunAndReturn(run func(common.TxnID, VertexSystemID, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) (NeighborIDIter, error)) *MockStorageEngine_Neighbours_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // NewAggregationAssociativeArray provides a mock function with given fields: _a0
-func (_m *MockStorageEngine) NewAggregationAssociativeArray(_a0 common.TxnID) (AssociativeArray[VertexInternalID, float64], error) {
+func (_m *MockStorageEngine) NewAggregationAssociativeArray(_a0 common.TxnID) (AssociativeArray[VertexID, float64], error) {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
 		panic("no return value specified for NewAggregationAssociativeArray")
 	}
 
-	var r0 AssociativeArray[VertexInternalID, float64]
+	var r0 AssociativeArray[VertexID, float64]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(common.TxnID) (AssociativeArray[VertexInternalID, float64], error)); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID) (AssociativeArray[VertexID, float64], error)); ok {
 		return rf(_a0)
 	}
-	if rf, ok := ret.Get(0).(func(common.TxnID) AssociativeArray[VertexInternalID, float64]); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID) AssociativeArray[VertexID, float64]); ok {
 		r0 = rf(_a0)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(AssociativeArray[VertexInternalID, float64])
+			r0 = ret.Get(0).(AssociativeArray[VertexID, float64])
 		}
 	}
 
@@ -1865,12 +1889,12 @@ func (_c *MockStorageEngine_NewAggregationAssociativeArray_Call) Run(run func(_a
 	return _c
 }
 
-func (_c *MockStorageEngine_NewAggregationAssociativeArray_Call) Return(_a0 AssociativeArray[VertexInternalID, float64], _a1 error) *MockStorageEngine_NewAggregationAssociativeArray_Call {
+func (_c *MockStorageEngine_NewAggregationAssociativeArray_Call) Return(_a0 AssociativeArray[VertexID, float64], _a1 error) *MockStorageEngine_NewAggregationAssociativeArray_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockStorageEngine_NewAggregationAssociativeArray_Call) RunAndReturn(run func(common.TxnID) (AssociativeArray[VertexInternalID, float64], error)) *MockStorageEngine_NewAggregationAssociativeArray_Call {
+func (_c *MockStorageEngine_NewAggregationAssociativeArray_Call) RunAndReturn(run func(common.TxnID) (AssociativeArray[VertexID, float64], error)) *MockStorageEngine_NewAggregationAssociativeArray_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1992,26 +2016,26 @@ func (_c *MockStorageEngine_NewQueue_Call) RunAndReturn(run func(common.TxnID) (
 }
 
 // SelectEdge provides a mock function with given fields: txnID, edgeID, edgeFileToken, edgeSystemIndex, schema
-func (_m *MockStorageEngine) SelectEdge(txnID common.TxnID, edgeID EdgeInternalID, edgeFileToken *txns.FileLockToken, edgeSystemIndex Index, schema Schema) (EdgeInternalFields, map[string]interface{}, error) {
+func (_m *MockStorageEngine) SelectEdge(txnID common.TxnID, edgeID EdgeSystemID, edgeFileToken *txns.FileLockToken, edgeSystemIndex Index, schema Schema) (EdgeSystemFields, map[string]interface{}, error) {
 	ret := _m.Called(txnID, edgeID, edgeFileToken, edgeSystemIndex, schema)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SelectEdge")
 	}
 
-	var r0 EdgeInternalFields
+	var r0 EdgeSystemFields
 	var r1 map[string]interface{}
 	var r2 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, EdgeInternalID, *txns.FileLockToken, Index, Schema) (EdgeInternalFields, map[string]interface{}, error)); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID, EdgeSystemID, *txns.FileLockToken, Index, Schema) (EdgeSystemFields, map[string]interface{}, error)); ok {
 		return rf(txnID, edgeID, edgeFileToken, edgeSystemIndex, schema)
 	}
-	if rf, ok := ret.Get(0).(func(common.TxnID, EdgeInternalID, *txns.FileLockToken, Index, Schema) EdgeInternalFields); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID, EdgeSystemID, *txns.FileLockToken, Index, Schema) EdgeSystemFields); ok {
 		r0 = rf(txnID, edgeID, edgeFileToken, edgeSystemIndex, schema)
 	} else {
-		r0 = ret.Get(0).(EdgeInternalFields)
+		r0 = ret.Get(0).(EdgeSystemFields)
 	}
 
-	if rf, ok := ret.Get(1).(func(common.TxnID, EdgeInternalID, *txns.FileLockToken, Index, Schema) map[string]interface{}); ok {
+	if rf, ok := ret.Get(1).(func(common.TxnID, EdgeSystemID, *txns.FileLockToken, Index, Schema) map[string]interface{}); ok {
 		r1 = rf(txnID, edgeID, edgeFileToken, edgeSystemIndex, schema)
 	} else {
 		if ret.Get(1) != nil {
@@ -2019,7 +2043,7 @@ func (_m *MockStorageEngine) SelectEdge(txnID common.TxnID, edgeID EdgeInternalI
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(common.TxnID, EdgeInternalID, *txns.FileLockToken, Index, Schema) error); ok {
+	if rf, ok := ret.Get(2).(func(common.TxnID, EdgeSystemID, *txns.FileLockToken, Index, Schema) error); ok {
 		r2 = rf(txnID, edgeID, edgeFileToken, edgeSystemIndex, schema)
 	} else {
 		r2 = ret.Error(2)
@@ -2035,7 +2059,7 @@ type MockStorageEngine_SelectEdge_Call struct {
 
 // SelectEdge is a helper method to define mock.On call
 //   - txnID common.TxnID
-//   - edgeID EdgeInternalID
+//   - edgeID EdgeSystemID
 //   - edgeFileToken *txns.FileLockToken
 //   - edgeSystemIndex Index
 //   - schema Schema
@@ -2043,44 +2067,44 @@ func (_e *MockStorageEngine_Expecter) SelectEdge(txnID interface{}, edgeID inter
 	return &MockStorageEngine_SelectEdge_Call{Call: _e.mock.On("SelectEdge", txnID, edgeID, edgeFileToken, edgeSystemIndex, schema)}
 }
 
-func (_c *MockStorageEngine_SelectEdge_Call) Run(run func(txnID common.TxnID, edgeID EdgeInternalID, edgeFileToken *txns.FileLockToken, edgeSystemIndex Index, schema Schema)) *MockStorageEngine_SelectEdge_Call {
+func (_c *MockStorageEngine_SelectEdge_Call) Run(run func(txnID common.TxnID, edgeID EdgeSystemID, edgeFileToken *txns.FileLockToken, edgeSystemIndex Index, schema Schema)) *MockStorageEngine_SelectEdge_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(EdgeInternalID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(Schema))
+		run(args[0].(common.TxnID), args[1].(EdgeSystemID), args[2].(*txns.FileLockToken), args[3].(Index), args[4].(Schema))
 	})
 	return _c
 }
 
-func (_c *MockStorageEngine_SelectEdge_Call) Return(_a0 EdgeInternalFields, _a1 map[string]interface{}, _a2 error) *MockStorageEngine_SelectEdge_Call {
+func (_c *MockStorageEngine_SelectEdge_Call) Return(_a0 EdgeSystemFields, _a1 map[string]interface{}, _a2 error) *MockStorageEngine_SelectEdge_Call {
 	_c.Call.Return(_a0, _a1, _a2)
 	return _c
 }
 
-func (_c *MockStorageEngine_SelectEdge_Call) RunAndReturn(run func(common.TxnID, EdgeInternalID, *txns.FileLockToken, Index, Schema) (EdgeInternalFields, map[string]interface{}, error)) *MockStorageEngine_SelectEdge_Call {
+func (_c *MockStorageEngine_SelectEdge_Call) RunAndReturn(run func(common.TxnID, EdgeSystemID, *txns.FileLockToken, Index, Schema) (EdgeSystemFields, map[string]interface{}, error)) *MockStorageEngine_SelectEdge_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SelectVertex provides a mock function with given fields: txnID, vertexID, vertexIndex, schema
-func (_m *MockStorageEngine) SelectVertex(txnID common.TxnID, vertexID VertexInternalID, vertexIndex Index, schema Schema) (VertexInternalFields, map[string]interface{}, error) {
+func (_m *MockStorageEngine) SelectVertex(txnID common.TxnID, vertexID VertexSystemID, vertexIndex Index, schema Schema) (VertexSystemFields, map[string]interface{}, error) {
 	ret := _m.Called(txnID, vertexID, vertexIndex, schema)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SelectVertex")
 	}
 
-	var r0 VertexInternalFields
+	var r0 VertexSystemFields
 	var r1 map[string]interface{}
 	var r2 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, Index, Schema) (VertexInternalFields, map[string]interface{}, error)); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, Index, Schema) (VertexSystemFields, map[string]interface{}, error)); ok {
 		return rf(txnID, vertexID, vertexIndex, schema)
 	}
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, Index, Schema) VertexInternalFields); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, Index, Schema) VertexSystemFields); ok {
 		r0 = rf(txnID, vertexID, vertexIndex, schema)
 	} else {
-		r0 = ret.Get(0).(VertexInternalFields)
+		r0 = ret.Get(0).(VertexSystemFields)
 	}
 
-	if rf, ok := ret.Get(1).(func(common.TxnID, VertexInternalID, Index, Schema) map[string]interface{}); ok {
+	if rf, ok := ret.Get(1).(func(common.TxnID, VertexSystemID, Index, Schema) map[string]interface{}); ok {
 		r1 = rf(txnID, vertexID, vertexIndex, schema)
 	} else {
 		if ret.Get(1) != nil {
@@ -2088,7 +2112,7 @@ func (_m *MockStorageEngine) SelectVertex(txnID common.TxnID, vertexID VertexInt
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(common.TxnID, VertexInternalID, Index, Schema) error); ok {
+	if rf, ok := ret.Get(2).(func(common.TxnID, VertexSystemID, Index, Schema) error); ok {
 		r2 = rf(txnID, vertexID, vertexIndex, schema)
 	} else {
 		r2 = ret.Error(2)
@@ -2104,32 +2128,32 @@ type MockStorageEngine_SelectVertex_Call struct {
 
 // SelectVertex is a helper method to define mock.On call
 //   - txnID common.TxnID
-//   - vertexID VertexInternalID
+//   - vertexID VertexSystemID
 //   - vertexIndex Index
 //   - schema Schema
 func (_e *MockStorageEngine_Expecter) SelectVertex(txnID interface{}, vertexID interface{}, vertexIndex interface{}, schema interface{}) *MockStorageEngine_SelectVertex_Call {
 	return &MockStorageEngine_SelectVertex_Call{Call: _e.mock.On("SelectVertex", txnID, vertexID, vertexIndex, schema)}
 }
 
-func (_c *MockStorageEngine_SelectVertex_Call) Run(run func(txnID common.TxnID, vertexID VertexInternalID, vertexIndex Index, schema Schema)) *MockStorageEngine_SelectVertex_Call {
+func (_c *MockStorageEngine_SelectVertex_Call) Run(run func(txnID common.TxnID, vertexID VertexSystemID, vertexIndex Index, schema Schema)) *MockStorageEngine_SelectVertex_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(VertexInternalID), args[2].(Index), args[3].(Schema))
+		run(args[0].(common.TxnID), args[1].(VertexSystemID), args[2].(Index), args[3].(Schema))
 	})
 	return _c
 }
 
-func (_c *MockStorageEngine_SelectVertex_Call) Return(_a0 VertexInternalFields, _a1 map[string]interface{}, _a2 error) *MockStorageEngine_SelectVertex_Call {
+func (_c *MockStorageEngine_SelectVertex_Call) Return(_a0 VertexSystemFields, _a1 map[string]interface{}, _a2 error) *MockStorageEngine_SelectVertex_Call {
 	_c.Call.Return(_a0, _a1, _a2)
 	return _c
 }
 
-func (_c *MockStorageEngine_SelectVertex_Call) RunAndReturn(run func(common.TxnID, VertexInternalID, Index, Schema) (VertexInternalFields, map[string]interface{}, error)) *MockStorageEngine_SelectVertex_Call {
+func (_c *MockStorageEngine_SelectVertex_Call) RunAndReturn(run func(common.TxnID, VertexSystemID, Index, Schema) (VertexSystemFields, map[string]interface{}, error)) *MockStorageEngine_SelectVertex_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // UpdateEdge provides a mock function with given fields: txnID, edgeID, edgeFields, edgesFileToken, edgeSystemIndex, schema, ctxLogger
-func (_m *MockStorageEngine) UpdateEdge(txnID common.TxnID, edgeID EdgeInternalID, edgeFields map[string]interface{}, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, schema Schema, ctxLogger common.ITxnLoggerWithContext) error {
+func (_m *MockStorageEngine) UpdateEdge(txnID common.TxnID, edgeID EdgeSystemID, edgeFields map[string]interface{}, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, schema Schema, ctxLogger common.ITxnLoggerWithContext) error {
 	ret := _m.Called(txnID, edgeID, edgeFields, edgesFileToken, edgeSystemIndex, schema, ctxLogger)
 
 	if len(ret) == 0 {
@@ -2137,7 +2161,7 @@ func (_m *MockStorageEngine) UpdateEdge(txnID common.TxnID, edgeID EdgeInternalI
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, EdgeInternalID, map[string]interface{}, *txns.FileLockToken, Index, Schema, common.ITxnLoggerWithContext) error); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID, EdgeSystemID, map[string]interface{}, *txns.FileLockToken, Index, Schema, common.ITxnLoggerWithContext) error); ok {
 		r0 = rf(txnID, edgeID, edgeFields, edgesFileToken, edgeSystemIndex, schema, ctxLogger)
 	} else {
 		r0 = ret.Error(0)
@@ -2153,7 +2177,7 @@ type MockStorageEngine_UpdateEdge_Call struct {
 
 // UpdateEdge is a helper method to define mock.On call
 //   - txnID common.TxnID
-//   - edgeID EdgeInternalID
+//   - edgeID EdgeSystemID
 //   - edgeFields map[string]interface{}
 //   - edgesFileToken *txns.FileLockToken
 //   - edgeSystemIndex Index
@@ -2163,9 +2187,9 @@ func (_e *MockStorageEngine_Expecter) UpdateEdge(txnID interface{}, edgeID inter
 	return &MockStorageEngine_UpdateEdge_Call{Call: _e.mock.On("UpdateEdge", txnID, edgeID, edgeFields, edgesFileToken, edgeSystemIndex, schema, ctxLogger)}
 }
 
-func (_c *MockStorageEngine_UpdateEdge_Call) Run(run func(txnID common.TxnID, edgeID EdgeInternalID, edgeFields map[string]interface{}, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, schema Schema, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_UpdateEdge_Call {
+func (_c *MockStorageEngine_UpdateEdge_Call) Run(run func(txnID common.TxnID, edgeID EdgeSystemID, edgeFields map[string]interface{}, edgesFileToken *txns.FileLockToken, edgeSystemIndex Index, schema Schema, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_UpdateEdge_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(EdgeInternalID), args[2].(map[string]interface{}), args[3].(*txns.FileLockToken), args[4].(Index), args[5].(Schema), args[6].(common.ITxnLoggerWithContext))
+		run(args[0].(common.TxnID), args[1].(EdgeSystemID), args[2].(map[string]interface{}), args[3].(*txns.FileLockToken), args[4].(Index), args[5].(Schema), args[6].(common.ITxnLoggerWithContext))
 	})
 	return _c
 }
@@ -2175,13 +2199,13 @@ func (_c *MockStorageEngine_UpdateEdge_Call) Return(_a0 error) *MockStorageEngin
 	return _c
 }
 
-func (_c *MockStorageEngine_UpdateEdge_Call) RunAndReturn(run func(common.TxnID, EdgeInternalID, map[string]interface{}, *txns.FileLockToken, Index, Schema, common.ITxnLoggerWithContext) error) *MockStorageEngine_UpdateEdge_Call {
+func (_c *MockStorageEngine_UpdateEdge_Call) RunAndReturn(run func(common.TxnID, EdgeSystemID, map[string]interface{}, *txns.FileLockToken, Index, Schema, common.ITxnLoggerWithContext) error) *MockStorageEngine_UpdateEdge_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // UpdateVertex provides a mock function with given fields: txnID, vertexID, newData, schema, vertexFileToken, vertexIndex, ctxLogger
-func (_m *MockStorageEngine) UpdateVertex(txnID common.TxnID, vertexID VertexInternalID, newData map[string]interface{}, schema Schema, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext) error {
+func (_m *MockStorageEngine) UpdateVertex(txnID common.TxnID, vertexID VertexSystemID, newData map[string]interface{}, schema Schema, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext) error {
 	ret := _m.Called(txnID, vertexID, newData, schema, vertexFileToken, vertexIndex, ctxLogger)
 
 	if len(ret) == 0 {
@@ -2189,7 +2213,7 @@ func (_m *MockStorageEngine) UpdateVertex(txnID common.TxnID, vertexID VertexInt
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(common.TxnID, VertexInternalID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
+	if rf, ok := ret.Get(0).(func(common.TxnID, VertexSystemID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error); ok {
 		r0 = rf(txnID, vertexID, newData, schema, vertexFileToken, vertexIndex, ctxLogger)
 	} else {
 		r0 = ret.Error(0)
@@ -2205,7 +2229,7 @@ type MockStorageEngine_UpdateVertex_Call struct {
 
 // UpdateVertex is a helper method to define mock.On call
 //   - txnID common.TxnID
-//   - vertexID VertexInternalID
+//   - vertexID VertexSystemID
 //   - newData map[string]interface{}
 //   - schema Schema
 //   - vertexFileToken *txns.FileLockToken
@@ -2215,9 +2239,9 @@ func (_e *MockStorageEngine_Expecter) UpdateVertex(txnID interface{}, vertexID i
 	return &MockStorageEngine_UpdateVertex_Call{Call: _e.mock.On("UpdateVertex", txnID, vertexID, newData, schema, vertexFileToken, vertexIndex, ctxLogger)}
 }
 
-func (_c *MockStorageEngine_UpdateVertex_Call) Run(run func(txnID common.TxnID, vertexID VertexInternalID, newData map[string]interface{}, schema Schema, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_UpdateVertex_Call {
+func (_c *MockStorageEngine_UpdateVertex_Call) Run(run func(txnID common.TxnID, vertexID VertexSystemID, newData map[string]interface{}, schema Schema, vertexFileToken *txns.FileLockToken, vertexIndex Index, ctxLogger common.ITxnLoggerWithContext)) *MockStorageEngine_UpdateVertex_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(common.TxnID), args[1].(VertexInternalID), args[2].(map[string]interface{}), args[3].(Schema), args[4].(*txns.FileLockToken), args[5].(Index), args[6].(common.ITxnLoggerWithContext))
+		run(args[0].(common.TxnID), args[1].(VertexSystemID), args[2].(map[string]interface{}), args[3].(Schema), args[4].(*txns.FileLockToken), args[5].(Index), args[6].(common.ITxnLoggerWithContext))
 	})
 	return _c
 }
@@ -2227,7 +2251,7 @@ func (_c *MockStorageEngine_UpdateVertex_Call) Return(_a0 error) *MockStorageEng
 	return _c
 }
 
-func (_c *MockStorageEngine_UpdateVertex_Call) RunAndReturn(run func(common.TxnID, VertexInternalID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error) *MockStorageEngine_UpdateVertex_Call {
+func (_c *MockStorageEngine_UpdateVertex_Call) RunAndReturn(run func(common.TxnID, VertexSystemID, map[string]interface{}, Schema, *txns.FileLockToken, Index, common.ITxnLoggerWithContext) error) *MockStorageEngine_UpdateVertex_Call {
 	_c.Call.Return(run)
 	return _c
 }

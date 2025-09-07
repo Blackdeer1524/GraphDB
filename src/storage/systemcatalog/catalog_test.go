@@ -26,7 +26,8 @@ func newTestCatalogManager(t *testing.T) (*Manager, afero.Fs, bufferpool.BufferP
 	dm := disk.New(
 		map[common.FileID]string{CatalogVersionFileID: versionFilePath},
 		func(_ common.FileID, _ common.PageID) *page.SlottedPage { return page.NewSlottedPage() },
-		fs)
+		fs,
+	)
 	replacer := bufferpool.NewLRUReplacer()
 	pool := bufferpool.New(8, replacer, dm)
 
@@ -289,53 +290,6 @@ func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestCatalogManager_SimpleRollback(t *testing.T) {
-	m, _, _, basePath := newTestCatalogManager(t)
-	m.GetBasePath()
-
-	require.NoError(t, m.AddVertexTable(storage.VertexTableMeta{
-		Name:       "users",
-		FileID:     m.GetNewFileID(),
-		PathToFile: filepath.Join(basePath, "users.dat"),
-		Schema:     storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
-	}))
-
-	require.NoError(t, m.Load())
-	exists, err := m.VertexTableExists("users")
-	require.NoError(t, err)
-	require.False(t, exists)
-	require.Equal(t, m.CurrentVersion(), uint64(0))
-}
-
-func TestCatalogManager_VersionRollback(t *testing.T) {
-	m, _, _, basePath := newTestCatalogManager(t)
-	m.GetBasePath()
-
-	require.NoError(t, m.AddVertexTable(storage.VertexTableMeta{
-		Name:       "users",
-		FileID:     m.GetNewFileID(),
-		PathToFile: filepath.Join(basePath, "users.dat"),
-		Schema:     storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
-	}))
-
-	logger := newMockCtxLogger(t)
-	require.NoError(t, m.CommitChanges(logger))
-
-	exists, err := m.VertexTableExists("users")
-	require.NoError(t, err)
-	require.True(t, exists)
-	require.Equal(t, uint64(1), m.CurrentVersion())
-
-	// rollback
-	m.masterVersion = 0
-
-	require.NoError(t, m.Load())
-	assert.Equal(t, uint64(0), m.CurrentVersion())
-	exists, err = m.VertexTableExists("users")
-	assert.NoError(t, err)
-	assert.False(t, exists)
-}
-
 func TestCatalogManager_DropEntities_ReadsAfterLoad(t *testing.T) {
 	m, _, _, basePath := newTestCatalogManager(t)
 
@@ -427,4 +381,51 @@ func TestCatalogManager_DropEntities_ReadsAfterLoad(t *testing.T) {
 	exists, err = m.DirTableExists(vtID)
 	require.NoError(t, err)
 	require.False(t, exists)
+}
+
+func TestCatalogManager_SimpleRollback(t *testing.T) {
+	m, _, _, basePath := newTestCatalogManager(t)
+	m.GetBasePath()
+
+	require.NoError(t, m.AddVertexTable(storage.VertexTableMeta{
+		Name:       "users",
+		FileID:     m.GetNewFileID(),
+		PathToFile: filepath.Join(basePath, "users.dat"),
+		Schema:     storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
+	}))
+
+	require.NoError(t, m.Load())
+	exists, err := m.VertexTableExists("users")
+	require.NoError(t, err)
+	require.False(t, exists)
+	require.Equal(t, m.CurrentVersion(), uint64(0))
+}
+
+func TestCatalogManager_VersionRollback(t *testing.T) {
+	m, _, _, basePath := newTestCatalogManager(t)
+	m.GetBasePath()
+
+	require.NoError(t, m.AddVertexTable(storage.VertexTableMeta{
+		Name:       "users",
+		FileID:     m.GetNewFileID(),
+		PathToFile: filepath.Join(basePath, "users.dat"),
+		Schema:     storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
+	}))
+
+	logger := newMockCtxLogger(t)
+	require.NoError(t, m.CommitChanges(logger))
+
+	exists, err := m.VertexTableExists("users")
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, uint64(1), m.CurrentVersion())
+
+	// rollback
+	m.masterVersion = 0
+
+	require.NoError(t, m.Load())
+	assert.Equal(t, uint64(0), m.CurrentVersion())
+	exists, err = m.VertexTableExists("users")
+	assert.NoError(t, err)
+	assert.False(t, exists)
 }

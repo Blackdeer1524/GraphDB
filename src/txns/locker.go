@@ -16,13 +16,13 @@ type ILockManager interface {
 	Unlock(txnID common.TxnID)
 	UpgradeCatalogLock(t *CatalogLockToken, lockMode GranularLockMode) bool
 	UpgradeFileLock(ft *FileLockToken, lockMode GranularLockMode) bool
-	UpgradePageLock(pt *PageLockToken) bool
+	UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) bool
 }
 
 type LockManager struct {
-	catalogLockManager *lockManager[GranularLockMode, struct{}]
-	fileLockManager    *lockManager[GranularLockMode, common.FileID] // for indexes and tables
-	pageLockManager    *lockManager[PageLockMode, common.PageIdentity]
+	catalogLockManager *lockGranularityManager[GranularLockMode, struct{}]
+	fileLockManager    *lockGranularityManager[GranularLockMode, common.FileID] // for indexes and tables
+	pageLockManager    *lockGranularityManager[PageLockMode, common.PageIdentity]
 }
 
 var _ ILockManager = &LockManager{}
@@ -116,8 +116,8 @@ func NewNilFileLockToken(ct *CatalogLockToken, fileID common.FileID) *FileLockTo
 	}
 }
 
-func (t *FileLockToken) IsNil() bool {
-	return !t.wasSetUp
+func (t *FileLockToken) WasSetUp() bool {
+	return t.wasSetUp
 }
 
 func (t *FileLockToken) GetTxnID() common.TxnID {
@@ -133,7 +133,7 @@ func (f *FileLockToken) GetCatalogLockToken() *CatalogLockToken {
 }
 
 func (t *FileLockToken) String() string {
-	if t.IsNil() {
+	if !t.WasSetUp() {
 		return "FileLockToken{nil}"
 	}
 	return fmt.Sprintf(
@@ -169,12 +169,12 @@ type PageLockToken struct {
 	pageID   common.PageIdentity
 }
 
-func (t *PageLockToken) IsNil() bool {
-	return !t.wasSetUp
+func (t *PageLockToken) WasSetUp() bool {
+	return t.wasSetUp
 }
 
 func (t *PageLockToken) String() string {
-	if t.IsNil() {
+	if !t.WasSetUp() {
 		return "PageLockToken{nil}"
 	}
 
@@ -235,7 +235,7 @@ func (l *LockManager) LockCatalog(
 }
 
 func (l *LockManager) LockFile(
-	t *CatalogLockToken,
+	ct *CatalogLockToken,
 	fileID common.FileID,
 	lockMode GranularLockMode,
 ) *FileLockToken {
@@ -243,15 +243,15 @@ func (l *LockManager) LockFile(
 	case GranularLockIntentionShared,
 		GranularLockIntentionExclusive,
 		GranularLockSharedIntentionExclusive:
-		if !l.UpgradeCatalogLock(t, lockMode) {
+		if !l.UpgradeCatalogLock(ct, lockMode) {
 			return nil
 		}
 	case GranularLockShared:
-		if !l.UpgradeCatalogLock(t, GranularLockIntentionShared) {
+		if !l.UpgradeCatalogLock(ct, GranularLockIntentionShared) {
 			return nil
 		}
 	case GranularLockExclusive:
-		if !l.UpgradeCatalogLock(t, GranularLockIntentionExclusive) {
+		if !l.UpgradeCatalogLock(ct, GranularLockIntentionExclusive) {
 			return nil
 		}
 	default:
@@ -260,7 +260,7 @@ func (l *LockManager) LockFile(
 	}
 
 	n := l.fileLockManager.Lock(TxnLockRequest[GranularLockMode, common.FileID]{
-		txnID:    t.txnID,
+		txnID:    ct.txnID,
 		objectId: fileID,
 		lockMode: lockMode,
 	})
@@ -268,7 +268,7 @@ func (l *LockManager) LockFile(
 		return nil
 	}
 	<-n
-	return newFileLockToken(fileID, lockMode, t)
+	return newFileLockToken(fileID, lockMode, ct)
 }
 
 func (l *LockManager) LockPage(
@@ -347,37 +347,7 @@ func (l *LockManager) UpgradeFileLock(
 	ft *FileLockToken,
 	lockMode GranularLockMode,
 ) bool {
-	if !ft.IsNil() && (lockMode.Upgradable(ft.lockMode) || lockMode.Equal(ft.lockMode)) {
-		return true
-	}
-
-	switch lockMode {
-	case GranularLockIntentionShared,
-		GranularLockIntentionExclusive,
-		GranularLockSharedIntentionExclusive:
-		if !l.UpgradeCatalogLock(ft.ct, lockMode) {
-			return false
-		}
-	case GranularLockShared:
-		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionShared) {
-			return false
-		}
-	case GranularLockExclusive:
-		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionExclusive) {
-			return false
-		}
-	default:
-		assert.Assert(false, "invalid lock mode %v", lockMode)
-		return false
-	}
-
-	req := TxnLockRequest[GranularLockMode, common.FileID]{
-		txnID:    ft.txnID,
-		objectId: ft.fileID,
-		lockMode: lockMode,
-	}
-
-	if ft.IsNil() {
+	if !ft.WasSetUp() {
 		innerFt := l.LockFile(ft.ct, ft.fileID, lockMode)
 		if innerFt == nil {
 			return false
@@ -386,6 +356,15 @@ func (l *LockManager) UpgradeFileLock(
 		return true
 	}
 
+	if lockMode.Upgradable(ft.lockMode) || lockMode.Equal(ft.lockMode) {
+		return true
+	}
+
+	req := TxnLockRequest[GranularLockMode, common.FileID]{
+		txnID:    ft.txnID,
+		objectId: ft.fileID,
+		lockMode: lockMode,
+	}
 	n := l.fileLockManager.Upgrade(req)
 	if n == nil {
 		return false
@@ -394,23 +373,9 @@ func (l *LockManager) UpgradeFileLock(
 	return true
 }
 
-func (l *LockManager) UpgradePageLock(pt *PageLockToken) bool {
-	if !pt.IsNil() && pt.lockMode.Equal(PageLockExclusive) {
-		return true
-	}
-
-	if !l.UpgradeFileLock(pt.ft, GranularLockIntentionExclusive) {
-		return false
-	}
-
-	req := TxnLockRequest[PageLockMode, common.PageIdentity]{
-		txnID:    pt.txnID,
-		objectId: pt.pageID,
-		lockMode: PageLockExclusive,
-	}
-
-	if pt.IsNil() {
-		innerPt := l.LockPage(pt.ft, pt.pageID.PageID, PageLockExclusive)
+func (l *LockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) bool {
+	if !pt.WasSetUp() {
+		innerPt := l.LockPage(pt.ft, pt.pageID.PageID, lockMode)
 		if innerPt == nil {
 			return false
 		}
@@ -418,6 +383,15 @@ func (l *LockManager) UpgradePageLock(pt *PageLockToken) bool {
 		return true
 	}
 
+	if lockMode.Upgradable(pt.lockMode) || lockMode.Equal(pt.lockMode) {
+		return true
+	}
+
+	req := TxnLockRequest[PageLockMode, common.PageIdentity]{
+		txnID:    pt.txnID,
+		objectId: pt.pageID,
+		lockMode: lockMode,
+	}
 	n := l.pageLockManager.Upgrade(req)
 	if n == nil {
 		return false

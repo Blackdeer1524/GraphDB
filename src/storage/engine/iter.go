@@ -105,7 +105,7 @@ func (e *edgesIter) getAndMoveForward() (bool, utils.Pair[common.RecordID, stora
 		First: rid.R,
 		Second: storage.Edge{
 			EdgeSystemFields: edgeSystemFields,
-			Data:               edgeFields,
+			Data:             edgeFields,
 		},
 	}
 
@@ -226,12 +226,12 @@ func (d *dirItemsIter) Seq() iter.Seq[utils.Pair[storage.DirectoryItem, error]] 
 }
 
 type neighboursEdgesIter struct {
-	se                *StorageEngine
-	startVertID       storage.VertexSystemID
-	edgeFilter        storage.EdgeFilter
-	vertTableToken    *txns.FileLockToken
+	se              *StorageEngine
+	startVertID     storage.VertexSystemID
+	edgeFilter      storage.EdgeFilter
+	vertTableToken  *txns.FileLockToken
 	vertSystemIndex storage.Index
-	logger            common.ITxnLoggerWithContext
+	logger          common.ITxnLoggerWithContext
 }
 
 var _ storage.NeighborEdgesIter = &neighboursEdgesIter{}
@@ -245,11 +245,11 @@ func newNeighboursEdgesIter(
 	logger common.ITxnLoggerWithContext,
 ) *neighboursEdgesIter {
 	iter := &neighboursEdgesIter{
-		se:                se,
-		logger:            logger,
-		startVertID:       startVertID,
-		edgeFilter:        edgeFilter,
-		vertTableToken:    vertTableToken,
+		se:              se,
+		logger:          logger,
+		startVertID:     startVertID,
+		edgeFilter:      edgeFilter,
+		vertTableToken:  vertTableToken,
 		vertSystemIndex: vertSystemIndex,
 	}
 	return iter
@@ -591,7 +591,7 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 
 			vertex := storage.Vertex{
 				VertexSystemFields: vertexSystemFields,
-				Data:                 vertexFields,
+				Data:               vertexFields,
 			}
 
 			if !i.vertexFilter(&vertex) {
@@ -698,7 +698,7 @@ func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, st
 					}
 					vertex := storage.Vertex{
 						VertexSystemFields: vertexSystemFields,
-						Data:                 vertexFields,
+						Data:               vertexFields,
 					}
 					if !iter.vertexFilter(&vertex) {
 						continue

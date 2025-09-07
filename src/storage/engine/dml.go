@@ -775,7 +775,7 @@ func (s *StorageEngine) insertDirectoryItem(
 	)
 	dirItem := storage.DirectoryItem{
 		DirectoryItemSystemFields: dirItemSystemFields,
-		DirectoryItemGraphFields:    dirItemGraphFields,
+		DirectoryItemGraphFields:  dirItemGraphFields,
 	}
 	directoryRecordBytes, err := serializeDirectoryRecord(dirItem)
 	if err != nil {

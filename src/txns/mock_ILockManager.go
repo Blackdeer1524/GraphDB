@@ -296,17 +296,17 @@ func (_c *MockILockManager_UpgradeFileLock_Call) RunAndReturn(run func(*FileLock
 	return _c
 }
 
-// UpgradePageLock provides a mock function with given fields: pt
-func (_m *MockILockManager) UpgradePageLock(pt *PageLockToken) bool {
-	ret := _m.Called(pt)
+// UpgradePageLock provides a mock function with given fields: pt, lockMode
+func (_m *MockILockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) bool {
+	ret := _m.Called(pt, lockMode)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpgradePageLock")
 	}
 
 	var r0 bool
-	if rf, ok := ret.Get(0).(func(*PageLockToken) bool); ok {
-		r0 = rf(pt)
+	if rf, ok := ret.Get(0).(func(*PageLockToken, PageLockMode) bool); ok {
+		r0 = rf(pt, lockMode)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
@@ -321,13 +321,14 @@ type MockILockManager_UpgradePageLock_Call struct {
 
 // UpgradePageLock is a helper method to define mock.On call
 //   - pt *PageLockToken
-func (_e *MockILockManager_Expecter) UpgradePageLock(pt interface{}) *MockILockManager_UpgradePageLock_Call {
-	return &MockILockManager_UpgradePageLock_Call{Call: _e.mock.On("UpgradePageLock", pt)}
+//   - lockMode PageLockMode
+func (_e *MockILockManager_Expecter) UpgradePageLock(pt interface{}, lockMode interface{}) *MockILockManager_UpgradePageLock_Call {
+	return &MockILockManager_UpgradePageLock_Call{Call: _e.mock.On("UpgradePageLock", pt, lockMode)}
 }
 
-func (_c *MockILockManager_UpgradePageLock_Call) Run(run func(pt *PageLockToken)) *MockILockManager_UpgradePageLock_Call {
+func (_c *MockILockManager_UpgradePageLock_Call) Run(run func(pt *PageLockToken, lockMode PageLockMode)) *MockILockManager_UpgradePageLock_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*PageLockToken))
+		run(args[0].(*PageLockToken), args[1].(PageLockMode))
 	})
 	return _c
 }
@@ -337,7 +338,7 @@ func (_c *MockILockManager_UpgradePageLock_Call) Return(_a0 bool) *MockILockMana
 	return _c
 }
 
-func (_c *MockILockManager_UpgradePageLock_Call) RunAndReturn(run func(*PageLockToken) bool) *MockILockManager_UpgradePageLock_Call {
+func (_c *MockILockManager_UpgradePageLock_Call) RunAndReturn(run func(*PageLockToken, PageLockMode) bool) *MockILockManager_UpgradePageLock_Call {
 	_c.Call.Return(run)
 	return _c
 }

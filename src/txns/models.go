@@ -181,7 +181,14 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 			return false
 		}
 	case GranularLockIntentionExclusive:
-		return false // Cannot upgrade from intention exclusive in 2PL
+		switch to {
+		case GranularLockExclusive:
+			return true
+		case GranularLockSharedIntentionExclusive:
+			return true
+		default:
+			return false
+		}
 	case GranularLockShared:
 		switch to {
 		case GranularLockSharedIntentionExclusive:

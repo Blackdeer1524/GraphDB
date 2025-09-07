@@ -296,7 +296,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 
 	assert.Assert(
 		acquiredLockMode.Upgradable(r.lockMode),
-		"can only upgrade to a compatible lock mode. given: %#v -> %#v",
+		"can only upgrade to a compatible lock mode. given: %s -> %s",
 		acquiredLockMode,
 		r.lockMode)
 

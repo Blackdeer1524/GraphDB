@@ -11,10 +11,6 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-type sysCatAdapter struct{ *storage.MockSystemCatalog }
-
-func (a *sysCatAdapter) CurrentVersion() uint64 { return 0 }
-
 func newTestEngineWithMockCatalog(
 	t *testing.T,
 ) (*StorageEngine, *storage.MockSystemCatalog, *txns.LockManager) {
@@ -25,7 +21,7 @@ func newTestEngineWithMockCatalog(
 		return storage.NewMockIndex(t), nil
 	}
 
-	eng := newInjectedEngine(&sysCatAdapter{cat}, nil, nil, locker, fs, indexLoader)
+	eng := newInjectedEngine(cat, nil, nil, locker, fs, indexLoader)
 	return eng, cat, locker
 }
 
@@ -193,7 +189,7 @@ func TestStorageEngine_GetVertexTableMetaByFileID_LoadOrder(t *testing.T) {
 	fileID := common.FileID(88)
 
 	// Note: current implementation resolves via edge lookups and returns EdgeTableMeta
-	expected := storage.EdgeTableMeta{Name: "edges_by_vertex_id"}
+	expected := storage.VertexTableMeta{Name: "edges_by_vertex_id"}
 	step := 0
 	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
 	cat.EXPECT().
@@ -202,7 +198,7 @@ func TestStorageEngine_GetVertexTableMetaByFileID_LoadOrder(t *testing.T) {
 		Return("edges_by_vertex_id", nil).
 		Once()
 	cat.EXPECT().
-		GetEdgeTableMeta("edges_by_vertex_id").
+		GetVertexTableMeta("edges_by_vertex_id").
 		Run(func(_ string) { require.Equal(t, 2, step); step = 3 }).
 		Return(expected, nil).
 		Once()

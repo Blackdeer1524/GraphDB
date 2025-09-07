@@ -4,14 +4,18 @@ MAIN := cmd/server/main.go
 PKG := `go list -mod=mod -f {{.Dir}} ./...`
 
 all: build
-init: mod-tidy install-gci install-lint
+init: mod-tidy install-gci install-lint mockery
 
 run: lint build
 	@echo "Starting app..."
 	./bin/$(NAME) $(RUNFLAGS) start
 
+mockery: 
+	@find . -type f -name 'mock_*' | xargs rm
+	@mockery
+
 .PHONY: build
-build:
+build: init
 	@mkdir -p bin
 	@go build -mod=mod -o bin/$(NAME) $(MAIN)
 
