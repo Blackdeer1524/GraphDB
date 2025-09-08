@@ -40,6 +40,7 @@ func TestLockManagerNilFileLockToken(t *testing.T) {
 			test.expectedCatalogLockMode.String(),
 		)
 		t.Run(name, func(t *testing.T) {
+			defer l.Unlock(common.TxnID(i))
 			cToken := NewNilCatalogLockToken(common.TxnID(i))
 			fToken := NewNilFileLockToken(cToken, common.FileID(i))
 

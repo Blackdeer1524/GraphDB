@@ -121,16 +121,9 @@ func NewTxnLogger(pool bufferpool.BufferPool, logfileID common.FileID) *txnLogge
 	l.firstDirtyPage = checkpointLocation.Location.PageID
 	l.curPage = checkpointLocation.Location.PageID
 
-	checkpointPageIdent := common.PageIdentity{
-		FileID: l.logfileID,
-		PageID: checkpointLocation.Location.PageID,
+	if !checkpointLocation.IsNil() {
+		l.Recover()
 	}
-	if checkpointLocation.IsNil() {
-		pool.Unpin(checkpointPageIdent)
-		return l
-	}
-	pool.Unpin(checkpointPageIdent)
-	l.Recover()
 	return l
 }
 

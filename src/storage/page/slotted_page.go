@@ -101,6 +101,18 @@ func (p *SlottedPage) UnsafeClear() {
 	p.setupHeader()
 }
 
+func (p *SlottedPage) Clear() {
+	h := p.getHeader()
+
+	h.pageLSN = common.NilLSN
+
+	h.freeStart = uint16(unsafe.Sizeof(header{}))
+	h.freeEnd = PageSize
+
+	h.slotsCount = 0
+	h.slots = slotPointer(0)
+}
+
 func (p *SlottedPage) PageLSN() common.LSN {
 	header := p.getHeader()
 	return header.pageLSN

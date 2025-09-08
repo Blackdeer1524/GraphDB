@@ -555,15 +555,12 @@ func (s *StorageEngine) buildEdgeIndex(
 		if err != nil {
 			return fmt.Errorf("unable to destruct edge: %w", err)
 		}
-		
-		for _, col := range indexMeta.Columns {
 
+		data, err := extractEdgeColumns(edge, indexMeta.Columns)
+		if err != nil {
+			return fmt.Errorf("unable to extract edge columns: %w", err)
 		}
 
-		
-		
-		
-		indexMeta.Columns
 	}
 
 	return nil

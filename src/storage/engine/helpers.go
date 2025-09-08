@@ -345,6 +345,7 @@ func extractVertexColumns(vertex storage.Vertex, columns []string) ([]byte, erro
 			}
 			continue
 		}
+
 		value, exists := vertex.Data[colName]
 		if !exists {
 			continue

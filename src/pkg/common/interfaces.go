@@ -9,7 +9,7 @@ type ITxnLogger interface {
 }
 
 type ITxnLoggerWithContext interface {
-	GetTxnID() TxnID // WARN: DON'T USE THIS METHOD FOR LOCKING PURPOSES!!
+	GetTxnID() TxnID // WARN: DON'T USE THIS METHOD IN LockManager!
 	AppendBegin() error
 	AppendInsert(recordID RecordID, value []byte) (LogRecordLocInfo, error)
 	AppendUpdate(recordID RecordID, before []byte, after []byte) (LogRecordLocInfo, error)

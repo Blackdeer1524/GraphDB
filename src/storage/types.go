@@ -512,4 +512,5 @@ type Index interface {
 	Get(key []byte) (common.RecordID, error)
 	Delete(key []byte) error
 	Insert(key []byte, rid common.RecordID) error
+	Close() error
 }
