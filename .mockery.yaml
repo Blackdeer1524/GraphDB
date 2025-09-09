@@ -22,6 +22,6 @@ packages:
       outpkg: "{{.PackageName}}"
       inpackage: true
     interfaces:
-      StorageEngine:
+      Engine:
       SystemCatalog:
       Index:

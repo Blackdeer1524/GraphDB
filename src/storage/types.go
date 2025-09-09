@@ -292,7 +292,6 @@ type Engine interface {
 		indexName string,
 		tableName string,
 		columns []string,
-		keyBytesCnt uint32,
 		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) error
@@ -308,7 +307,6 @@ type Engine interface {
 		indexName string,
 		tableName string,
 		columns []string,
-		keyBytesCnt uint32,
 		cToken *txns.CatalogLockToken,
 		logger common.ITxnLoggerWithContext,
 	) error

@@ -348,7 +348,7 @@ func extractVertexColumns(vertex storage.Vertex, columns []string) ([]byte, erro
 
 		value, exists := vertex.Data[colName]
 		if !exists {
-			continue
+			return nil, fmt.Errorf("missing value for column %s", colName)
 		}
 
 		switch v := value.(type) {
@@ -389,9 +389,10 @@ func extractEdgeColumns(edge storage.Edge, columns []string) ([]byte, error) {
 				return nil, fmt.Errorf("failed to write edge ID: %w", err)
 			}
 		}
+
 		value, exists := edge.Data[colName]
 		if !exists {
-			continue
+			return nil, fmt.Errorf("missing value for column %s", colName)
 		}
 
 		switch v := value.(type) {

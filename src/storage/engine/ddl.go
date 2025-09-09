@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
@@ -422,7 +423,7 @@ func (s *StorageEngine) CreateVertexTableIndex(
 
 	basePath := s.catalog.GetBasePath()
 	fileID := s.catalog.GetNewFileID()
-	tableFilePath := getVertexTableIndexFilePath(basePath, indexName)
+	indexFilePath := getVertexTableIndexFilePath(basePath, indexName)
 	ok, err := s.catalog.VertexIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
@@ -431,18 +432,36 @@ func (s *StorageEngine) CreateVertexTableIndex(
 		return fmt.Errorf("index %s already exists", indexName)
 	}
 
-	err = prepareFSforTable(s.fs, tableFilePath)
+	vertexTableMeta, err := s.catalog.GetVertexTableMeta(tableName)
+	if err != nil {
+		return err
+	}
+
+	schemaMap := make(map[string]storage.ColumnType)
+	for _, col := range vertexTableMeta.Schema {
+		if _, ok := schemaMap[col.Name]; ok {
+			assert.Assert(false, "duplicate column name: %s", col.Name)
+		}
+		schemaMap[col.Name] = col.Type
+	}
+
+	calculatedKeyBytesCnt := uint32(0)
+	for _, colName := range columns {
+		calculatedKeyBytesCnt += uint32(schemaMap[colName].Size())
+	}
+
+	err = prepareFSforTable(s.fs, indexFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to prepare file system for table: %w", err)
 	}
 
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
-		PathToFile:  tableFilePath,
+		PathToFile:  indexFilePath,
 		FileID:      fileID,
 		TableName:   tableName,
 		Columns:     columns,
-		KeyBytesCnt: keyBytesCnt,
+		KeyBytesCnt: calculatedKeyBytesCnt,
 	}
 	err = s.catalog.AddVertexIndex(idxCreateReq)
 	if err != nil {
@@ -453,7 +472,13 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	s.diskMgrInsertToFileMap(common.FileID(fileID), tableFilePath)
+	s.diskMgrInsertToFileMap(common.FileID(fileID), indexFilePath)
+
+	err = s.buildVertexIndex(txnID, vertexTableMeta.FileID, idxCreateReq, cToken, logger)
+	if err != nil {
+		return fmt.Errorf("unable to build index: %w", err)
+	}
+
 	return nil
 }
 
@@ -482,7 +507,6 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	indexName string,
 	tableName string,
 	columns []string,
-	keyBytesCnt uint32,
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
@@ -496,7 +520,7 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	}
 
 	basePath := s.catalog.GetBasePath()
-	fileID := s.catalog.GetNewFileID()
+	indexFileID := s.catalog.GetNewFileID()
 	indexFilePath := getEdgeTableIndexFilePath(basePath, indexName)
 	ok, err := s.catalog.EdgeIndexExists(indexName)
 	if err != nil {
@@ -504,6 +528,24 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	}
 	if ok {
 		return fmt.Errorf("index %s already exists", indexName)
+	}
+
+	edgeTableMeta, err := s.catalog.GetEdgeTableMeta(tableName)
+	if err != nil {
+		return err
+	}
+
+	schemaMap := make(map[string]storage.ColumnType)
+	for _, col := range edgeTableMeta.Schema {
+		if _, ok := schemaMap[col.Name]; ok {
+			assert.Assert(false, "duplicate column name: %s", col.Name)
+		}
+		schemaMap[col.Name] = col.Type
+	}
+
+	keyBytesCnt := uint32(0)
+	for _, colName := range columns {
+		keyBytesCnt += uint32(schemaMap[colName].Size())
 	}
 
 	err = prepareFSforTable(s.fs, indexFilePath)
@@ -514,7 +556,7 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
 		PathToFile:  indexFilePath,
-		FileID:      fileID,
+		FileID:      indexFileID,
 		TableName:   tableName,
 		Columns:     columns,
 		KeyBytesCnt: keyBytesCnt,
@@ -528,9 +570,9 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	s.diskMgrInsertToFileMap(common.FileID(fileID), indexFilePath)
+	s.diskMgrInsertToFileMap(common.FileID(indexFileID), indexFilePath)
 
-	err = s.buildEdgeIndex(txnID, idxCreateReq, cToken, logger)
+	err = s.buildEdgeIndex(txnID, edgeTableMeta.FileID, idxCreateReq, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to build index: %w", err)
 	}
@@ -540,27 +582,87 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 
 func (s *StorageEngine) buildEdgeIndex(
 	txnID common.TxnID,
+	edgeTableFileID common.FileID,
 	indexMeta storage.IndexMeta,
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	edgeTableToken := txns.NewNilFileLockToken(cToken, indexMeta.FileID)
-
+	edgeTableToken := txns.NewNilFileLockToken(cToken, edgeTableFileID)
 	edgesIter, err := s.GetAllEdges(txnID, edgeTableToken)
 	if err != nil {
 		return fmt.Errorf("unable to get all edges: %w", err)
 	}
+	defer edgesIter.Close()
+
+	index, err := s.loadIndex(indexMeta, s.pool, s.locker, logger)
+	if err != nil {
+		return fmt.Errorf("unable to load index: %w", err)
+	}
+	defer index.Close()
+
 	for ridEdgeErr := range edgesIter.Seq() {
 		edgeRID, edge, err := ridEdgeErr.Destruct()
 		if err != nil {
 			return fmt.Errorf("unable to destruct edge: %w", err)
 		}
 
-		data, err := extractEdgeColumns(edge, indexMeta.Columns)
+		key, err := extractEdgeColumns(edge, indexMeta.Columns)
 		if err != nil {
 			return fmt.Errorf("unable to extract edge columns: %w", err)
 		}
 
+		assert.Assert(
+			len(key) == int(indexMeta.KeyBytesCnt),
+			"extracted edge columns length doesn't match index key bytes count",
+		)
+
+		if err := index.Insert(key, edgeRID); err != nil {
+			return fmt.Errorf("unable to insert edge record: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *StorageEngine) buildVertexIndex(
+	txnID common.TxnID,
+	vertexTableFileID common.FileID,
+	indexMeta storage.IndexMeta,
+	cToken *txns.CatalogLockToken,
+	logger common.ITxnLoggerWithContext,
+) error {
+	vertexTableToken := txns.NewNilFileLockToken(cToken, vertexTableFileID)
+	verticesIter, err := s.GetAllVertices(txnID, vertexTableToken)
+	if err != nil {
+		return fmt.Errorf("unable to get all vertices: %w", err)
+	}
+	defer verticesIter.Close()
+
+	index, err := s.loadIndex(indexMeta, s.pool, s.locker, logger)
+	if err != nil {
+		return fmt.Errorf("unable to load index: %w", err)
+	}
+	defer index.Close()
+
+	for ridVertexErr := range verticesIter.Seq() {
+		vertexRID, vertex, err := ridVertexErr.Destruct()
+		if err != nil {
+			return fmt.Errorf("unable to destruct vertex: %w", err)
+		}
+
+		key, err := extractVertexColumns(vertex, indexMeta.Columns)
+		if err != nil {
+			return fmt.Errorf("unable to extract vertex columns: %w", err)
+		}
+
+		assert.Assert(
+			len(key) == int(indexMeta.KeyBytesCnt),
+			"extracted vertex columns length doesn't match index key bytes count",
+		)
+
+		if err := index.Insert(key, vertexRID); err != nil {
+			return fmt.Errorf("unable to insert vertex record: %w", err)
+		}
 	}
 
 	return nil
@@ -574,13 +676,11 @@ func (s *StorageEngine) createSystemEdgeTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := uint32(storage.EdgeSystemIDSize)
 	return s.CreateEdgeTableIndex(
 		txnID,
 		getTableSystemIndexName(edgeTableFileID),
 		tableName,
 		columns,
-		keyBytesCnt,
 		cToken,
 		logger,
 	)
@@ -629,7 +729,7 @@ func (s *StorageEngine) GetVertexTableIndex(
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}
 
-	return s.loadIndex(indexMeta, s.locker, logger)
+	return s.loadIndex(indexMeta, s.pool, s.locker, logger)
 }
 
 func (s *StorageEngine) GetEdgeTableSystemIndex(
@@ -670,7 +770,7 @@ func (s *StorageEngine) GetEdgeTableIndex(
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}
 
-	return s.loadIndex(indexMeta, s.locker, logger)
+	return s.loadIndex(indexMeta, s.pool, s.locker, logger)
 }
 
 func (s *StorageEngine) GetDirTableSystemIndex(
@@ -786,7 +886,7 @@ func (s *StorageEngine) getDirTableIndex(
 		return nil, fmt.Errorf("unable to get index meta: %w", err)
 	}
 
-	return s.loadIndex(indexMeta, s.locker, logger)
+	return s.loadIndex(indexMeta, s.pool, s.locker, logger)
 }
 
 func (s *StorageEngine) DropVertexTableIndex(

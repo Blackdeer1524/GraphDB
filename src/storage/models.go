@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"unsafe"
 
 	"github.com/google/uuid"
 
@@ -63,6 +64,20 @@ func CmpColumnValue(left any, right []byte) bool {
 type Column struct {
 	Name string
 	Type ColumnType
+}
+
+func (c ColumnType) Size() int {
+	switch c {
+	case ColumnTypeInt64:
+		return int(unsafe.Sizeof(int64(0)))
+	case ColumnTypeUint64:
+		return int(unsafe.Sizeof(uint64(0)))
+	case ColumnTypeFloat64:
+		return int(unsafe.Sizeof(float64(0)))
+	case ColumnTypeUUID:
+		return int(unsafe.Sizeof(uuid.UUID{}))
+	}
+	panic("unsupported column type: " + fmt.Sprintf("%#v", c))
 }
 
 type Schema []Column
