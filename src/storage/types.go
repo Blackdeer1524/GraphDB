@@ -508,6 +508,8 @@ type SystemCatalog interface {
 	DirTableExists(vertexTableID common.FileID) (bool, error)
 }
 
+var ErrKeyNotFound = errors.New("key not found")
+
 type Index interface {
 	Get(key []byte) (common.RecordID, error)
 	Delete(key []byte) error
