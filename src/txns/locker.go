@@ -1,6 +1,7 @@
 package txns
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,13 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
+
+var ErrDeadlockPrevention = fmt.Errorf("deadlock prevention")
+
+func NewErrDeadlockPrevention(err error) error {
+	err = errors.Join(ErrDeadlockPrevention, err)
+	return err
+}
 
 type ILockManager interface {
 	LockCatalog(txnID common.TxnID, lockMode GranularLockMode) *CatalogLockToken

@@ -1,6 +1,7 @@
 package index
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -158,6 +159,7 @@ func TestNoLeakageAfterCreation(t *testing.T) {
 func TestIndexInsert(t *testing.T) {
 	pool, logger, indexMeta, locker := setupIndex(t, 4)
 	ctxLogger := logger.WithContext(common.TxnID(1))
+	require.NoError(t, ctxLogger.AppendBegin())
 	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 	require.NoError(t, err)
 
@@ -179,11 +181,13 @@ func TestIndexInsert(t *testing.T) {
 
 	err = index.grow()
 	require.NoError(t, err)
+	require.NoError(t, ctxLogger.AppendCommit())
 }
 
 func TestIndexWithRebuild(t *testing.T) {
 	pool, logger, indexMeta, locker := setupIndex(t, 8)
 	ctxLogger := logger.WithContext(common.TxnID(1))
+	require.NoError(t, ctxLogger.AppendBegin())
 	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 	require.NoError(t, err)
 
@@ -221,6 +225,7 @@ func TestIndexWithRebuild(t *testing.T) {
 		_, err := index.Get(key)
 		require.ErrorIs(t, err, storage.ErrKeyNotFound)
 	}
+	require.NoError(t, ctxLogger.AppendCommit())
 }
 
 func TestIndexRollback(t *testing.T) {
@@ -229,6 +234,7 @@ func TestIndexRollback(t *testing.T) {
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 	func() {
 		ctxLogger := logger.WithContext(common.TxnID(1))
+		require.NoError(t, ctxLogger.AppendBegin())
 		defer func() { assert.True(t, locker.AreAllQueuesEmpty()) }()
 		defer locker.Unlock(common.TxnID(1))
 
@@ -260,6 +266,7 @@ func TestIndexRollback(t *testing.T) {
 
 	func() {
 		ctxLogger := logger.WithContext(common.TxnID(2))
+		require.NoError(t, ctxLogger.AppendBegin())
 		defer func() {
 			if !assert.True(t, locker.AreAllQueuesEmpty()) {
 				graph := locker.DumpDependencyGraph()
@@ -313,6 +320,7 @@ func TestIndexRollback(t *testing.T) {
 
 	func() {
 		ctxLogger := logger.WithContext(common.TxnID(3))
+		require.NoError(t, ctxLogger.AppendBegin())
 		defer func() {
 			if !assert.True(t, locker.AreAllQueuesEmpty()) {
 				graph := locker.DumpDependencyGraph()
@@ -358,6 +366,8 @@ func TestIndexRollback(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, rid, storedRID)
 		}
+
+		require.NoError(t, ctxLogger.AppendCommit())
 	}()
 }
 
@@ -382,10 +392,14 @@ func TestConcurrentInserts(t *testing.T) {
 			defer wg.Done()
 
 			ctxLogger := logger.WithContext(txnID)
+			require.NoError(t, ctxLogger.AppendBegin())
+
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 			require.NoError(t, err)
 			defer locker.Unlock(txnID)
 			defer index.Close()
+
+			localInsertedKeys := make(map[string]common.RecordID)
 
 			for j := 0; j < insertsPerGoroutine; j++ {
 				key := utils.ToBytes[uint64](goroutineID*uint64(insertsPerGoroutine) + uint64(j))
@@ -396,14 +410,24 @@ func TestConcurrentInserts(t *testing.T) {
 				}
 
 				err := index.Insert(key, rid)
-				if err != nil {
+				if errors.Is(err, txns.ErrDeadlockPrevention) {
+					require.NoError(t, ctxLogger.AppendAbort())
+					ctxLogger.Rollback()
+					return
+				} else if err != nil {
+					assert.NoError(t, err)
 					require.NoError(t, ctxLogger.AppendAbort())
 					ctxLogger.Rollback()
 					return
 				}
 
+				localInsertedKeys[string(key)] = rid
+			}
+
+			require.NoError(t, ctxLogger.AppendCommit())
+			for keyStr, expectedRID := range localInsertedKeys {
 				mu.Lock()
-				insertedKeys[string(key)] = rid
+				insertedKeys[keyStr] = expectedRID
 				mu.Unlock()
 			}
 		}(goroutineID)
@@ -433,6 +457,7 @@ func TestConcurrentGets(t *testing.T) {
 
 	// Pre-populate the index with a single index instance
 	ctxLogger := logger.WithContext(common.TxnID(1))
+	require.NoError(t, ctxLogger.AppendBegin())
 	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 	require.NoError(t, err)
 	defer locker.Unlock(common.TxnID(1))
@@ -453,12 +478,11 @@ func TestConcurrentGets(t *testing.T) {
 		require.NoError(t, err)
 		expectedRIDs[string(key)] = rid
 	}
+	require.NoError(t, ctxLogger.AppendCommit())
 
 	const numGoroutines = 10
 	const getsPerGoroutine = 20
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	errors := make([]error, 0)
 
 	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 2, numGoroutines+2)
 	// Start concurrent get operations
@@ -470,6 +494,8 @@ func TestConcurrentGets(t *testing.T) {
 
 			// Create a separate index for this goroutine
 			ctxLogger := logger.WithContext(txnID)
+			require.NoError(t, ctxLogger.AppendBegin())
+
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 			require.NoError(t, err)
 			defer locker.Unlock(txnID)
@@ -481,33 +507,23 @@ func TestConcurrentGets(t *testing.T) {
 				expectedRID := expectedRIDs[string(key)]
 
 				actualRID, err := index.Get(key)
-				if err != nil {
+				if errors.Is(err, txns.ErrDeadlockPrevention) {
+					require.NoError(t, ctxLogger.AppendAbort())
+					ctxLogger.Rollback()
+					return
+				} else if err != nil {
+					assert.NoError(t, err)
 					require.NoError(t, ctxLogger.AppendAbort())
 					ctxLogger.Rollback()
 					return
 				}
 
-				if actualRID != expectedRID {
-					mu.Lock()
-					errors = append(
-						errors,
-						fmt.Errorf(
-							"mismatch for key %d: expected %+v, got %+v",
-							keyIndex,
-							expectedRID,
-							actualRID,
-						),
-					)
-					mu.Unlock()
-				}
+				assert.Equal(t, expectedRID, actualRID)
 			}
 		}(goroutineID)
 	}
 
 	wg.Wait()
-
-	// Verify no errors occurred
-	assert.Empty(t, errors, "Concurrent gets should not produce errors")
 }
 
 // TestConcurrentDeletes tests concurrent delete operations
@@ -517,6 +533,7 @@ func TestConcurrentDeletes(t *testing.T) {
 
 	// Pre-populate the index with a single index instance
 	ctxLogger := logger.WithContext(common.TxnID(1))
+	require.NoError(t, ctxLogger.AppendBegin())
 	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 	require.NoError(t, err)
 	defer locker.Unlock(common.TxnID(1))
@@ -538,6 +555,7 @@ func TestConcurrentDeletes(t *testing.T) {
 		err := index.Insert(key, rid)
 		require.NoError(t, err)
 	}
+	require.NoError(t, ctxLogger.AppendCommit())
 
 	const numGoroutines = 5
 	const deletesPerGoroutine = 20
@@ -554,23 +572,42 @@ func TestConcurrentDeletes(t *testing.T) {
 			// Create a separate index for this goroutine
 			txnID := common.TxnID(goroutineID + 2)
 			ctxLogger := logger.WithContext(txnID)
+
+			require.NoError(t, ctxLogger.AppendBegin())
+
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 			require.NoError(t, err)
 			defer locker.Unlock(txnID)
 			defer index.Close()
+
+			localDeletedKeys := make(map[string]bool)
 
 			for j := 0; j < deletesPerGoroutine; j++ {
 				keyIndex := (goroutineID*deletesPerGoroutine + j) % numKeys
 				key := keys[keyIndex]
 
 				err := index.Delete(key)
-				if err != nil {
-					// Some deletes might fail if key was already deleted
+				if errors.Is(err, txns.ErrDeadlockPrevention) {
+					require.NoError(t, ctxLogger.AppendAbort())
+					ctxLogger.Rollback()
+					return
+				} else if errors.Is(err, storage.ErrKeyNotFound) {
 					continue
+				} else if err != nil {
+					assert.NoError(t, err)
+					require.NoError(t, ctxLogger.AppendAbort())
+					ctxLogger.Rollback()
+					return
 				}
 
+				localDeletedKeys[string(key)] = true
+			}
+
+			require.NoError(t, ctxLogger.AppendCommit())
+
+			for keyStr := range localDeletedKeys {
 				mu.Lock()
-				deletedKeys[string(key)] = true
+				deletedKeys[keyStr] = true
 				mu.Unlock()
 			}
 		}(i)
@@ -603,26 +640,32 @@ func TestConcurrentMixedOperations(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	insertedKeys := make(map[string]common.RecordID)
-	errors := make([]error, 0)
 
+	keys := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
 	// Start mixed concurrent operations
-	for i := 0; i < numGoroutines; i++ {
+	for _, goroutineID := range goroutineIDs {
 		wg.Add(1)
-		go func(goroutineID int) {
+		go func(goroutineID uint64) {
 			defer wg.Done()
 
 			// Create a separate index for this goroutine
 			txnID := common.TxnID(goroutineID + 1)
 			ctxLogger := logger.WithContext(txnID)
+			require.NoError(t, ctxLogger.AppendBegin())
+
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 			require.NoError(t, err)
 			defer locker.Unlock(txnID)
 			defer index.Close()
 
+			localInsertedKeys := make(map[string]common.RecordID)
+			localDeletedKeys := make(map[string]struct{})
+
 			for j := 0; j < operationsPerGoroutine; j++ {
 				operation := j % 3
-				keyIndex := goroutineID*operationsPerGoroutine + j
-				key := utils.ToBytes[uint64](uint64(keyIndex))
+				keyIndex := keys[int(goroutineID)%len(keys)]*operationsPerGoroutine + uint64(j)
+				key := utils.ToBytes[uint64](keyIndex)
 				rid := common.RecordID{
 					FileID:  common.FileID(1),
 					PageID:  common.PageID(goroutineID + 1),
@@ -632,79 +675,72 @@ func TestConcurrentMixedOperations(t *testing.T) {
 				switch operation {
 				case 0: // Insert
 					err := index.Insert(key, rid)
-					if err != nil {
-						mu.Lock()
-						errors = append(
-							errors,
-							fmt.Errorf("insert failed for key %d: %w", keyIndex, err),
-						)
-						mu.Unlock()
-						continue
+					if errors.Is(err, txns.ErrDeadlockPrevention) {
+						require.NoError(t, ctxLogger.AppendAbort())
+						ctxLogger.Rollback()
+						return
+					} else if err != nil {
+						assert.NoError(t, err)
+						require.NoError(t, ctxLogger.AppendAbort())
+						ctxLogger.Rollback()
+						return
 					}
 
-					mu.Lock()
-					insertedKeys[string(key)] = rid
-					mu.Unlock()
-
+					localInsertedKeys[string(key)] = rid
 				case 1: // Get
 					actualRID, err := index.Get(key)
-					if err != nil && err != storage.ErrKeyNotFound {
-						mu.Lock()
-						errors = append(
-							errors,
-							fmt.Errorf("get failed for key %d: %w", keyIndex, err),
-						)
-						mu.Unlock()
+					if errors.Is(err, storage.ErrKeyNotFound) {
 						continue
+					} else if errors.Is(err, txns.ErrDeadlockPrevention) {
+						require.NoError(t, ctxLogger.AppendAbort())
+						ctxLogger.Rollback()
+						return
+					} else if err != nil {
+						assert.NoError(t, err)
+						require.NoError(t, ctxLogger.AppendAbort())
+						ctxLogger.Rollback()
+						return
 					}
 
 					// If key exists, verify it matches expected RID
-					if err == nil {
-						mu.Lock()
-						expectedRID, exists := insertedKeys[string(key)]
-						mu.Unlock()
-						if exists && actualRID != expectedRID {
-							mu.Lock()
-							errors = append(
-								errors,
-								fmt.Errorf(
-									"get mismatch for key %d: expected %+v, got %+v",
-									keyIndex,
-									expectedRID,
-									actualRID,
-								),
-							)
-							mu.Unlock()
-						}
+					mu.Lock()
+					expectedRID, exists := insertedKeys[string(key)]
+					mu.Unlock()
+					if exists && actualRID != expectedRID {
+						assert.Equal(t, expectedRID, actualRID)
 					}
-
 				case 2: // Delete
 					err := index.Delete(key)
-					if err != nil && err != storage.ErrKeyNotFound {
-						mu.Lock()
-						errors = append(
-							errors,
-							fmt.Errorf("delete failed for key %d: %w", keyIndex, err),
-						)
-						mu.Unlock()
+					if errors.Is(err, storage.ErrKeyNotFound) {
 						continue
+					} else if errors.Is(err, txns.ErrDeadlockPrevention) {
+						require.NoError(t, ctxLogger.AppendAbort())
+						ctxLogger.Rollback()
+						return
+					} else if err != nil {
+						assert.NoError(t, err)
+						require.NoError(t, ctxLogger.AppendAbort())
+						ctxLogger.Rollback()
+						return
 					}
-
-					// If delete was successful, remove from tracking
-					if err == nil {
-						mu.Lock()
-						delete(insertedKeys, string(key))
-						mu.Unlock()
-					}
+					localDeletedKeys[string(key)] = struct{}{}
 				}
 			}
-		}(i)
+			require.NoError(t, ctxLogger.AppendCommit())
+			for keyStr := range localInsertedKeys {
+				mu.Lock()
+				insertedKeys[keyStr] = localInsertedKeys[keyStr]
+				mu.Unlock()
+			}
+			for keyStr := range localDeletedKeys {
+				mu.Lock()
+				delete(insertedKeys, keyStr)
+				mu.Unlock()
+			}
+		}(goroutineID)
 	}
 
 	wg.Wait()
-
-	// Verify no critical errors occurred
-	assert.Empty(t, errors, "Mixed concurrent operations should not produce critical errors")
 
 	// Create a final index to verify remaining keys are still accessible
 	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
@@ -840,12 +876,13 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	insertedKeys := make(map[string]common.RecordID)
-	errors := make([]error, 0)
+
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
 
 	// Start concurrent inserts that will trigger index growth
-	for i := 0; i < numGoroutines; i++ {
+	for _, goroutineID := range goroutineIDs {
 		wg.Add(1)
-		go func(goroutineID int) {
+		go func(goroutineID uint64) {
 			defer wg.Done()
 
 			// Create a separate index for this goroutine
@@ -856,8 +893,10 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 			defer locker.Unlock(txnID)
 			defer index.Close()
 
+			localInsertedKeys := make(map[string]common.RecordID)
+
 			for j := 0; j < insertsPerGoroutine; j++ {
-				key := utils.ToBytes[uint64](uint64(goroutineID*insertsPerGoroutine + j))
+				key := utils.ToBytes[uint64](goroutineID*uint64(insertsPerGoroutine) + uint64(j))
 				rid := common.RecordID{
 					FileID:  common.FileID(1),
 					PageID:  common.PageID(goroutineID + 1),
@@ -865,35 +904,30 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 				}
 
 				err := index.Insert(key, rid)
-				if err != nil {
-					mu.Lock()
-					errors = append(
-						errors,
-						fmt.Errorf(
-							"insert failed for key %d: %w",
-							goroutineID*insertsPerGoroutine+j,
-							err,
-						),
-					)
-					mu.Unlock()
-					continue
+				if errors.Is(err, txns.ErrDeadlockPrevention) {
+					require.NoError(t, ctxLogger.AppendAbort())
+					ctxLogger.Rollback()
+					return
+				} else if err != nil {
+					assert.NoError(t, err)
+					require.NoError(t, ctxLogger.AppendAbort())
+					ctxLogger.Rollback()
+					return
 				}
 
+				localInsertedKeys[string(key)] = rid
+			}
+
+			require.NoError(t, ctxLogger.AppendCommit())
+			for keyStr := range localInsertedKeys {
 				mu.Lock()
-				insertedKeys[string(key)] = rid
+				insertedKeys[keyStr] = localInsertedKeys[keyStr]
 				mu.Unlock()
 			}
-		}(i)
+		}(goroutineID)
 	}
 
 	wg.Wait()
-
-	// Verify no critical errors occurred during growth
-	assert.Empty(
-		t,
-		errors,
-		"Concurrent operations during index growth should not produce critical errors",
-	)
 
 	// Create a final index to verify all inserts were successful
 	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))

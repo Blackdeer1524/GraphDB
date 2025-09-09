@@ -161,7 +161,8 @@ func (i *LinearProbingIndex) Get(key []byte) (common.RecordID, error) {
 
 	pToken := i.locker.LockPage(i.indexFileToken, masterPageID, txns.PageLockShared)
 	if pToken == nil {
-		return common.RecordID{}, fmt.Errorf("failed to lock page: %v", masterPageID)
+		err := fmt.Errorf("failed to lock page: %v", masterPageID)
+		return common.RecordID{}, txns.NewErrDeadlockPrevention(err)
 	}
 
 	bucketCapacity := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketCapacitySlot))
@@ -200,10 +201,8 @@ func (i *LinearProbingIndex) Get(key []byte) (common.RecordID, error) {
 
 		pToken := i.locker.LockPage(i.indexFileToken, bucketItemPageID, txns.PageLockShared)
 		if pToken == nil {
-			return common.RecordID{}, fmt.Errorf(
-				"failed to lock page: %v",
-				bucketItemPageID,
-			)
+			err := fmt.Errorf("failed to lock page: %v", bucketItemPageID)
+			return common.RecordID{}, txns.NewErrDeadlockPrevention(err)
 		}
 
 		bucketPageIdent := common.PageIdentity{
@@ -253,7 +252,8 @@ func (i *LinearProbingIndex) Delete(key []byte) error {
 
 	pToken := i.locker.LockPage(i.indexFileToken, masterPageID, txns.PageLockShared)
 	if pToken == nil {
-		return fmt.Errorf("failed to lock page: %v", masterPageID)
+		err := fmt.Errorf("failed to lock page: %v", masterPageID)
+		return txns.NewErrDeadlockPrevention(err)
 	}
 
 	bucketCapacity := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketCapacitySlot))
@@ -273,7 +273,7 @@ func (i *LinearProbingIndex) Delete(key []byte) error {
 		pToken := i.locker.LockPage(i.indexFileToken, bucketItemPageID, txns.PageLockShared)
 		if pToken == nil {
 			err := fmt.Errorf("failed to lock page: %v", bucketItemPageID)
-			return err
+			return txns.NewErrDeadlockPrevention(err)
 		}
 
 		bucketPageIdent := common.PageIdentity{
@@ -304,7 +304,8 @@ func (i *LinearProbingIndex) Delete(key []byte) error {
 				}
 
 				if !i.locker.UpgradePageLock(pToken, txns.PageLockExclusive) {
-					return true, fmt.Errorf("failed to upgrade page lock: %v", bucketPageIdent)
+					err := fmt.Errorf("failed to upgrade page lock: %v", bucketPageIdent)
+					return true, txns.NewErrDeadlockPrevention(err)
 				}
 
 				err = i.pool.WithMarkDirty(
@@ -347,7 +348,8 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 
 	masterPageToken := i.locker.LockPage(i.indexFileToken, masterPageID, txns.PageLockShared)
 	if masterPageToken == nil {
-		return fmt.Errorf("failed to lock page: %v", masterPageID)
+		err := fmt.Errorf("failed to lock page: %v", masterPageID)
+		return txns.NewErrDeadlockPrevention(err)
 	}
 
 	bucketItemSize := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketItemSizeSlot))
@@ -409,7 +411,7 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 		bucketToken := i.locker.LockPage(i.indexFileToken, bucketItemPageID, txns.PageLockShared)
 		if bucketToken == nil {
 			err := fmt.Errorf("failed to lock page: %v", bucketItemPageID)
-			return err
+			return txns.NewErrDeadlockPrevention(err)
 		}
 
 		bucketPageIdent := common.PageIdentity{
@@ -434,7 +436,7 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 			switch status {
 			case bucketItemStatusInserted:
 				// enforcing a unique constraint
-				assert.Assert(itemKey != string(key))
+				assert.Assert(itemKey != string(key), "unique constraint violation")
 				log.Printf(
 					"key=%x Insert: slot occupied by different key %q, continuing probe",
 					key,
@@ -458,7 +460,8 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 
 				recordsCountData := utils.ToBytes[uint64](recordsCount + 1)
 				if !i.locker.UpgradePageLock(masterPageToken, txns.PageLockExclusive) {
-					return true, fmt.Errorf("failed to upgrade page lock: %v", masterPageID)
+					err := fmt.Errorf("failed to upgrade page lock: %v", masterPageID)
+					return true, txns.NewErrDeadlockPrevention(err)
 				}
 				err = i.pool.WithMarkDirty(
 					i.logger.GetTxnID(),
@@ -481,7 +484,8 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 				}
 
 				if !i.locker.UpgradePageLock(bucketToken, txns.PageLockExclusive) {
-					return true, fmt.Errorf("failed to upgrade page lock: %v", bucketPageIdent)
+					err := fmt.Errorf("failed to upgrade page lock: %v", bucketPageIdent)
+					return true, txns.NewErrDeadlockPrevention(err)
 				}
 
 				err = i.pool.WithMarkDirty(
@@ -525,7 +529,8 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 
 func (i *LinearProbingIndex) grow() error {
 	if !i.locker.UpgradeFileLock(i.indexFileToken, txns.GranularLockExclusive) {
-		return fmt.Errorf("failed to upgrade file lock: %v", i.indexFileToken.GetFileID())
+		err := fmt.Errorf("failed to upgrade file lock: %v", i.indexFileToken.GetFileID())
+		return txns.NewErrDeadlockPrevention(err)
 	}
 	masterPageToken := i.locker.LockPage(i.indexFileToken, masterPageID, txns.PageLockExclusive)
 	assert.Assert(masterPageToken != nil)
@@ -561,7 +566,7 @@ func (i *LinearProbingIndex) grow() error {
 					lockedPage.Clear()
 					for range bucketCapacity {
 						slotOpt := lockedPage.UnsafeInsertNoLogs(dummyRecord)
-						assert.Assert(slotOpt.IsSome(), "impossible, because the page is empty")
+						assert.Assert(slotOpt.IsSome())
 					}
 					return common.NewNilLogRecordLocation(), nil
 				},
