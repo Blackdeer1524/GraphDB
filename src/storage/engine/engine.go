@@ -16,7 +16,12 @@ type StorageEngine struct {
 	locker                 *txns.LockManager
 	fs                     afero.Fs
 
-	loadIndex func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error)
+	loadIndex func(
+		indexMeta storage.IndexMeta,
+		pool bufferpool.BufferPool,
+		locker *txns.LockManager,
+		logger common.ITxnLoggerWithContext,
+	) (storage.Index, error)
 }
 
 var _ storage.Engine = &StorageEngine{}
@@ -62,7 +67,12 @@ func New(
 	diskMgrInsertToFileMap func(fileID common.FileID, path string),
 	locker *txns.LockManager,
 	fs afero.Fs,
-	indexLoader func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error),
+	indexLoader func(
+		indexMeta storage.IndexMeta, 
+		pool bufferpool.BufferPool, 
+		locker *txns.LockManager, 
+		logger common.ITxnLoggerWithContext,
+	) (storage.Index, error),
 ) *StorageEngine {
 	return &StorageEngine{
 		catalog:                sysCat,

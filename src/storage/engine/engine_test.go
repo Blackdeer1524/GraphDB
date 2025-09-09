@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
@@ -17,7 +18,7 @@ func newTestEngineWithMockCatalog(
 	cat := storage.NewMockSystemCatalog(t)
 	locker := txns.NewLockManager()
 	fs := afero.NewMemMapFs()
-	indexLoader := func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
+	indexLoader := func(indexMeta storage.IndexMeta, pool bufferpool.BufferPool, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
 		return storage.NewMockIndex(t), nil
 	}
 

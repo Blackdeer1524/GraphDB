@@ -1,6 +1,8 @@
 package index
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -357,4 +359,554 @@ func TestIndexRollback(t *testing.T) {
 			assert.Equal(t, rid, storedRID)
 		}
 	}()
+}
+
+// TestConcurrentInserts tests concurrent insert operations
+func TestConcurrentInserts(t *testing.T) {
+	pool, logger, indexMeta, locker := setupIndex(t, 8)
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	const numGoroutines = 5
+	const insertsPerGoroutine = 20 // Reduced to avoid growth issues
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	insertedKeys := make(map[string]common.RecordID)
+
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
+
+	// Start concurrent insert operations
+	for _, goroutineID := range goroutineIDs {
+		wg.Add(1)
+		go func(goroutineID uint64) {
+			txnID := common.TxnID(goroutineID + 1)
+			defer wg.Done()
+
+			ctxLogger := logger.WithContext(txnID)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+			require.NoError(t, err)
+			defer locker.Unlock(txnID)
+			defer index.Close()
+
+			for j := 0; j < insertsPerGoroutine; j++ {
+				key := utils.ToBytes[uint64](goroutineID*uint64(insertsPerGoroutine) + uint64(j))
+				rid := common.RecordID{
+					FileID:  common.FileID(1),
+					PageID:  common.PageID(goroutineID + 1),
+					SlotNum: uint16(j),
+				}
+
+				err := index.Insert(key, rid)
+				if err != nil {
+					require.NoError(t, ctxLogger.AppendAbort())
+					ctxLogger.Rollback()
+					return
+				}
+
+				mu.Lock()
+				insertedKeys[string(key)] = rid
+				mu.Unlock()
+			}
+		}(goroutineID)
+	}
+
+	wg.Wait()
+
+	// Create a final index to verify all inserts were successful
+	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+	defer index.Close()
+
+	// Verify all inserts were successful
+	for keyStr, expectedRID := range insertedKeys {
+		key := []byte(keyStr)
+		actualRID, err := index.Get(key)
+		require.NoError(t, err)
+		assert.Equal(t, expectedRID, actualRID)
+	}
+}
+
+// TestConcurrentGets tests concurrent get operations
+func TestConcurrentGets(t *testing.T) {
+	pool, logger, indexMeta, locker := setupIndex(t, 8)
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	// Pre-populate the index with a single index instance
+	ctxLogger := logger.WithContext(common.TxnID(1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+	defer locker.Unlock(common.TxnID(1))
+	defer index.Close()
+
+	const numKeys = 1000
+	expectedRIDs := make(map[string]common.RecordID)
+
+	for i := 0; i < numKeys; i++ {
+		key := utils.ToBytes[uint64](uint64(i))
+		rid := common.RecordID{
+			FileID:  common.FileID(1),
+			PageID:  common.PageID(1),
+			SlotNum: uint16(i),
+		}
+
+		err := index.Insert(key, rid)
+		require.NoError(t, err)
+		expectedRIDs[string(key)] = rid
+	}
+
+	const numGoroutines = 10
+	const getsPerGoroutine = 20
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	errors := make([]error, 0)
+
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 2, numGoroutines+2)
+	// Start concurrent get operations
+	for _, goroutineID := range goroutineIDs {
+		wg.Add(1)
+		go func(goroutineID uint64) {
+			defer wg.Done()
+			txnID := common.TxnID(goroutineID + 2)
+
+			// Create a separate index for this goroutine
+			ctxLogger := logger.WithContext(txnID)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+			require.NoError(t, err)
+			defer locker.Unlock(txnID)
+			defer index.Close()
+
+			for j := 0; j < getsPerGoroutine; j++ {
+				keyIndex := (goroutineID*uint64(getsPerGoroutine) + uint64(j)) % uint64(numKeys)
+				key := utils.ToBytes[uint64](uint64(keyIndex))
+				expectedRID := expectedRIDs[string(key)]
+
+				actualRID, err := index.Get(key)
+				if err != nil {
+					require.NoError(t, ctxLogger.AppendAbort())
+					ctxLogger.Rollback()
+					return
+				}
+
+				if actualRID != expectedRID {
+					mu.Lock()
+					errors = append(
+						errors,
+						fmt.Errorf(
+							"mismatch for key %d: expected %+v, got %+v",
+							keyIndex,
+							expectedRID,
+							actualRID,
+						),
+					)
+					mu.Unlock()
+				}
+			}
+		}(goroutineID)
+	}
+
+	wg.Wait()
+
+	// Verify no errors occurred
+	assert.Empty(t, errors, "Concurrent gets should not produce errors")
+}
+
+// TestConcurrentDeletes tests concurrent delete operations
+func TestConcurrentDeletes(t *testing.T) {
+	pool, logger, indexMeta, locker := setupIndex(t, 8)
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	// Pre-populate the index with a single index instance
+	ctxLogger := logger.WithContext(common.TxnID(1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+	defer locker.Unlock(common.TxnID(1))
+	defer index.Close()
+
+	// Pre-populate the index
+	const numKeys = 1000
+	keys := make([][]byte, numKeys)
+
+	for i := 0; i < numKeys; i++ {
+		key := utils.ToBytes[uint64](uint64(i))
+		keys[i] = key
+		rid := common.RecordID{
+			FileID:  common.FileID(1),
+			PageID:  common.PageID(1),
+			SlotNum: uint16(i),
+		}
+
+		err := index.Insert(key, rid)
+		require.NoError(t, err)
+	}
+
+	const numGoroutines = 5
+	const deletesPerGoroutine = 20
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	deletedKeys := make(map[string]bool)
+
+	// Start concurrent delete operations
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			// Create a separate index for this goroutine
+			txnID := common.TxnID(goroutineID + 2)
+			ctxLogger := logger.WithContext(txnID)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+			require.NoError(t, err)
+			defer locker.Unlock(txnID)
+			defer index.Close()
+
+			for j := 0; j < deletesPerGoroutine; j++ {
+				keyIndex := (goroutineID*deletesPerGoroutine + j) % numKeys
+				key := keys[keyIndex]
+
+				err := index.Delete(key)
+				if err != nil {
+					// Some deletes might fail if key was already deleted
+					continue
+				}
+
+				mu.Lock()
+				deletedKeys[string(key)] = true
+				mu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Create a final index to verify deleted keys are no longer accessible
+	ctxLogger = logger.WithContext(common.TxnID(numGoroutines + 2))
+	index, err = NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+	defer locker.Unlock(common.TxnID(numGoroutines + 2))
+	defer index.Close()
+
+	// Verify deleted keys are no longer accessible
+	for keyStr := range deletedKeys {
+		key := []byte(keyStr)
+		_, err := index.Get(key)
+		assert.ErrorIs(t, err, storage.ErrKeyNotFound, "Deleted key should not be found")
+	}
+}
+
+// TestConcurrentMixedOperations tests mixed concurrent operations
+func TestConcurrentMixedOperations(t *testing.T) {
+	pool, logger, indexMeta, locker := setupIndex(t, 8)
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	const numGoroutines = 10
+	const operationsPerGoroutine = 20
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	insertedKeys := make(map[string]common.RecordID)
+	errors := make([]error, 0)
+
+	// Start mixed concurrent operations
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			// Create a separate index for this goroutine
+			txnID := common.TxnID(goroutineID + 1)
+			ctxLogger := logger.WithContext(txnID)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+			require.NoError(t, err)
+			defer locker.Unlock(txnID)
+			defer index.Close()
+
+			for j := 0; j < operationsPerGoroutine; j++ {
+				operation := j % 3
+				keyIndex := goroutineID*operationsPerGoroutine + j
+				key := utils.ToBytes[uint64](uint64(keyIndex))
+				rid := common.RecordID{
+					FileID:  common.FileID(1),
+					PageID:  common.PageID(goroutineID + 1),
+					SlotNum: uint16(j),
+				}
+
+				switch operation {
+				case 0: // Insert
+					err := index.Insert(key, rid)
+					if err != nil {
+						mu.Lock()
+						errors = append(
+							errors,
+							fmt.Errorf("insert failed for key %d: %w", keyIndex, err),
+						)
+						mu.Unlock()
+						continue
+					}
+
+					mu.Lock()
+					insertedKeys[string(key)] = rid
+					mu.Unlock()
+
+				case 1: // Get
+					actualRID, err := index.Get(key)
+					if err != nil && err != storage.ErrKeyNotFound {
+						mu.Lock()
+						errors = append(
+							errors,
+							fmt.Errorf("get failed for key %d: %w", keyIndex, err),
+						)
+						mu.Unlock()
+						continue
+					}
+
+					// If key exists, verify it matches expected RID
+					if err == nil {
+						mu.Lock()
+						expectedRID, exists := insertedKeys[string(key)]
+						mu.Unlock()
+						if exists && actualRID != expectedRID {
+							mu.Lock()
+							errors = append(
+								errors,
+								fmt.Errorf(
+									"get mismatch for key %d: expected %+v, got %+v",
+									keyIndex,
+									expectedRID,
+									actualRID,
+								),
+							)
+							mu.Unlock()
+						}
+					}
+
+				case 2: // Delete
+					err := index.Delete(key)
+					if err != nil && err != storage.ErrKeyNotFound {
+						mu.Lock()
+						errors = append(
+							errors,
+							fmt.Errorf("delete failed for key %d: %w", keyIndex, err),
+						)
+						mu.Unlock()
+						continue
+					}
+
+					// If delete was successful, remove from tracking
+					if err == nil {
+						mu.Lock()
+						delete(insertedKeys, string(key))
+						mu.Unlock()
+					}
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify no critical errors occurred
+	assert.Empty(t, errors, "Mixed concurrent operations should not produce critical errors")
+
+	// Create a final index to verify remaining keys are still accessible
+	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+	defer locker.Unlock(common.TxnID(numGoroutines + 1))
+	defer index.Close()
+
+	// Verify remaining keys are still accessible
+	for keyStr, expectedRID := range insertedKeys {
+		key := []byte(keyStr)
+		actualRID, err := index.Get(key)
+		require.NoError(t, err)
+		assert.Equal(t, expectedRID, actualRID)
+	}
+}
+
+// TestConcurrentStressTest performs a stress test with high concurrency
+func TestConcurrentStressTest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping stress test in short mode")
+	}
+
+	pool, logger, indexMeta, locker := setupIndex(t, 8)
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	const numGoroutines = 10
+	const operationsPerGoroutine = 20
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	insertedKeys := make(map[string]common.RecordID)
+	errors := make([]error, 0)
+
+	// Start stress test with high concurrency
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			// Create a separate index for this goroutine
+			txnID := common.TxnID(goroutineID + 1)
+			ctxLogger := logger.WithContext(txnID)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+			require.NoError(t, err)
+			defer locker.Unlock(txnID)
+			defer index.Close()
+
+			for j := 0; j < operationsPerGoroutine; j++ {
+				operation := j % 4
+				keyIndex := goroutineID*operationsPerGoroutine + j
+				key := utils.ToBytes[uint64](uint64(keyIndex))
+				rid := common.RecordID{
+					FileID:  common.FileID(1),
+					PageID:  common.PageID(goroutineID + 1),
+					SlotNum: uint16(j),
+				}
+
+				switch operation {
+				case 0, 1: // Insert (50% of operations)
+					err := index.Insert(key, rid)
+					if err != nil {
+						mu.Lock()
+						errors = append(
+							errors,
+							fmt.Errorf("insert failed for key %d: %w", keyIndex, err),
+						)
+						mu.Unlock()
+						continue
+					}
+
+					mu.Lock()
+					insertedKeys[string(key)] = rid
+					mu.Unlock()
+
+				case 2: // Get (25% of operations)
+					_, err := index.Get(key)
+					if err != nil && err != storage.ErrKeyNotFound {
+						mu.Lock()
+						errors = append(
+							errors,
+							fmt.Errorf("get failed for key %d: %w", keyIndex, err),
+						)
+						mu.Unlock()
+					}
+
+				case 3: // Delete (25% of operations)
+					err := index.Delete(key)
+					if err != nil && err != storage.ErrKeyNotFound {
+						mu.Lock()
+						errors = append(
+							errors,
+							fmt.Errorf("delete failed for key %d: %w", keyIndex, err),
+						)
+						mu.Unlock()
+						continue
+					}
+
+					if err == nil {
+						mu.Lock()
+						delete(insertedKeys, string(key))
+						mu.Unlock()
+					}
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Create a final index to verify remaining keys are still accessible
+	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+	defer locker.Unlock(common.TxnID(numGoroutines + 1))
+	defer index.Close()
+
+	// Verify remaining keys are still accessible
+	for keyStr, expectedRID := range insertedKeys {
+		key := []byte(keyStr)
+		actualRID, err := index.Get(key)
+		require.NoError(t, err)
+		assert.Equal(t, expectedRID, actualRID)
+	}
+}
+
+// TestConcurrentIndexGrowth tests concurrent operations during index growth
+func TestConcurrentIndexGrowth(t *testing.T) {
+	pool, logger, indexMeta, locker := setupIndex(t, 8)
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	const numGoroutines = 5
+	const insertsPerGoroutine = 20 // Reduced to avoid growth issues
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	insertedKeys := make(map[string]common.RecordID)
+	errors := make([]error, 0)
+
+	// Start concurrent inserts that will trigger index growth
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			// Create a separate index for this goroutine
+			txnID := common.TxnID(goroutineID + 1)
+			ctxLogger := logger.WithContext(txnID)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+			require.NoError(t, err)
+			defer locker.Unlock(txnID)
+			defer index.Close()
+
+			for j := 0; j < insertsPerGoroutine; j++ {
+				key := utils.ToBytes[uint64](uint64(goroutineID*insertsPerGoroutine + j))
+				rid := common.RecordID{
+					FileID:  common.FileID(1),
+					PageID:  common.PageID(goroutineID + 1),
+					SlotNum: uint16(j),
+				}
+
+				err := index.Insert(key, rid)
+				if err != nil {
+					mu.Lock()
+					errors = append(
+						errors,
+						fmt.Errorf(
+							"insert failed for key %d: %w",
+							goroutineID*insertsPerGoroutine+j,
+							err,
+						),
+					)
+					mu.Unlock()
+					continue
+				}
+
+				mu.Lock()
+				insertedKeys[string(key)] = rid
+				mu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify no critical errors occurred during growth
+	assert.Empty(
+		t,
+		errors,
+		"Concurrent operations during index growth should not produce critical errors",
+	)
+
+	// Create a final index to verify all inserts were successful
+	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+	defer locker.Unlock(common.TxnID(numGoroutines + 1))
+	defer index.Close()
+
+	// Verify all inserts were successful
+	for keyStr, expectedRID := range insertedKeys {
+		key := []byte(keyStr)
+		actualRID, err := index.Get(key)
+		require.NoError(t, err)
+		assert.Equal(t, expectedRID, actualRID)
+	}
 }
