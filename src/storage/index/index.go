@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"hash/maphash"
 	"log"
 	"unsafe"
 
@@ -20,7 +19,7 @@ import (
 const hashmapLoadFactor = 0.7
 
 type LinearProbingIndex struct {
-	hasher maphash.Hash
+	hasher DeterministicHasher64
 
 	indexFileToken *txns.FileLockToken
 	masterPage     *page.SlottedPage
@@ -141,7 +140,7 @@ func NewLinearProbingIndex(
 		keySize:        int(meta.KeyBytesCnt),
 		locker:         locker,
 		logger:         logger,
-		hasher:         maphash.Hash{},
+		hasher:         NewDeterministicHasher64(DefaultHashSeed),
 		masterPage:     masterPage,
 		pool:           pool,
 	}

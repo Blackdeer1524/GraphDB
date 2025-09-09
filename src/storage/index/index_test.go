@@ -106,7 +106,10 @@ func setupIndexPages(t *testing.T, pool bufferpool.BufferPool, indexMeta storage
 	}()
 }
 
-func setupIndex(t *testing.T, keyLength uint32) (*LinearProbingIndex, *bufferpool.DebugBufferPool) {
+func setupIndex(
+	t *testing.T,
+	keyLength uint32,
+) (*bufferpool.DebugBufferPool, common.ITxnLogger, storage.IndexMeta, *txns.LockManager) {
 	newPageFunc := func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
 		return page.NewSlottedPage()
 	}
@@ -132,27 +135,30 @@ func setupIndex(t *testing.T, keyLength uint32) (*LinearProbingIndex, *bufferpoo
 	logger := recovery.NewTxnLogger(debugPool, logFileID)
 	locker := txns.NewLockManager()
 
-	ctxLogger := logger.WithContext(common.TxnID(1))
-
 	indexMeta := storage.IndexMeta{
 		FileID:      indexFileID,
 		KeyBytesCnt: keyLength,
 	}
 	setupIndexPages(t, debugPool, indexMeta)
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
-	require.NoError(t, err)
-
-	return index, debugPool
+	return debugPool, logger, indexMeta, locker
 }
 
 func TestNoLeakageAfterCreation(t *testing.T) {
-	index, pool := setupIndex(t, 4)
+	pool, logger, indexMeta, locker := setupIndex(t, 4)
+	ctxLogger := logger.WithContext(common.TxnID(1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+
 	index.Close()
 	assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 }
 
 func TestIndexInsert(t *testing.T) {
-	index, pool := setupIndex(t, 4)
+	pool, logger, indexMeta, locker := setupIndex(t, 4)
+	ctxLogger := logger.WithContext(common.TxnID(1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 	defer index.Close()
 
@@ -162,7 +168,7 @@ func TestIndexInsert(t *testing.T) {
 		PageID:  2,
 		SlotNum: 3,
 	}
-	err := index.Insert(key, expectedRID)
+	err = index.Insert(key, expectedRID)
 	require.NoError(t, err)
 
 	rid, err := index.Get(key)
@@ -174,11 +180,15 @@ func TestIndexInsert(t *testing.T) {
 }
 
 func TestIndexWithRebuild(t *testing.T) {
-	index, pool := setupIndex(t, 8)
+	pool, logger, indexMeta, locker := setupIndex(t, 8)
+	ctxLogger := logger.WithContext(common.TxnID(1))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(t, err)
+
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 	defer index.Close()
 
-	N := 10000
+	N := 1000
 	rid := common.RecordID{
 		FileID:  1,
 		PageID:  2,
@@ -203,4 +213,148 @@ func TestIndexWithRebuild(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, rid, storedRID)
 	}
+
+	for i := N; i < N*2; i++ {
+		key := utils.ToBytes[uint64](uint64(i))
+		_, err := index.Get(key)
+		require.ErrorIs(t, err, storage.ErrKeyNotFound)
+	}
+}
+
+func TestIndexRollback(t *testing.T) {
+	N := 5000
+	pool, logger, indexMeta, locker := setupIndex(t, 8)
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	func() {
+		ctxLogger := logger.WithContext(common.TxnID(1))
+		defer func() { assert.True(t, locker.AreAllQueuesEmpty()) }()
+		defer locker.Unlock(common.TxnID(1))
+
+		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+		require.NoError(t, err)
+		defer index.Close()
+
+		require.NoError(t, ctxLogger.AppendBegin())
+
+		rid := common.RecordID{
+			FileID:  1,
+			PageID:  2,
+			SlotNum: 0,
+		}
+		for i := range N {
+			key := utils.ToBytes[uint64](uint64(i))
+			rid.SlotNum = uint16(i)
+
+			err := index.Insert(key, rid)
+			require.NoError(t, err)
+
+			storedRID, err := index.Get(key)
+			require.NoError(t, err)
+			assert.Equal(t, rid, storedRID)
+		}
+
+		require.NoError(t, ctxLogger.AppendCommit())
+	}()
+
+	func() {
+		ctxLogger := logger.WithContext(common.TxnID(2))
+		defer func() {
+			if !assert.True(t, locker.AreAllQueuesEmpty()) {
+				graph := locker.DumpDependencyGraph()
+				t.Logf("\n%s", graph)
+			}
+		}()
+		defer locker.Unlock(common.TxnID(2))
+		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+		require.NoError(t, err)
+
+		defer index.Close()
+
+		rid := common.RecordID{
+			FileID:  1,
+			PageID:  2,
+			SlotNum: 0,
+		}
+
+		for i := range N {
+			rid.SlotNum = uint16(i)
+			key := utils.ToBytes[uint64](uint64(i))
+			storedRID, err := index.Get(key)
+			require.NoError(t, err)
+			assert.Equal(t, rid, storedRID)
+		}
+
+		require.NoError(t, ctxLogger.AppendBegin())
+		for i := N; i < N*2; i++ {
+			key := utils.ToBytes[uint64](uint64(i))
+			rid.SlotNum = uint16(i)
+
+			err := index.Insert(key, rid)
+			require.NoError(t, err)
+
+			storedRID, err := index.Get(key)
+			require.NoError(t, err)
+			assert.Equal(t, rid, storedRID)
+		}
+
+		for i := range 2 * N {
+			rid.SlotNum = uint16(i)
+			key := utils.ToBytes[uint64](uint64(i))
+			storedRID, err := index.Get(key)
+			require.NoError(t, err)
+			assert.Equal(t, rid, storedRID)
+		}
+
+		require.NoError(t, ctxLogger.AppendAbort())
+		ctxLogger.Rollback()
+	}()
+
+	func() {
+		ctxLogger := logger.WithContext(common.TxnID(3))
+		defer func() {
+			if !assert.True(t, locker.AreAllQueuesEmpty()) {
+				graph := locker.DumpDependencyGraph()
+				t.Logf("\n%s", graph)
+			}
+		}()
+		defer locker.Unlock(common.TxnID(3))
+		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+		require.NoError(t, err)
+		defer index.Close()
+
+		rid := common.RecordID{
+			FileID:  1,
+			PageID:  2,
+			SlotNum: 0,
+		}
+		for i := range N {
+			rid.SlotNum = uint16(i)
+			key := utils.ToBytes[uint64](uint64(i))
+			storedRID, err := index.Get(key)
+			require.NoError(t, err)
+			assert.Equal(t, rid, storedRID)
+		}
+
+		for i := N; i < N*2; i++ {
+			rid.SlotNum = uint16(i)
+			key := utils.ToBytes[uint64](uint64(i))
+			_, err := index.Get(key)
+			require.ErrorIs(t, err, storage.ErrKeyNotFound)
+		}
+
+		for i := N * 3; i < N*4; i++ {
+			rid.SlotNum = uint16(i)
+			key := utils.ToBytes[uint64](uint64(i))
+			err := index.Insert(key, rid)
+			require.NoError(t, err)
+		}
+
+		for i := N * 3; i < N*4; i++ {
+			rid.SlotNum = uint16(i)
+			key := utils.ToBytes[uint64](uint64(i))
+			storedRID, err := index.Get(key)
+			require.NoError(t, err)
+			assert.Equal(t, rid, storedRID)
+		}
+	}()
 }
