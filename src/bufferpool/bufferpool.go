@@ -431,7 +431,7 @@ func (m *Manager) WithMarkDirty(
 	if _, ok := m.DPT[pageIdent]; !ok {
 		m.DPT[pageIdent] = loc
 	}
-	if txnID != common.NilTxnID {
+	if txnID != common.NilTxnID && !loc.IsNil() {
 		m.ATT[txnID] = loc
 	}
 	return nil

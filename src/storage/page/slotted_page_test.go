@@ -272,7 +272,7 @@ func TestPageRecordsLimit(t *testing.T) {
 			fmt.Sprintf("recordLen_%d", recordLen),
 			func(t *testing.T) {
 				page := NewSlottedPage()
-				expectedLimit := PageRecordsLimit(recordLen)
+				expectedLimit := PageCapacity(recordLen)
 				// Insert records up to the limit
 				for i := range expectedLimit {
 					data := make([]byte, recordLen)

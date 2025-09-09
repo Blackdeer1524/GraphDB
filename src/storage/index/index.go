@@ -119,6 +119,7 @@ const (
 	recordsCountSlot
 	hashmapTotalCapacitySlot
 	startPageIDSlot
+	masterPageSlotsCount
 )
 
 func NewLinearProbingIndex(
@@ -128,17 +129,20 @@ func NewLinearProbingIndex(
 	logger common.ITxnLoggerWithContext,
 ) (*LinearProbingIndex, error) {
 	cToken := txns.NewNilCatalogLockToken(logger.GetTxnID())
+
+	masterPage, err := pool.GetPage(getMasterPageIdent(meta.FileID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get master page: %w", err)
+	}
+
 	index := &LinearProbingIndex{
 		indexFileToken: txns.NewNilFileLockToken(cToken, meta.FileID),
 		keySize:        int(meta.KeyBytesCnt),
 		locker:         locker,
 		logger:         logger,
 		hasher:         maphash.Hash{},
-	}
-
-	err := index.initMasterPage()
-	if err != nil {
-		return nil, fmt.Errorf("failed to init master page: %w", err)
+		masterPage:     masterPage,
+		pool:           pool,
 	}
 	return index, nil
 }
@@ -150,21 +154,6 @@ func getMasterPageIdent(fileID common.FileID) common.PageIdentity {
 	}
 }
 
-func (i *LinearProbingIndex) initMasterPage() error {
-	materPageIdent := getMasterPageIdent(i.indexFileToken.GetFileID())
-	pToken := i.locker.LockPage(i.indexFileToken, materPageIdent.PageID, txns.PageLockShared)
-	if pToken == nil {
-		return fmt.Errorf("failed to lock page: %v", materPageIdent)
-	}
-
-	pg, err := i.pool.GetPage(materPageIdent)
-	if err != nil {
-		return fmt.Errorf("failed to get page: %w", err)
-	}
-	i.masterPage = pg
-	return nil
-}
-
 func (i *LinearProbingIndex) Get(key []byte) (common.RecordID, error) {
 	assert.Assert(len(key) == i.keySize, "key size mismatch")
 
@@ -173,10 +162,7 @@ func (i *LinearProbingIndex) Get(key []byte) (common.RecordID, error) {
 		return common.RecordID{}, fmt.Errorf("failed to lock page: %v", masterPageID)
 	}
 
-	// bucketCount := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketCountSlot))
-	// bucketItemSize := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketItemSizeSlot))
 	bucketCapacity := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketCapacitySlot))
-	// recordsCount := utils.FromBytes[uint64](i.masterPage.LockedRead(recordsCountSlot))
 	recordsLimit := utils.FromBytes[uint64](i.masterPage.LockedRead(hashmapTotalCapacitySlot))
 	startPageID := utils.FromBytes[common.PageID](i.masterPage.LockedRead(startPageIDSlot))
 
@@ -410,6 +396,9 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 						)
 					},
 				)
+				if err != nil {
+					return true, err
+				}
 
 				if !i.locker.UpgradePageLock(pToken, txns.PageLockExclusive) {
 					return true, fmt.Errorf("failed to upgrade page lock: %v", bucketPageIdent)
@@ -544,25 +533,27 @@ func (i *LinearProbingIndex) rebuild() error {
 	}
 
 	for k := startPageID; k < startPageID+common.PageID(bucketCount); k++ {
-		pToken := i.locker.LockPage(i.indexFileToken, k, txns.PageLockExclusive)
-		assert.Assert(pToken != nil, "already aquired a file lock")
+		prevGenBucketPageToken := i.locker.LockPage(i.indexFileToken, k, txns.PageLockShared)
+		assert.Assert(prevGenBucketPageToken != nil, "already aquired a file lock")
 
-		bucketPageIdent := common.PageIdentity{
+		prevGenBucketPageIdent := common.PageIdentity{
 			FileID: i.indexFileToken.GetFileID(),
 			PageID: k,
 		}
 
-		pg, err := i.pool.GetPageNoCreate(bucketPageIdent)
+		prevGenBucket, err := i.pool.GetPageNoCreate(prevGenBucketPageIdent)
 		if err != nil {
 			return fmt.Errorf("failed to get page: %w", err)
 		}
 
 		err = func() error {
-			pg.RLock()
-			defer pg.RUnlock()
+			defer i.pool.Unpin(prevGenBucketPageIdent)
 
-			for slotIdx := range pg.NumSlots() {
-				bucketItemData := pg.UnsafeRead(slotIdx)
+			prevGenBucket.RLock()
+			defer prevGenBucket.RUnlock()
+
+			for slotIdx := range prevGenBucket.NumSlots() {
+				bucketItemData := prevGenBucket.UnsafeRead(slotIdx)
 				status, itemKey, rid, err := unmarshalBucketItem(bucketItemData, i.keySize)
 
 				if err != nil {
@@ -579,6 +570,10 @@ func (i *LinearProbingIndex) rebuild() error {
 			}
 			return nil
 		}()
+
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

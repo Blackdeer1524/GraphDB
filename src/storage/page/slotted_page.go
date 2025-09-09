@@ -20,7 +20,7 @@ const (
 	slotPtrSize    uint16 = uint16(unsafe.Sizeof(slotPointer(1)))
 )
 
-func PageRecordsLimit(recordLen int) int {
+func PageCapacity(recordLen int) int {
 	requiredSpace := unsafe.Sizeof(uint16(0)) + uintptr(recordLen)
 
 	slotsOffset := unsafe.Offsetof(header{}.slots)

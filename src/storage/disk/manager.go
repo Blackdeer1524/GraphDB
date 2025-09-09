@@ -65,7 +65,7 @@ func (m *Manager) ReadPageAssumeLocked(
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR, 0o644)
+	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func (m *Manager) GetPageNoNewAssumeLocked(
 		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
 	}
 
-	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR, 0o644)
+	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
