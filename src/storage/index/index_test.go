@@ -141,6 +141,7 @@ func setupIndex(t *testing.T, keyLength uint32) (*LinearProbingIndex, *bufferpoo
 	setupIndexPages(t, debugPool, indexMeta)
 	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 	require.NoError(t, err)
+
 	return index, debugPool
 }
 
@@ -177,7 +178,7 @@ func TestIndexWithRebuild(t *testing.T) {
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 	defer index.Close()
 
-	N := 1000
+	N := 10000
 	rid := common.RecordID{
 		FileID:  1,
 		PageID:  2,
@@ -189,12 +190,15 @@ func TestIndexWithRebuild(t *testing.T) {
 
 		err := index.Insert(key, rid)
 		require.NoError(t, err)
+
+		storedRID, err := index.Get(key)
+		require.NoError(t, err)
+		assert.Equal(t, rid, storedRID)
 	}
 
 	for i := range N {
-		key := utils.ToBytes[uint64](uint64(i))
 		rid.SlotNum = uint16(i)
-
+		key := utils.ToBytes[uint64](uint64(i))
 		storedRID, err := index.Get(key)
 		require.NoError(t, err)
 		assert.Equal(t, rid, storedRID)
