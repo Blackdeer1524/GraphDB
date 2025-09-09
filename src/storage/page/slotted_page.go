@@ -20,6 +20,14 @@ const (
 	slotPtrSize    uint16 = uint16(unsafe.Sizeof(slotPointer(1)))
 )
 
+func PageRecordsLimit(recordLen int) int {
+	requiredSpace := unsafe.Sizeof(uint16(0)) + uintptr(recordLen)
+
+	slotsOffset := unsafe.Offsetof(header{}.slots)
+	test := (PageSize - slotsOffset) / (uintptr(slotPtrSize) + requiredSpace)
+	return int(test)
+}
+
 type SlottedPage struct {
 	data [PageSize]byte
 }
@@ -90,7 +98,7 @@ func NewSlottedPage() *SlottedPage {
 
 func (p *SlottedPage) setupHeader() {
 	head := p.getHeader()
-	head.freeStart = uint16(unsafe.Sizeof(header{}))
+	head.freeStart = uint16(unsafe.Offsetof(head.slots))
 	head.freeEnd = PageSize
 }
 
@@ -106,7 +114,7 @@ func (p *SlottedPage) Clear() {
 
 	h.pageLSN = common.NilLSN
 
-	h.freeStart = uint16(unsafe.Sizeof(header{}))
+	h.freeStart = uint16(unsafe.Offsetof(h.slots))
 	h.freeEnd = PageSize
 
 	h.slotsCount = 0
@@ -124,6 +132,8 @@ func (p *SlottedPage) SetPageLSN(lsn common.LSN) {
 }
 
 func (p *SlottedPage) insertPrepare(data []byte) optional.Optional[uint16] {
+	assert.Assert(len(data) > 0, "data is empty")
+
 	header := p.getHeader()
 	// space required to store both the array and it's length
 	requiredLength := int(unsafe.Sizeof(uint16(1))) + len(data)

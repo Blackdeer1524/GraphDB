@@ -1,6 +1,7 @@
 package page
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -261,4 +262,36 @@ func TestUndoDelete_PanicsIfSlotIDTooLarge(t *testing.T) {
 	assert.Panics(t, func() {
 		page.UndoDelete(9999)
 	}, "UndoDelete should panic if slotID is too large")
+}
+
+func TestPageRecordsLimit(t *testing.T) {
+	// Test that the calculation is consistent with actual page behavior
+
+	for recordLen := 1; recordLen < PageSize; recordLen++ {
+		t.Run(
+			fmt.Sprintf("recordLen_%d", recordLen),
+			func(t *testing.T) {
+				page := NewSlottedPage()
+				expectedLimit := PageRecordsLimit(recordLen)
+				// Insert records up to the limit
+				for i := range expectedLimit {
+					data := make([]byte, recordLen)
+					for j := range data {
+						data[j] = byte(i % 256)
+					}
+
+					slot := page.insertPrepare(data)
+					if slot.IsNone() {
+						t.Fatalf("Failed to insert record %d out of expected %d", i, expectedLimit)
+					}
+					page.insertCommit(slot.Unwrap())
+				}
+
+				// Verify that one more insertion fails
+				extraData := make([]byte, recordLen)
+				extraSlot := page.insertPrepare(extraData)
+				assert.True(t, extraSlot.IsNone(),
+					"Should not be able to insert more than the calculated limit")
+			})
+	}
 }
