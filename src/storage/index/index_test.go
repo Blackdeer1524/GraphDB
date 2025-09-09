@@ -144,10 +144,16 @@ func setupIndex(t *testing.T, keyLength uint32) (*LinearProbingIndex, *bufferpoo
 	return index, debugPool
 }
 
+func TestNoLeakageAfterCreation(t *testing.T) {
+	index, pool := setupIndex(t, 4)
+	index.Close()
+	assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+}
+
 func TestIndexInsert(t *testing.T) {
 	index, pool := setupIndex(t, 4)
-	defer index.Close()
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	defer index.Close()
 
 	key := []byte("test")
 	expectedRID := common.RecordID{
@@ -162,12 +168,13 @@ func TestIndexInsert(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expectedRID, rid)
 
-	err = index.rebuild()
+	err = index.grow()
 	require.NoError(t, err)
 }
 
 func TestIndexWithRebuild(t *testing.T) {
-	index, _ := setupIndex(t, 2)
+	index, pool := setupIndex(t, 8)
+	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 	defer index.Close()
 
 	N := 1000
@@ -177,7 +184,7 @@ func TestIndexWithRebuild(t *testing.T) {
 		SlotNum: 0,
 	}
 	for i := range N {
-		key := utils.ToBytes[uint16](uint16(i))
+		key := utils.ToBytes[uint64](uint64(i))
 		rid.SlotNum = uint16(i)
 
 		err := index.Insert(key, rid)
@@ -185,11 +192,11 @@ func TestIndexWithRebuild(t *testing.T) {
 	}
 
 	for i := range N {
-		key := utils.ToBytes[uint16](uint16(i))
+		key := utils.ToBytes[uint64](uint64(i))
 		rid.SlotNum = uint16(i)
 
 		storedRID, err := index.Get(key)
 		require.NoError(t, err)
-		require.Equal(t, rid, storedRID)
+		assert.Equal(t, rid, storedRID)
 	}
 }

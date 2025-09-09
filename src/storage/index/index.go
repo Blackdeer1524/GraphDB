@@ -320,7 +320,7 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 	recordsCount := utils.FromBytes[uint64](i.masterPage.LockedRead(recordsCountSlot))
 	recordsLimit := utils.FromBytes[uint64](i.masterPage.LockedRead(hashmapTotalCapacitySlot))
 	if float64(recordsCount)/float64(recordsLimit) > hashmapLoadFactor {
-		if err := i.rebuild(); err != nil {
+		if err := i.grow(); err != nil {
 			return err
 		}
 		recordsLimit = utils.FromBytes[uint64](i.masterPage.LockedRead(hashmapTotalCapacitySlot))
@@ -337,8 +337,8 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 
 		bucketItemPageID := startPageID + common.PageID(bucketIndex)
 
-		pToken := i.locker.LockPage(i.indexFileToken, bucketItemPageID, txns.PageLockShared)
-		if pToken == nil {
+		bucketToken := i.locker.LockPage(i.indexFileToken, bucketItemPageID, txns.PageLockShared)
+		if bucketToken == nil {
 			err := fmt.Errorf("failed to lock page: %v", bucketItemPageID)
 			return err
 		}
@@ -348,13 +348,13 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 			PageID: bucketItemPageID,
 		}
 		found, err := func() (bool, error) {
-			pg, err := i.pool.GetPage(bucketPageIdent)
+			bucketPage, err := i.pool.GetPage(bucketPageIdent)
 			if err != nil {
 				return false, fmt.Errorf("failed to get page: %w", err)
 			}
 			defer i.pool.Unpin(bucketPageIdent)
 
-			bucketItemData := pg.LockedRead(slotNumber)
+			bucketItemData := bucketPage.LockedRead(slotNumber)
 			status, itemKey, _, err := unmarshalBucketItem(bucketItemData, i.keySize)
 			if err != nil {
 				return false, fmt.Errorf("failed to unmarshal bucket item: %w", err)
@@ -388,9 +388,9 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 						return lockedPage.UpdateWithLogs(
 							recordsCountData,
 							common.RecordID{
-								SlotNum: recordsCountSlot,
 								FileID:  i.indexFileToken.GetFileID(),
 								PageID:  masterPageID,
+								SlotNum: recordsCountSlot,
 							},
 							i.logger,
 						)
@@ -400,14 +400,14 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 					return true, err
 				}
 
-				if !i.locker.UpgradePageLock(pToken, txns.PageLockExclusive) {
+				if !i.locker.UpgradePageLock(bucketToken, txns.PageLockExclusive) {
 					return true, fmt.Errorf("failed to upgrade page lock: %v", bucketPageIdent)
 				}
 
 				err = i.pool.WithMarkDirty(
 					i.logger.GetTxnID(),
 					bucketPageIdent,
-					pg,
+					bucketPage,
 					func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 						return lockedPage.UpdateWithLogs(
 							insertedItemData,
@@ -435,21 +435,21 @@ func (i *LinearProbingIndex) Insert(key []byte, rid common.RecordID) error {
 	}
 }
 
-func (i *LinearProbingIndex) rebuild() error {
+func (i *LinearProbingIndex) grow() error {
 	if !i.locker.UpgradeFileLock(i.indexFileToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("failed to upgrade file lock: %v", i.indexFileToken.GetFileID())
 	}
 	masterPageToken := i.locker.LockPage(i.indexFileToken, masterPageID, txns.PageLockExclusive)
 	assert.Assert(masterPageToken != nil)
 
-	bucketCount := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketsCountSlot))
+	bucketsCount := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketsCountSlot))
 	startPageID := utils.FromBytes[common.PageID](i.masterPage.LockedRead(startPageIDSlot))
 	bucketCapacity := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketCapacitySlot))
 	bucketItemSize := utils.FromBytes[uint64](i.masterPage.LockedRead(bucketItemSizeSlot))
 
 	dummyRecord := make([]byte, bucketItemSize)
-	for k := range bucketCount * 2 {
-		newPageID := startPageID + common.PageID(bucketCount) + common.PageID(k)
+	for k := range bucketsCount * 2 {
+		newPageID := startPageID + common.PageID(bucketsCount) + common.PageID(k)
 
 		pToken := i.locker.LockPage(i.indexFileToken, newPageID, txns.PageLockExclusive)
 		assert.Assert(pToken != nil, "already aquired a file lock")
@@ -492,11 +492,11 @@ func (i *LinearProbingIndex) rebuild() error {
 		i.masterPage,
 		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 			_, err := lockedPage.UpdateWithLogs(
-				utils.ToBytes[uint64](bucketCount*2),
+				utils.ToBytes[uint64](bucketsCount*2),
 				common.RecordID{
-					SlotNum: bucketsCountSlot,
 					FileID:  i.indexFileToken.GetFileID(),
 					PageID:  masterPageID,
+					SlotNum: bucketsCountSlot,
 				},
 				i.logger,
 			)
@@ -505,11 +505,11 @@ func (i *LinearProbingIndex) rebuild() error {
 			}
 
 			_, err = lockedPage.UpdateWithLogs(
-				utils.ToBytes[uint64](uint64(startPageID)+bucketCount),
+				utils.ToBytes[uint64](uint64(startPageID)+bucketsCount),
 				common.RecordID{
-					SlotNum: startPageIDSlot,
 					FileID:  i.indexFileToken.GetFileID(),
 					PageID:  masterPageID,
+					SlotNum: startPageIDSlot,
 				},
 				i.logger,
 			)
@@ -518,7 +518,7 @@ func (i *LinearProbingIndex) rebuild() error {
 			}
 
 			return lockedPage.UpdateWithLogs(
-				utils.ToBytes[uint64](bucketCapacity*2*bucketCount),
+				utils.ToBytes[uint64](bucketCapacity*2*bucketsCount),
 				common.RecordID{
 					SlotNum: hashmapTotalCapacitySlot,
 					FileID:  i.indexFileToken.GetFileID(),
@@ -532,7 +532,7 @@ func (i *LinearProbingIndex) rebuild() error {
 		return err
 	}
 
-	for k := startPageID; k < startPageID+common.PageID(bucketCount); k++ {
+	for k := startPageID; k < startPageID+common.PageID(bucketsCount); k++ {
 		prevGenBucketPageToken := i.locker.LockPage(i.indexFileToken, k, txns.PageLockShared)
 		assert.Assert(prevGenBucketPageToken != nil, "already aquired a file lock")
 
