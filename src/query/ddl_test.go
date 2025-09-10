@@ -336,7 +336,7 @@ func TestDropVertexTable(t *testing.T) {
 	tableName := "test"
 	ticker := atomic.Uint64{}
 
-	N := 1
+	N := 1000
 	vertices := make(map[storage.VertexSystemID]int64, N)
 
 	err = Execute(

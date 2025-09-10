@@ -24,12 +24,12 @@ const (
 	directoryTableType tableType = "directory"
 )
 
-func getVertexTableFilePath(basePath, vertTableName string) string {
-	return getTableFilePath(basePath, vertexTableType, vertTableName)
+func getVertexTableFilePath(basePath string, vertTableFileID common.FileID) string {
+	return getTableFilePath(basePath, vertexTableType, strconv.Itoa(int(vertTableFileID)))
 }
 
-func getEdgeTableFilePath(basePath, edgeTableName string) string {
-	return getTableFilePath(basePath, edgeTableType, edgeTableName)
+func getEdgeTableFilePath(basePath string, edgeTableFileID common.FileID) string {
+	return getTableFilePath(basePath, edgeTableType, strconv.Itoa(int(edgeTableFileID)))
 }
 
 func getDirectoryTableFilePath(basePath string, vertexTableFileID common.FileID) string {
@@ -37,24 +37,24 @@ func getDirectoryTableFilePath(basePath string, vertexTableFileID common.FileID)
 	return getTableFilePath(basePath, directoryTableType, dirTableName)
 }
 
-func getVertexTableIndexFilePath(basePath, indexName string) string {
-	return getIndexFilePath(basePath, vertexTableType, indexName)
+func getVertexTableIndexFilePath(basePath string, indexFileID common.FileID) string {
+	return getIndexFilePath(basePath, vertexTableType, strconv.Itoa(int(indexFileID)))
 }
 
-func getEdgeTableIndexFilePath(basePath, indexName string) string {
-	return getIndexFilePath(basePath, edgeTableType, indexName)
+func getEdgeTableIndexFilePath(basePath string, indexFileID common.FileID) string {
+	return getIndexFilePath(basePath, edgeTableType, strconv.Itoa(int(indexFileID)))
 }
 
-func getDirTableIndexFilePath(basePath, indexName string) string {
-	return getIndexFilePath(basePath, directoryTableType, indexName)
+func getDirTableIndexFilePath(basePath string, indexFileID common.FileID) string {
+	return getIndexFilePath(basePath, directoryTableType, strconv.Itoa(int(indexFileID)))
 }
 
-func getTableFilePath(basePath string, tableType tableType, prefixedName string) string {
-	return filepath.Join(basePath, "tables", string(tableType), prefixedName+".tbl")
+func getTableFilePath(basePath string, tableType tableType, n string) string {
+	return filepath.Join(basePath, "tables", string(tableType), n+".tbl")
 }
 
-func getIndexFilePath(basePath string, indexType tableType, prefixedName string) string {
-	return filepath.Join(basePath, "indexes", string(indexType), prefixedName+".idx")
+func getIndexFilePath(basePath string, indexType tableType, n string) string {
+	return filepath.Join(basePath, "indexes", string(indexType), n+".idx")
 }
 
 func getTableSystemIndexName(tableID common.FileID) string {
@@ -99,8 +99,8 @@ func (s *StorageEngine) CreateVertexTable(
 	}
 
 	basePath := s.catalog.GetBasePath()
-	tableFilePath := getVertexTableFilePath(basePath, tableName)
 	tableFileID := s.catalog.GetNewFileID()
+	tableFilePath := getVertexTableFilePath(basePath, tableFileID)
 
 	// Existence of the file is not the proof of existence of the table
 	// (we don't remove file on drop), and it is why we do not check if
@@ -232,8 +232,8 @@ func (s *StorageEngine) CreateEdgeTable(
 	}
 
 	basePath := s.catalog.GetBasePath()
-	tableFilePath := getEdgeTableFilePath(basePath, tableName)
 	tableFileID := s.catalog.GetNewFileID()
+	tableFilePath := getEdgeTableFilePath(basePath, tableFileID)
 
 	// Existence of the file is not the proof of existence of the table
 	// (we don't remove file on drop),
@@ -414,8 +414,8 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	}
 
 	basePath := s.catalog.GetBasePath()
-	fileID := s.catalog.GetNewFileID()
-	indexFilePath := getVertexTableIndexFilePath(basePath, indexName)
+	indexFileID := s.catalog.GetNewFileID()
+	indexFilePath := getVertexTableIndexFilePath(basePath, indexFileID)
 	ok, err := s.catalog.VertexIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
@@ -455,7 +455,7 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
 		PathToFile:  indexFilePath,
-		FileID:      fileID,
+		FileID:      indexFileID,
 		TableName:   tableName,
 		Columns:     columns,
 		KeyBytesCnt: calculatedKeyBytesCnt,
@@ -469,7 +469,7 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	s.diskMgrInsertToFileMap(common.FileID(fileID), indexFilePath)
+	s.diskMgrInsertToFileMap(common.FileID(indexFileID), indexFilePath)
 
 	err = s.buildVertexIndex(txnID, vertexTableMeta.FileID, idxCreateReq, cToken, logger)
 	if err != nil {
@@ -516,7 +516,7 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 
 	basePath := s.catalog.GetBasePath()
 	indexFileID := s.catalog.GetNewFileID()
-	indexFilePath := getEdgeTableIndexFilePath(basePath, indexName)
+	indexFilePath := getEdgeTableIndexFilePath(basePath, indexFileID)
 	ok, err := s.catalog.EdgeIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
@@ -801,7 +801,7 @@ func (s *StorageEngine) createDirTableIndex(
 
 	basePath := s.catalog.GetBasePath()
 	indexFileID := s.catalog.GetNewFileID()
-	indexFilePath := getDirTableIndexFilePath(basePath, indexName)
+	indexFilePath := getDirTableIndexFilePath(basePath, indexFileID)
 	ok, err := s.catalog.DirIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
