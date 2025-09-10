@@ -79,8 +79,7 @@ func prepareFSforTable(fs afero.Fs, tableFilePath string) error {
 		return fmt.Errorf("unable to sync file: %w", err)
 	}
 
-	_ = file.Close()
-	return nil
+	return file.Close()
 }
 
 func (s *StorageEngine) CreateVertexTable(
