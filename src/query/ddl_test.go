@@ -404,3 +404,48 @@ func TestDropVertexTable(t *testing.T) {
 	)
 	require.NoError(t, err)
 }
+
+func TestCreateEdgeTable(t *testing.T) {
+	e, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+
+	vertTableName := "person"
+	edgeTableName := "indepted_to"
+	ticker := atomic.Uint64{}
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, vertTableName, schema, logger)
+			require.NoError(t, err)
+
+			edgeSchema := storage.Schema{
+				{Name: "debt_amount", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
+			require.NoError(t, err)
+
+			v1, err := e.InsertVertex(txnID, vertTableName, map[string]any{
+				"money": int64(100),
+			}, logger)
+			require.NoError(t, err)
+
+			v2, err := e.InsertVertex(txnID, vertTableName, map[string]any{
+				"money": int64(200),
+			}, logger)
+			require.NoError(t, err)
+
+			_, err = e.InsertEdge(txnID, edgeTableName, v1, v2, map[string]any{
+				"debt_amount": int64(100),
+			}, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+}

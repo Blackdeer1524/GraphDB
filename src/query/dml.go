@@ -116,7 +116,7 @@ func (e *Executor) InsertEdge(
 
 	srcVertDirTableIndex, err := e.se.GetVertexTableSystemIndex(
 		txnID,
-		dirTableMeta.FileID,
+		dirTableMeta.VertexTableID,
 		cToken,
 		logger,
 	)
