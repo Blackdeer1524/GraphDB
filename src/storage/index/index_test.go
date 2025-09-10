@@ -152,7 +152,7 @@ func TestIndexWithRebuild(t *testing.T) {
 }
 
 func TestIndexRollback(t *testing.T) {
-	N := 50
+	N := 2000
 	pool, logger, indexMeta, locker := setup(t, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 	func() {
