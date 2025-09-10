@@ -2,6 +2,7 @@ package systemcatalog
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
@@ -408,10 +410,11 @@ func TestCatalogManager_VersionRollback(t *testing.T) {
 	m, _, _, basePath := newTestCatalogManager(t)
 	m.GetBasePath()
 
+	fileID := m.GetNewFileID()
 	require.NoError(t, m.AddVertexTable(storage.VertexTableMeta{
 		Name:       "users",
-		FileID:     m.GetNewFileID(),
-		PathToFile: filepath.Join(basePath, "users.dat"),
+		FileID:     fileID,
+		PathToFile: filepath.Join(basePath, strconv.Itoa(int(fileID))),
 		Schema:     storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
 	}))
 
@@ -424,7 +427,7 @@ func TestCatalogManager_VersionRollback(t *testing.T) {
 	require.Equal(t, uint64(1), m.CurrentVersion())
 
 	// rollback
-	m.masterVersion = 0
+	m.currentVersionPage.UnsafeUpdateNoLogs(catalogVersionSlotNum, utils.ToBytes[uint64](0))
 
 	require.NoError(t, m.Load())
 	assert.Equal(t, uint64(0), m.CurrentVersion())

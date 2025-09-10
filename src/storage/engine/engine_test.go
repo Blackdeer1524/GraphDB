@@ -189,17 +189,16 @@ func TestStorageEngine_GetVertexTableMetaByFileID_LoadOrder(t *testing.T) {
 	ct := txns.NewNilCatalogLockToken(common.TxnID(9))
 	fileID := common.FileID(88)
 
-	// Note: current implementation resolves via edge lookups and returns EdgeTableMeta
-	expected := storage.VertexTableMeta{Name: "edges_by_vertex_id"}
+	expected := storage.VertexTableMeta{Name: "users"}
 	step := 0
 	cat.EXPECT().Load().Run(func() { require.Equal(t, 0, step); step = 1 }).Return(nil).Once()
 	cat.EXPECT().
-		GetEdgeTableNameByFileID(fileID).
+		GetVertexTableNameByFileID(fileID).
 		Run(func(_ common.FileID) { require.Equal(t, 1, step); step = 2 }).
-		Return("edges_by_vertex_id", nil).
+		Return("users", nil).
 		Once()
 	cat.EXPECT().
-		GetVertexTableMeta("edges_by_vertex_id").
+		GetVertexTableMeta("users").
 		Run(func(_ string) { require.Equal(t, 2, step); step = 3 }).
 		Return(expected, nil).
 		Once()
