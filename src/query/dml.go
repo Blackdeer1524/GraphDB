@@ -5,17 +5,17 @@ import (
 	"fmt"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 func (e *Executor) SelectVertex(
+	txnID common.TxnID,
 	tableName string,
 	vertexID storage.VertexSystemID,
+	logger common.ITxnLoggerWithContext,
 ) (v storage.Vertex, err error) {
-	txnID := e.newTxnID()
-	logger := e.logger.WithContext(txnID)
-
 	if err := logger.AppendBegin(); err != nil {
 		return storage.Vertex{}, fmt.Errorf("failed to append begin: %w", err)
 	}
@@ -68,12 +68,11 @@ func (e *Executor) SelectVertex(
 }
 
 func (e *Executor) InsertVertex(
+	txnID common.TxnID,
 	tableName string,
 	data map[string]any,
+	logger common.ITxnLoggerWithContext,
 ) (vID storage.VertexSystemID, err error) {
-	txnID := e.newTxnID()
-	logger := e.logger.WithContext(txnID)
-
 	if err := logger.AppendBegin(); err != nil {
 		return storage.NilVertexID, fmt.Errorf("failed to append begin: %w", err)
 	}
@@ -125,32 +124,13 @@ func (e *Executor) SelectEdge() error {
 }
 
 func (e *Executor) InsertEdge(
+	txnID common.TxnID,
 	edgeTableName string,
 	srcVertexID storage.VertexSystemID,
 	dstVertexID storage.VertexSystemID,
 	data map[string]any,
+	logger common.ITxnLoggerWithContext,
 ) (edgeID storage.EdgeSystemID, err error) {
-	txnID := e.newTxnID()
-	logger := e.logger.WithContext(txnID)
-
-	if err := logger.AppendBegin(); err != nil {
-		return storage.NilEdgeID, fmt.Errorf("failed to append begin: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			assert.NoError(logger.AppendAbort())
-			logger.Rollback()
-			err = errors.Join(err, logger.AppendTxnEnd())
-			return
-		}
-		if err = logger.AppendCommit(); err != nil {
-			err = fmt.Errorf("failed to append commit: %w", err)
-		} else if err = logger.AppendTxnEnd(); err != nil {
-			err = fmt.Errorf("failed to append txn end: %w", err)
-		}
-	}()
-
 	cToken := txns.NewNilCatalogLockToken(txnID)
 	edgeTableMeta, err := e.se.GetEdgeTableMeta(edgeTableName, cToken)
 	if err != nil {

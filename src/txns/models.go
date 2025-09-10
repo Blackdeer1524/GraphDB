@@ -15,8 +15,8 @@ type GranularLockMode TaggedType[uint16]
 type GranularLock[Lock any] interface {
 	fmt.Stringer
 	Compatible(Lock) bool
-	Upgradable(Lock) bool
-	Equal(Lock) bool
+	Combine(Lock) Lock
+	WeakerOrEqual(Lock) bool
 }
 
 var (
@@ -72,23 +72,39 @@ func (m PageLockMode) Compatible(other PageLockMode) bool {
 	return false
 }
 
-func (m PageLockMode) Upgradable(to PageLockMode) bool {
+func (m PageLockMode) Combine(to PageLockMode) PageLockMode {
 	switch m {
 	case PageLockShared:
 		switch to {
+		case PageLockShared:
+			return PageLockShared
+		case PageLockExclusive:
+			return PageLockExclusive
+		}
+	case PageLockExclusive:
+		return PageLockExclusive
+	}
+	panic("unreachable")
+}
+
+func (m PageLockMode) WeakerOrEqual(other PageLockMode) bool {
+	switch m {
+	case PageLockShared:
+		switch other {
+		case PageLockShared:
+			return true
+		case PageLockExclusive:
+			return true
+		}
+	case PageLockExclusive:
+		switch other {
 		case PageLockShared:
 			return false
 		case PageLockExclusive:
 			return true
 		}
-	case PageLockExclusive:
-		return false
 	}
-	return false
-}
-
-func (m PageLockMode) Equal(other PageLockMode) bool {
-	return m == other
+	panic("unreachable")
 }
 
 // https://www.geeksforgeeks.org/dbms/multiple-granularity-locking-in-dbms/
@@ -165,10 +181,72 @@ func (m GranularLockMode) Compatible(other GranularLockMode) bool {
 	return false
 }
 
-func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
+func (m GranularLockMode) Combine(another GranularLockMode) GranularLockMode {
 	switch m {
 	case GranularLockIntentionShared:
-		switch to {
+		switch another {
+		case GranularLockIntentionShared:
+			return GranularLockIntentionShared
+		case GranularLockIntentionExclusive:
+			return GranularLockIntentionExclusive
+		case GranularLockShared:
+			return GranularLockShared
+		case GranularLockSharedIntentionExclusive:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockExclusive:
+			return GranularLockExclusive
+		}
+	case GranularLockIntentionExclusive:
+		switch another {
+		case GranularLockIntentionShared:
+			return GranularLockIntentionExclusive
+		case GranularLockIntentionExclusive:
+			return GranularLockIntentionExclusive
+		case GranularLockShared:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockSharedIntentionExclusive:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockExclusive:
+			return GranularLockExclusive
+		}
+	case GranularLockShared:
+		switch another {
+		case GranularLockIntentionShared:
+			return GranularLockShared
+		case GranularLockIntentionExclusive:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockShared:
+			return GranularLockShared
+		case GranularLockSharedIntentionExclusive:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockExclusive:
+			return GranularLockExclusive
+		}
+	case GranularLockSharedIntentionExclusive:
+		switch another {
+		case GranularLockIntentionShared:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockIntentionExclusive:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockShared:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockSharedIntentionExclusive:
+			return GranularLockSharedIntentionExclusive
+		case GranularLockExclusive:
+			return GranularLockExclusive
+		}
+	case GranularLockExclusive:
+		return GranularLockExclusive
+	}
+	panic("unreachable")
+}
+
+func (m GranularLockMode) WeakerOrEqual(other GranularLockMode) bool {
+	switch m {
+	case GranularLockIntentionShared:
+		switch other {
+		case GranularLockIntentionShared:
+			return true
 		case GranularLockIntentionExclusive:
 			return true
 		case GranularLockShared:
@@ -177,43 +255,61 @@ func (m GranularLockMode) Upgradable(to GranularLockMode) bool {
 			return true
 		case GranularLockExclusive:
 			return true
-		default:
-			return false
 		}
 	case GranularLockIntentionExclusive:
-		switch to {
-		case GranularLockExclusive:
+		switch other {
+		case GranularLockIntentionShared:
+			return false
+		case GranularLockIntentionExclusive:
 			return true
+		case GranularLockShared:
+			return false
 		case GranularLockSharedIntentionExclusive:
 			return true
-		default:
-			return false
+		case GranularLockExclusive:
+			return true
 		}
 	case GranularLockShared:
-		switch to {
+		switch other {
+		case GranularLockIntentionShared:
+			return false
+		case GranularLockIntentionExclusive:
+			return false
+		case GranularLockShared:
+			return true
 		case GranularLockSharedIntentionExclusive:
 			return true
 		case GranularLockExclusive:
 			return true
-		default:
-			return false
 		}
 	case GranularLockSharedIntentionExclusive:
-		switch to {
+		switch other {
+		case GranularLockIntentionShared:
+			return false
+		case GranularLockIntentionExclusive:
+			return false
+		case GranularLockShared:
+			return false
+		case GranularLockSharedIntentionExclusive:
+			return true
 		case GranularLockExclusive:
 			return true
-		default:
-			return false
 		}
 	case GranularLockExclusive:
-		return false // Already exclusive, cannot upgrade
-	default:
-		return false
+		switch other {
+		case GranularLockIntentionShared:
+			return false
+		case GranularLockIntentionExclusive:
+			return false
+		case GranularLockShared:
+			return false
+		case GranularLockSharedIntentionExclusive:
+			return false
+		case GranularLockExclusive:
+			return true
+		}
 	}
-}
-
-func (m GranularLockMode) Equal(other GranularLockMode) bool {
-	return m == other
+	panic("unreachable")
 }
 
 type TxnLockRequest[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {

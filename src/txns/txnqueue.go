@@ -287,19 +287,12 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	)
 	acquiredLockMode := upgradingEntry.r.lockMode
 
-	if r.lockMode.Equal(acquiredLockMode) ||
-		r.lockMode.Upgradable(acquiredLockMode) {
-		// check whether we have requested a weaker lock
+	if r.lockMode.WeakerOrEqual(acquiredLockMode) {
 		upgradingEntry.mu.Unlock()
 		return upgradingEntry.notifier
 	}
 
-	assert.Assert(
-		acquiredLockMode.Upgradable(r.lockMode),
-		"can only upgrade to a compatible lock mode. given: %s -> %s",
-		acquiredLockMode,
-		r.lockMode)
-
+	r.lockMode = r.lockMode.Combine(acquiredLockMode)
 	upgradingEntry.mu.Unlock()
 
 	deadlockCond := false

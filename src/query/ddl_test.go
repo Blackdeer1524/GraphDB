@@ -1,12 +1,16 @@
 package query
 
 import (
+	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/recovery"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
@@ -18,17 +22,17 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-func setupExecutor(poolPageCount uint64) (*Executor, error) {
+func setupExecutor(poolPageCount uint64) (*Executor, common.ITxnLogger, error) {
 	catalogBasePath := "/tmp/graphdb_test"
 	fs := afero.NewMemMapFs()
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	err = systemcatalog.CreateLogFileIfDoesntExist(catalogBasePath, fs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	versionFilePath := systemcatalog.GetSystemCatalogVersionFilePath(catalogBasePath)
@@ -48,7 +52,7 @@ func setupExecutor(poolPageCount uint64) (*Executor, error) {
 	debugPool := bufferpool.NewDebugBufferPool(pool)
 	sysCat, err := systemcatalog.New(catalogBasePath, fs, debugPool)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	debugPool.MarkPageAsLeaking(systemcatalog.CatalogVersionPageIdent())
@@ -76,23 +80,57 @@ func setupExecutor(poolPageCount uint64) (*Executor, error) {
 		fs,
 		indexLoader,
 	)
-	executor := New(se, locker, logger)
-	return executor, nil
+	executor := New(se, locker)
+	return executor, logger, nil
 }
 
 func TestCreateVertexType(t *testing.T) {
-	e, err := setupExecutor(10)
+	e, logger, err := setupExecutor(10)
 	require.NoError(t, err)
 
-	tableName := "test"
-	schema := storage.Schema{
-		{Name: "money", Type: storage.ColumnTypeInt64},
-	}
-	err = e.CreateVertexType(tableName, schema)
-	require.NoError(t, err)
+	ticket := atomic.Uint64{}
 
-	_, err = e.InsertVertex(tableName, map[string]any{
-		"money": 100,
-	})
+	err = func(txnID common.TxnID) (err error) {
+		logger := logger.WithContext(txnID)
+
+		if err := logger.AppendBegin(); err != nil {
+			return fmt.Errorf("failed to append begin: %w", err)
+		}
+
+		defer func() {
+			if err != nil {
+				assert.NoError(logger.AppendAbort())
+				logger.Rollback()
+				err = errors.Join(err, logger.AppendTxnEnd())
+				return
+			}
+			if err = logger.AppendCommit(); err != nil {
+				err = fmt.Errorf("failed to append commit: %w", err)
+			} else if err = logger.AppendTxnEnd(); err != nil {
+				err = fmt.Errorf("failed to append txn end: %w", err)
+			}
+		}()
+
+		tableName := "test"
+		schema := storage.Schema{
+			{Name: "money", Type: storage.ColumnTypeInt64},
+		}
+		err = e.CreateVertexType(txnID, tableName, schema, logger)
+		require.NoError(t, err)
+
+		data := map[string]any{
+			"money": int64(100),
+		}
+		vID, err := e.InsertVertex(txnID, tableName, data, logger)
+		require.NoError(t, err)
+
+		v, err := e.SelectVertex(txnID, tableName, vID, logger)
+		require.NoError(t, err)
+		require.Equal(t, v.Data["money"], int64(100))
+
+		require.NoError(t, logger.AppendCommit())
+		return nil
+	}(common.TxnID(ticket.Add(1)))
+
 	require.NoError(t, err)
 }

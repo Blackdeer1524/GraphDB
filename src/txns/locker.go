@@ -329,7 +329,7 @@ func (l *LockManager) UpgradeCatalogLock(
 		return true
 	}
 
-	if lockMode.Upgradable(t.lockMode) || lockMode.Equal(t.lockMode) {
+	if lockMode.WeakerOrEqual(t.lockMode) {
 		return true
 	}
 
@@ -359,7 +359,7 @@ func (l *LockManager) UpgradeFileLock(
 		return true
 	}
 
-	if lockMode.Upgradable(ft.lockMode) || lockMode.Equal(ft.lockMode) {
+	if lockMode.WeakerOrEqual(ft.lockMode) {
 		return true
 	}
 
@@ -386,7 +386,7 @@ func (l *LockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) 
 		return true
 	}
 
-	if lockMode.Upgradable(pt.lockMode) || lockMode.Equal(pt.lockMode) {
+	if lockMode.WeakerOrEqual(pt.lockMode) {
 		return true
 	}
 

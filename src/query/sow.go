@@ -12,10 +12,6 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-func (e *Executor) newTxnID() common.TxnID {
-	return common.TxnID(e.txnTicker.Add(1))
-}
-
 // traverseNeighborsWithDepth enqueues unvisited neighbors at next depth if <= targetDepth.
 func (e *Executor) traverseNeighborsWithDepth(
 	t common.TxnID,
@@ -157,55 +153,29 @@ func (e *Executor) bfsWithDepth(
 // GetVertexesOnDepth is the first query from SOW. It returns all vertexes on a given depth.
 // We will use BFS on graph because DFS cannot calculate right depth on graphs (except trees).
 func (e *Executor) GetVertexesOnDepth(
+	txnID common.TxnID,
 	vertTableID common.FileID,
 	start storage.VertexSystemID,
 	targetDepth uint32,
+	logger common.ITxnLoggerWithContext,
 ) (r []storage.VertexSystemIDWithRID, err error) {
-	if e.se == nil {
-		return nil, errors.New("storage engine is nil")
-	}
-
-	tx := e.newTxnID()
-	defer e.locker.Unlock(tx)
-
-	logger := e.logger.WithContext(tx)
-
-	if err := logger.AppendBegin(); err != nil {
-		return nil, fmt.Errorf("failed to append begin: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			if err1 := logger.AppendAbort(); err1 != nil {
-				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
-			} else {
-				logger.Rollback()
-				err = errors.Join(err, logger.AppendTxnEnd())
-			}
-		} else {
-			if err = logger.AppendCommit(); err != nil {
-				err = fmt.Errorf("failed to append commit: %w", err)
-			} else if err = logger.AppendTxnEnd(); err != nil {
-				err = fmt.Errorf("failed to append txn end: %w", err)
-			}
-		}
-	}()
+	defer e.locker.Unlock(txnID)
 
 	var st storage.VertexSystemIDWithRID
-	cToken := txns.NewNilCatalogLockToken(tx)
-	index, err := e.se.GetVertexTableSystemIndex(tx, vertTableID, cToken, logger)
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	index, err := e.se.GetVertexTableSystemIndex(txnID, vertTableID, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
 
-	st, err = engine.GetVertexRID(tx, start, index)
+	st, err = engine.GetVertexRID(txnID, start, index)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get start vertex: %w", err)
 	}
 
 	var res []storage.VertexSystemIDWithRID
 
-	res, err = e.bfsWithDepth(tx, st, targetDepth, cToken, logger)
+	res, err = e.bfsWithDepth(txnID, st, targetDepth, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bfsWithDepth: %w", err)
 	}
@@ -216,40 +186,12 @@ func (e *Executor) GetVertexesOnDepth(
 // GetAllVertexesWithFieldValue is the second query from SOW.
 // It returns all vertexes with a given field value.
 func (e *Executor) GetAllVertexesWithFieldValue(
+	txnID common.TxnID,
 	vertTableName string,
 	field string,
 	value []byte,
+	logger common.ITxnLoggerWithContext,
 ) (res []storage.Vertex, err error) {
-	if e.se == nil {
-		return nil, errors.New("storage engine is nil")
-	}
-
-	txnID := e.newTxnID()
-	defer e.locker.Unlock(txnID)
-
-	logger := e.logger.WithContext(txnID)
-
-	if err := logger.AppendBegin(); err != nil {
-		return nil, fmt.Errorf("failed to append begin: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			if err1 := logger.AppendAbort(); err1 != nil {
-				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
-			} else {
-				logger.Rollback()
-				err = errors.Join(err, logger.AppendTxnEnd())
-			}
-		} else {
-			if err = logger.AppendCommit(); err != nil {
-				err = fmt.Errorf("failed to append commit: %w", err)
-			} else if err = logger.AppendTxnEnd(); err != nil {
-				err = fmt.Errorf("failed to append txn end: %w", err)
-			}
-		}
-	}()
-
 	var verticesIter storage.VerticesIter
 
 	cToken := txns.NewNilCatalogLockToken(txnID)
@@ -289,46 +231,14 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 // It returns all vertexes with a given field value and uses filter on edges (degree of vertex
 // with condition on edge).
 func (e *Executor) GetAllVertexesWithFieldValue2(
+	txnID common.TxnID,
 	vertTableName string,
 	field string,
 	value []byte,
 	filter storage.EdgeFilter,
 	cutoffDegree uint64,
+	logger common.ITxnLoggerWithContext,
 ) (res []storage.Vertex, err error) {
-	if e.se == nil {
-		return nil, errors.New("storage engine is nil")
-	}
-
-	txnID := e.newTxnID()
-	defer e.locker.Unlock(txnID)
-
-	logger := e.logger.WithContext(txnID)
-
-	if err := logger.AppendBegin(); err != nil {
-		return nil, fmt.Errorf("failed to append begin: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			if err1 := logger.AppendAbort(); err1 != nil {
-				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
-				res = nil
-			} else {
-				logger.Rollback()
-				err = errors.Join(err, logger.AppendTxnEnd())
-				res = nil
-			}
-		} else {
-			if err = logger.AppendCommit(); err != nil {
-				err = fmt.Errorf("failed to append commit: %w", err)
-				res = nil
-			} else if err = logger.AppendTxnEnd(); err != nil {
-				err = fmt.Errorf("failed to append txn end: %w", err)
-				res = nil
-			}
-		}
-	}()
-
 	var verticesIter storage.VerticesIter
 
 	cToken := txns.NewNilCatalogLockToken(txnID)
@@ -438,40 +348,14 @@ func (e *Executor) sumAttributeOverProperNeighbors(
 // the sum of a given attribute over its neighboring vertices, subject to a constraint on the edge
 // or attribute value (e.g., only include neighbors whose attribute exceeds a given threshold).
 func (e *Executor) SumNeighborAttributes(
+	txnID common.TxnID,
 	vertTableName string,
 	field string,
 	filter storage.EdgeFilter,
 	pred storage.SumNeighborAttributesFilter,
+	logger common.ITxnLoggerWithContext,
 ) (r storage.AssociativeArray[storage.VertexID, float64], err error) {
-	if e.se == nil {
-		return nil, errors.New("storage engine is nil")
-	}
-
-	txnID := e.newTxnID()
 	defer e.locker.Unlock(txnID)
-
-	logger := e.logger.WithContext(txnID)
-
-	if err := logger.AppendBegin(); err != nil {
-		return nil, fmt.Errorf("failed to append begin: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			if err1 := logger.AppendAbort(); err1 != nil {
-				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
-			} else {
-				logger.Rollback()
-				err = errors.Join(err, logger.AppendTxnEnd())
-			}
-		} else {
-			if err = logger.AppendCommit(); err != nil {
-				err = fmt.Errorf("failed to append commit: %w", err)
-			} else if err = logger.AppendTxnEnd(); err != nil {
-				err = fmt.Errorf("failed to append txn end: %w", err)
-			}
-		}
-	}()
 
 	r, err = e.se.NewAggregationAssociativeArray(txnID)
 	if err != nil {
@@ -557,7 +441,7 @@ func (e *Executor) SumNeighborAttributes(
 }
 
 func (e *Executor) countCommonNeighbors(
-	tx common.TxnID,
+	txnID common.TxnID,
 	left storage.VertexSystemID,
 	leftNeighbours storage.AssociativeArray[storage.VertexID, struct{}],
 	leftFileToken *txns.FileLockToken,
@@ -566,7 +450,7 @@ func (e *Executor) countCommonNeighbors(
 ) (r uint64, err error) {
 	var rightNeighboursIter storage.NeighborIDIter
 
-	rightNeighboursIter, err = e.se.Neighbours(tx, left, leftFileToken, leftIndex, logger)
+	rightNeighboursIter, err = e.se.Neighbours(txnID, left, leftFileToken, leftIndex, logger)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get neighbors of vertex %v: %w", left, err)
 	}
@@ -675,32 +559,11 @@ func (e *Executor) getVertexTriangleCount(
 
 // GetAllTriangles is the fifth query from SOW.
 // It returns all triangles in the graph (ignoring edge orientation).
-func (e *Executor) GetAllTriangles(vertTableName string) (r uint64, err error) {
-	txnID := e.newTxnID()
-	defer e.locker.Unlock(txnID)
-
-	logger := e.logger.WithContext(txnID)
-	if err := logger.AppendBegin(); err != nil {
-		return 0, fmt.Errorf("failed to append begin: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			if err1 := logger.AppendAbort(); err1 != nil {
-				err = errors.Join(err, fmt.Errorf("append abort failed: %w", err1))
-			} else {
-				logger.Rollback()
-				err = errors.Join(err, logger.AppendTxnEnd())
-			}
-		} else {
-			if err = logger.AppendCommit(); err != nil {
-				err = fmt.Errorf("failed to append commit: %w", err)
-			} else if err = logger.AppendTxnEnd(); err != nil {
-				err = fmt.Errorf("failed to append txn end: %w", err)
-			}
-		}
-	}()
-
+func (e *Executor) GetAllTriangles(
+	txnID common.TxnID,
+	vertTableName string,
+	logger common.ITxnLoggerWithContext,
+) (r uint64, err error) {
 	cToken := txns.NewNilCatalogLockToken(txnID)
 	tableMeta, err := e.se.GetVertexTableMeta(vertTableName, cToken)
 	if err != nil {

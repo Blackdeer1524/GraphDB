@@ -5,17 +5,19 @@ import (
 	"fmt"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-func (e *Executor) CreateVertexType(tableName string, schema storage.Schema) (err error) {
-	txnID := e.newTxnID()
-
+func (e *Executor) CreateVertexType(
+	txnID common.TxnID,
+	tableName string,
+	schema storage.Schema,
+	logger common.ITxnLoggerWithContext,
+) (err error) {
 	_ = e.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	defer e.locker.Unlock(txnID)
 
-	logger := e.logger.WithContext(txnID)
 	if err := logger.AppendBegin(); err != nil {
 		return fmt.Errorf("failed to append begin: %w", err)
 	}
@@ -39,17 +41,15 @@ func (e *Executor) CreateVertexType(tableName string, schema storage.Schema) (er
 }
 
 func (e *Executor) CreateEdgeType(
+	txnID common.TxnID,
 	tableName string,
 	schema storage.Schema,
 	srcVertexTableName string,
 	dstVertexTableName string,
+	logger common.ITxnLoggerWithContext,
 ) (err error) {
-	txnID := e.newTxnID()
-
 	_ = e.locker.LockCatalog(txnID, txns.GranularLockExclusive)
-	defer e.locker.Unlock(txnID)
 
-	logger := e.logger.WithContext(txnID)
 	if err := logger.AppendBegin(); err != nil {
 		return fmt.Errorf("failed to append begin: %w", err)
 	}
