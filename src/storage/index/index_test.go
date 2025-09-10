@@ -426,14 +426,22 @@ func TestConcurrentGets(t *testing.T) {
 		go func(goroutineID uint64) {
 			defer wg.Done()
 			txnID := common.TxnID(goroutineID + 2)
+			defer locker.Unlock(txnID)
 
-			// Create a separate index for this goroutine
 			ctxLogger := logger.WithContext(txnID)
 			require.NoError(t, ctxLogger.AppendBegin())
 
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
-			require.NoError(t, err)
-			defer locker.Unlock(txnID)
+			if errors.Is(err, txns.ErrDeadlockPrevention) {
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			} else if err != nil {
+				assert.NoError(t, err)
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			}
 			defer index.Close()
 
 			for j := 0; j < getsPerGoroutine; j++ {
@@ -466,31 +474,31 @@ func TestConcurrentDeletes(t *testing.T) {
 	pool, logger, indexMeta, locker := setup(t, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	// Pre-populate the index with a single index instance
-	ctxLogger := logger.WithContext(common.TxnID(1))
-	require.NoError(t, ctxLogger.AppendBegin())
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
-	require.NoError(t, err)
-	defer locker.Unlock(common.TxnID(1))
-	defer index.Close()
-
-	// Pre-populate the index
 	const numKeys = 1000
 	keys := make([][]byte, numKeys)
+	func() {
+		ctxLogger := logger.WithContext(common.TxnID(1))
+		defer locker.Unlock(common.TxnID(1))
 
-	for i := 0; i < numKeys; i++ {
-		key := utils.ToBytes[uint64](uint64(i))
-		keys[i] = key
-		rid := common.RecordID{
-			FileID:  common.FileID(1),
-			PageID:  common.PageID(1),
-			SlotNum: uint16(i),
-		}
-
-		err := index.Insert(key, rid)
+		require.NoError(t, ctxLogger.AppendBegin())
+		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 		require.NoError(t, err)
-	}
-	require.NoError(t, ctxLogger.AppendCommit())
+		defer index.Close()
+
+		for i := 0; i < numKeys; i++ {
+			key := utils.ToBytes[uint64](uint64(i))
+			keys[i] = key
+			rid := common.RecordID{
+				FileID:  common.FileID(1),
+				PageID:  common.PageID(1),
+				SlotNum: uint16(i),
+			}
+
+			err := index.Insert(key, rid)
+			require.NoError(t, err)
+		}
+		require.NoError(t, ctxLogger.AppendCommit())
+	}()
 
 	const numGoroutines = 5
 	const deletesPerGoroutine = 20
@@ -559,8 +567,8 @@ func TestConcurrentDeletes(t *testing.T) {
 	wg.Wait()
 
 	// Create a final index to verify deleted keys are no longer accessible
-	ctxLogger = logger.WithContext(common.TxnID(numGoroutines + 2))
-	index, err = NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 2))
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
 	require.NoError(t, err)
 	defer locker.Unlock(common.TxnID(numGoroutines + 2))
 	defer index.Close()
@@ -722,7 +730,7 @@ func TestConcurrentStressTest(t *testing.T) {
 	pool, logger, indexMeta, locker := setup(t, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	const numGoroutines = 10
+	const numGoroutines = 50
 	const operationsPerGoroutine = 20
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -852,7 +860,7 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 	pool, logger, indexMeta, locker := setup(t, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	const numGoroutines = 5
+	const numGoroutines = 50
 	const insertsPerGoroutine = 20 // Reduced to avoid growth issues
 	var wg sync.WaitGroup
 	var mu sync.Mutex
