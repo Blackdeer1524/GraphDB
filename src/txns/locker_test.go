@@ -109,7 +109,7 @@ func TestLockManagerLockToken_RequestWeakerLockModeRequestGranted(t *testing.T) 
 	for _, strongerMode := range lockModes {
 		weakerLockModes[strongerMode] = []GranularLockMode{}
 		for _, weakerMode := range lockModes {
-			if weakerMode.Upgradable(strongerMode) || weakerMode.Equal(strongerMode) {
+			if weakerMode.WeakerOrEqual(strongerMode) {
 				weakerLockModes[strongerMode] = append(weakerLockModes[strongerMode], weakerMode)
 			}
 		}

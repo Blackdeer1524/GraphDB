@@ -62,32 +62,14 @@ func getTableSystemIndexName(tableID common.FileID) string {
 }
 
 func prepareFSforTable(fs afero.Fs, tableFilePath string) error {
-	fileExists := true
-
-	_, err := fs.Stat(tableFilePath)
-	if err != nil {
-		fileExists = false
-
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("unable to check if file exists: %w", err)
-		}
-	}
-
-	if fileExists {
-		err = fs.Remove(tableFilePath)
-		if err != nil {
-			return fmt.Errorf("unable to remove file: %w", err)
-		}
-	}
-
 	dir := filepath.Dir(tableFilePath)
 
-	err = fs.MkdirAll(dir, 0o755)
+	err := fs.MkdirAll(dir, 0o755)
 	if err != nil {
 		return fmt.Errorf("unable to create directory %s: %w", dir, err)
 	}
 
-	file, err := fs.Create(tableFilePath)
+	file, err := fs.OpenFile(tableFilePath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o644)
 	if err != nil {
 		return fmt.Errorf("unable to create directory: %w", err)
 	}
@@ -393,12 +375,12 @@ func (s *StorageEngine) dropDirTable(
 		return fmt.Errorf("unable to load catalog: %w", err)
 	}
 
-	err = s.catalog.DropDirTable(vertexTableFileID)
+	dirTableMeta, err := s.catalog.GetDirTableMeta(vertexTableFileID)
 	if err != nil {
 		return err
 	}
 
-	dirTableMeta, err := s.catalog.GetDirTableMeta(vertexTableFileID)
+	err = s.catalog.DropDirTable(vertexTableFileID)
 	if err != nil {
 		return err
 	}
@@ -849,6 +831,11 @@ func (s *StorageEngine) createDirTableIndex(
 		return fmt.Errorf("unable to prepare file system for table: %w", err)
 	}
 
+	dirTableMeta, err := s.catalog.GetDirTableMeta(vertexTableFileID)
+	if err != nil {
+		return err
+	}
+
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
 		PathToFile:  indexFilePath,
@@ -868,7 +855,7 @@ func (s *StorageEngine) createDirTableIndex(
 	}
 	s.diskMgrInsertToFileMap(common.FileID(indexFileID), indexFilePath)
 
-	err = s.buildDirIndex(txnID, vertexTableFileID, idxCreateReq, cToken, logger)
+	err = s.buildDirIndex(txnID, dirTableMeta.FileID, idxCreateReq, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to build index: %w", err)
 	}

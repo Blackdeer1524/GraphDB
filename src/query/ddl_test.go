@@ -328,3 +328,79 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func TestDropVertexTable(t *testing.T) {
+	e, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+
+	tableName := "test"
+	ticker := atomic.Uint64{}
+
+	N := 1
+	vertices := make(map[storage.VertexSystemID]int64, N)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			require.NoError(t, err)
+
+			for i := range N {
+				val := int64(i) + 42
+				data := map[string]any{
+					"money": val,
+				}
+				vID, err := e.InsertVertex(txnID, tableName, data, logger)
+				require.NoError(t, err)
+				vertices[vID] = val
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			err = e.DropVertexTable(txnID, tableName, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			require.NoError(t, err)
+
+			for vID := range vertices {
+				v, err := e.SelectVertex(txnID, tableName, vID, logger)
+				require.ErrorIs(
+					t,
+					err,
+					storage.ErrKeyNotFound,
+					"vertex with ID %v should have been deleted. found: ID: %v, Data: %v",
+					vID,
+					v.ID,
+					v.Data,
+				)
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+}

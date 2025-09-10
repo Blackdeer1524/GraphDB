@@ -16,6 +16,15 @@ func (e *Executor) CreateVertexType(
 	return e.se.CreateVertexTable(txnID, tableName, schema, cToken, logger)
 }
 
+func (e *Executor) DropVertexTable(
+	txnID common.TxnID,
+	tableName string,
+	logger common.ITxnLoggerWithContext,
+) (err error) {
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	return e.se.DropVertexTable(txnID, tableName, cToken, logger)
+}
+
 func (e *Executor) CreateEdgeType(
 	txnID common.TxnID,
 	tableName string,
@@ -44,4 +53,13 @@ func (e *Executor) CreateEdgeType(
 		logger,
 	)
 	return err
+}
+
+func (e *Executor) DropEdgeTable(
+	txnID common.TxnID,
+	tableName string,
+	logger common.ITxnLoggerWithContext,
+) (err error) {
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	return e.se.DropEdgeTable(txnID, tableName, cToken, logger)
 }
