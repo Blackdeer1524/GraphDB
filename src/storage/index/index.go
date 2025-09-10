@@ -144,6 +144,11 @@ func NewLinearProbingIndex(
 		masterPage:     masterPage,
 		pool:           pool,
 	}
+
+	if err := index.setupMasterPage(meta); err != nil {
+		return nil, fmt.Errorf("failed to setup master page: %w", err)
+	}
+
 	return index, nil
 }
 
@@ -703,4 +708,170 @@ func (i *LinearProbingIndex) Close() error {
 	masterPageIdent := getMasterPageIdent(i.indexFileToken.GetFileID())
 	i.pool.Unpin(masterPageIdent)
 	return nil
+}
+
+func (i *LinearProbingIndex) setupMasterPage(indexMeta storage.IndexMeta) error {
+	bucketItemSize := bucketItemSizeWithoutKey + uintptr(indexMeta.KeyBytesCnt)
+	bucketCapacity := page.PageCapacity(int(bucketItemSize))
+
+	err := func() error {
+		masterPageIdent := getMasterPageIdent(indexMeta.FileID)
+		masterPageToken := i.locker.LockPage(i.indexFileToken, masterPageID, txns.PageLockShared)
+		if masterPageToken == nil {
+			return fmt.Errorf(
+				"failed to lock page %v: %w",
+				masterPageID,
+				txns.ErrDeadlockPrevention,
+			)
+		}
+
+		masterPage, err := i.pool.GetPage(masterPageIdent)
+		if err != nil {
+			return fmt.Errorf("failed to get page: %w", err)
+		}
+		defer i.pool.Unpin(masterPageIdent)
+
+		if masterPage.NumSlots() == masterPageSlotsCount {
+			return nil
+		}
+
+		if !i.locker.UpgradePageLock(masterPageToken, txns.PageLockExclusive) {
+			return fmt.Errorf(
+				"failed to upgrade page lock %v: %w",
+				masterPageID,
+				txns.ErrDeadlockPrevention,
+			)
+		}
+
+		masterPage.Clear()
+		inserts := []struct {
+			expectedSlotNum uint16
+			data            uint64
+		}{
+			{bucketsCountSlot, 1},
+			{bucketItemSizeSlot, uint64(bucketItemSize)},
+			{bucketCapacitySlot, uint64(bucketCapacity)},
+			{recordsCountSlot, 0},
+			{hashmapTotalCapacitySlot, uint64(bucketCapacity)},
+			{startPageIDSlot, 1},
+		}
+
+		assert.Assert(
+			masterPageSlotsCount == len(inserts),
+			"master page slots count mismatch: %d != %d",
+			masterPageSlotsCount,
+			len(inserts),
+		)
+		err = i.pool.WithMarkDirty(
+			i.logger.GetTxnID(),
+			masterPageIdent,
+			masterPage,
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+				var loc common.LogRecordLocInfo
+
+				lockedPage.Clear()
+				for _, insert := range inserts {
+					var slot uint16
+					var err error
+					slot, loc, err = lockedPage.InsertWithLogs(
+						utils.ToBytes[uint64](insert.data),
+						masterPageIdent,
+						i.logger,
+					)
+					if err != nil {
+						return common.NewNilLogRecordLocation(), err
+					}
+
+					assert.Assert(
+						insert.expectedSlotNum == slot,
+						"slot number mismatch: %d != %d",
+						insert.expectedSlotNum,
+						slot,
+					)
+				}
+				return loc, nil
+			},
+		)
+		if err != nil {
+			return err
+		}
+		return nil
+	}()
+
+	if err != nil {
+		return err
+	}
+
+	err = func() error {
+		const bucketPageID = 1
+		bucketPageIdent := common.PageIdentity{
+			FileID: indexMeta.FileID,
+			PageID: bucketPageID,
+		}
+
+		bucketPageToken := i.locker.LockPage(i.indexFileToken, bucketPageID, txns.PageLockShared)
+		if bucketPageToken == nil {
+			return fmt.Errorf(
+				"failed to lock page %v: %w",
+				bucketPageID,
+				txns.ErrDeadlockPrevention,
+			)
+		}
+
+		bucketPage, err := i.pool.GetPage(bucketPageIdent)
+		if err != nil {
+			return fmt.Errorf("failed to get page: %w", err)
+		}
+		defer i.pool.Unpin(bucketPageIdent)
+
+		if bucketPage.NumSlots() == uint16(bucketCapacity) {
+			return nil
+		}
+
+		if !i.locker.UpgradePageLock(bucketPageToken, txns.PageLockExclusive) {
+			return fmt.Errorf(
+				"failed to upgrade page lock %v: %w",
+				bucketPageID,
+				txns.ErrDeadlockPrevention,
+			)
+		}
+
+		dummyRecord := make([]byte, bucketItemSize)
+		err = i.pool.WithMarkDirty(
+			i.logger.GetTxnID(),
+			bucketPageIdent,
+			bucketPage,
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+				var loc common.LogRecordLocInfo
+				lockedPage.Clear()
+				for range bucketCapacity {
+					var err error
+					_, loc, err = lockedPage.InsertWithLogs(dummyRecord, bucketPageIdent, i.logger)
+					if err != nil {
+						return common.NewNilLogRecordLocation(), err
+					}
+					assert.NoErrorWithMessage(err, "impossible")
+				}
+				slotOpt := lockedPage.UnsafeInsertNoLogs(dummyRecord)
+				if slotOpt.IsNone() {
+					return loc, nil
+				}
+
+				for slotOpt.IsSome() {
+					slotOpt = lockedPage.UnsafeInsertNoLogs(dummyRecord)
+				}
+				assert.Assert(
+					false,
+					"calculated records limit per bucket didn't match the actual limit. "+
+						"precalculated limit: %d, actual limit: %d, record size: %d",
+					bucketCapacity,
+					lockedPage.NumSlots(),
+					bucketItemSize,
+				)
+				panic("unreachable")
+			},
+		)
+		return err
+	}()
+	return err
 }

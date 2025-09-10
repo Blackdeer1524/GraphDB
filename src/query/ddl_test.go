@@ -52,11 +52,24 @@ func setupExecutor(poolPageCount uint64) (*Executor, error) {
 	diskMgr.UpdateFileMap(sysCat.GetFileIDToPathMap())
 
 	locker := txns.NewLockManager()
-	indexLoader := func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger common.ITxnLoggerWithContext) (storage.Index, error) {
-		panic("not implemented")
+	indexLoader := func(
+		indexMeta storage.IndexMeta,
+		pool bufferpool.BufferPool,
+		locker *txns.LockManager,
+		logger common.ITxnLoggerWithContext,
+	) (storage.Index, error) {
 	}
 
-	se := engine.New(sysCat, debugPool, diskMgr.InsertToFileMap, locker, fs, indexLoader)
+	se := engine.New(
+		sysCat,
+		debugPool,
+		diskMgr.InsertToFileMap,
+		diskMgr.GetLastFilePage,
+		diskMgr.GetEmptyPage,
+		locker,
+		fs,
+		indexLoader,
+	)
 	executor := New(se, locker, logger)
 	return executor, nil
 }
@@ -76,6 +89,5 @@ func TestCreateVertexType(t *testing.T) {
 		"money": 100,
 	})
 	require.NoError(t, err)
-	
-	
+
 }
