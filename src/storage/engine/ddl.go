@@ -288,6 +288,11 @@ func (s *StorageEngine) CreateEdgeTable(
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
+	err = s.createSystemEdgeTableIndex(txnID, tableName, tableFileID, cToken, logger)
+	if err != nil {
+		return fmt.Errorf("unable to create internal edge index: %w", err)
+	}
+
 	s.diskMgrInsertToFileMap(common.FileID(tableFileID), tableFilePath)
 	return nil
 }
@@ -391,7 +396,12 @@ func (s *StorageEngine) dropDirTable(
 		return err
 	}
 
-	err = s.catalog.DropDirIndex(getTableSystemIndexName(vertexTableFileID))
+	dirTableMeta, err := s.catalog.GetDirTableMeta(vertexTableFileID)
+	if err != nil {
+		return err
+	}
+
+	err = s.catalog.DropDirIndex(getTableSystemIndexName(dirTableMeta.FileID))
 	if err != nil {
 		return err
 	}
@@ -408,7 +418,6 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	indexName string,
 	tableName string,
 	columns []string,
-	keyBytesCnt uint32,
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
@@ -490,13 +499,11 @@ func (s *StorageEngine) createSystemVertexTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := uint32(storage.VertexSystemIDSize)
 	return s.CreateVertexTableIndex(
 		txnID,
 		getTableSystemIndexName(vertexTableFileID),
 		tableName,
 		columns,
-		keyBytesCnt,
 		cToken,
 		logger,
 	)
@@ -801,8 +808,8 @@ func (s *StorageEngine) createDirTableIndex(
 	}
 
 	basePath := s.catalog.GetBasePath()
-	fileID := s.catalog.GetNewFileID()
-	tableFilePath := getDirTableIndexFilePath(basePath, indexName)
+	indexFileID := s.catalog.GetNewFileID()
+	indexFilePath := getDirTableIndexFilePath(basePath, indexName)
 	ok, err := s.catalog.DirIndexExists(indexName)
 	if err != nil {
 		return fmt.Errorf("unable to check if index exists: %w", err)
@@ -811,18 +818,28 @@ func (s *StorageEngine) createDirTableIndex(
 		return fmt.Errorf("index %s already exists", indexName)
 	}
 
-	err = prepareFSforTable(s.fs, tableFilePath)
+	// Directory tables have a fixed schema - only ID column
+	calculatedKeyBytesCnt := uint32(0)
+	for _, colName := range columns {
+		if colName == "ID" {
+			calculatedKeyBytesCnt += uint32(storage.DirItemSystemIDSize)
+		} else {
+			return fmt.Errorf("directory table only supports ID column, got: %s", colName)
+		}
+	}
+
+	err = prepareFSforTable(s.fs, indexFilePath)
 	if err != nil {
 		return fmt.Errorf("unable to prepare file system for table: %w", err)
 	}
 
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
-		PathToFile:  tableFilePath,
-		FileID:      fileID,
+		PathToFile:  indexFilePath,
+		FileID:      indexFileID,
 		TableName:   systemcatalog.GetDirTableName(vertexTableFileID),
 		Columns:     columns,
-		KeyBytesCnt: keyBytesCnt,
+		KeyBytesCnt: calculatedKeyBytesCnt,
 	}
 	err = s.catalog.AddDirIndex(idxCreateReq)
 	if err != nil {
@@ -833,7 +850,57 @@ func (s *StorageEngine) createDirTableIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	s.diskMgrInsertToFileMap(common.FileID(fileID), tableFilePath)
+	s.diskMgrInsertToFileMap(common.FileID(indexFileID), indexFilePath)
+
+	err = s.buildDirIndex(txnID, vertexTableFileID, idxCreateReq, cToken, logger)
+	if err != nil {
+		return fmt.Errorf("unable to build index: %w", err)
+	}
+
+	return nil
+}
+
+func (s *StorageEngine) buildDirIndex(
+	txnID common.TxnID,
+	dirTableFileID common.FileID,
+	indexMeta storage.IndexMeta,
+	cToken *txns.CatalogLockToken,
+	logger common.ITxnLoggerWithContext,
+) error {
+	dirTableToken := txns.NewNilFileLockToken(cToken, dirTableFileID)
+	dirItemsIter, err := s.GetAllDirItems(txnID, dirTableToken)
+	if err != nil {
+		return fmt.Errorf("unable to get all directory items: %w", err)
+	}
+	defer dirItemsIter.Close()
+
+	index, err := s.loadIndex(indexMeta, s.pool, s.locker, logger)
+	if err != nil {
+		return fmt.Errorf("unable to load index: %w", err)
+	}
+	defer index.Close()
+
+	for ridDirItemErr := range dirItemsIter.Seq() {
+		dirItemRID, dirItem, err := ridDirItemErr.Destruct()
+		if err != nil {
+			return fmt.Errorf("unable to destruct directory item: %w", err)
+		}
+
+		key, err := extractDirectoryColumns(dirItem, indexMeta.Columns)
+		if err != nil {
+			return fmt.Errorf("unable to extract directory columns: %w", err)
+		}
+
+		assert.Assert(
+			len(key) == int(indexMeta.KeyBytesCnt),
+			"extracted directory columns length doesn't match index key bytes count",
+		)
+
+		if err := index.Insert(key, dirItemRID); err != nil {
+			return fmt.Errorf("unable to insert directory record: %w", err)
+		}
+	}
+
 	return nil
 }
 

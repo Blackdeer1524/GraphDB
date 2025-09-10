@@ -324,7 +324,7 @@ func extractDirectoryColumns(directory storage.DirectoryItem, columns []string) 
 
 	for _, colName := range columns {
 		if colName == "ID" {
-			err := binary.Write(&buf, binary.BigEndian, directory.DirectoryItemSystemFields.ID)
+			err := binary.Write(&buf, binary.BigEndian, directory.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to write directory ID: %w", err)
 			}
@@ -339,7 +339,7 @@ func extractVertexColumns(vertex storage.Vertex, columns []string) ([]byte, erro
 
 	for _, colName := range columns {
 		if colName == "ID" {
-			err := binary.Write(&buf, binary.BigEndian, vertex.VertexSystemFields.ID)
+			err := binary.Write(&buf, binary.BigEndian, vertex.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to write vertex ID: %w", err)
 			}
@@ -373,7 +373,6 @@ func extractVertexColumns(vertex storage.Vertex, columns []string) ([]byte, erro
 				return nil, fmt.Errorf("failed to write UUID column %s: %w", colName, err)
 			}
 		}
-
 	}
 
 	return buf.Bytes(), nil
@@ -384,7 +383,7 @@ func extractEdgeColumns(edge storage.Edge, columns []string) ([]byte, error) {
 
 	for _, colName := range columns {
 		if colName == "ID" {
-			err := binary.Write(&buf, binary.BigEndian, edge.EdgeSystemFields.ID)
+			err := binary.Write(&buf, binary.BigEndian, edge.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to write edge ID: %w", err)
 			}
@@ -417,7 +416,6 @@ func extractEdgeColumns(edge storage.Edge, columns []string) ([]byte, error) {
 				return nil, fmt.Errorf("failed to write UUID column %s: %w", colName, err)
 			}
 		}
-
 	}
 
 	return buf.Bytes(), nil

@@ -735,12 +735,12 @@ func (iter *vertexTableScanIter) Close() error {
 /// ================================
 
 type edgeTableScanIter struct {
-	se           storage.Engine
-	pool         bufferpool.BufferPool
-	edgeFilter storage.EdgeFilter
-	tableToken   *txns.FileLockToken
-	tableSchema  storage.Schema
-	locker       *txns.LockManager
+	se          storage.Engine
+	pool        bufferpool.BufferPool
+	edgeFilter  storage.EdgeFilter
+	tableToken  *txns.FileLockToken
+	tableSchema storage.Schema
+	locker      *txns.LockManager
 }
 
 var _ storage.EdgesIter = &edgeTableScanIter{}
@@ -754,12 +754,12 @@ func newEdgeTableScanIter(
 	locker *txns.LockManager,
 ) *edgeTableScanIter {
 	return &edgeTableScanIter{
-		se:           se,
-		pool:         pool,
-		edgeFilter: edgeFilter,
-		tableToken:   edgeTableToken,
-		tableSchema:  edgeTableSchema,
-		locker:       locker,
+		se:          se,
+		pool:        pool,
+		edgeFilter:  edgeFilter,
+		tableToken:  edgeTableToken,
+		tableSchema: edgeTableSchema,
+		locker:      locker,
 	}
 }
 
@@ -848,5 +848,105 @@ func (iter *edgeTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, stor
 }
 
 func (iter *edgeTableScanIter) Close() error {
+	return nil
+}
+
+type dirItemsScanIter struct {
+	se            storage.Engine
+	pool          bufferpool.BufferPool
+	dirTableToken *txns.FileLockToken
+	locker        *txns.LockManager
+}
+
+var _ storage.DirItemsIter = &dirItemsScanIter{}
+
+func newDirItemsScanIter(
+	se *StorageEngine,
+	pool bufferpool.BufferPool,
+	dirTableToken *txns.FileLockToken,
+	locker *txns.LockManager,
+) *dirItemsScanIter {
+	return &dirItemsScanIter{
+		se:            se,
+		pool:          pool,
+		dirTableToken: dirTableToken,
+		locker:        locker,
+	}
+}
+
+func (iter *dirItemsScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.DirectoryItem, error]] {
+	return func(yield func(utils.Triple[common.RecordID, storage.DirectoryItem, error]) bool) {
+		if !iter.locker.UpgradeFileLock(iter.dirTableToken, txns.GranularLockShared) {
+			yieldErrorTripple(fmt.Errorf("failed to upgrade file lock"), yield)
+			return
+		}
+
+		pageID := uint64(0)
+		for {
+			pageIdent := common.PageIdentity{
+				FileID: iter.dirTableToken.GetFileID(),
+				PageID: common.PageID(pageID),
+			}
+			pToken := iter.locker.LockPage(
+				iter.dirTableToken,
+				common.PageID(pageID),
+				txns.PageLockShared,
+			)
+			assert.Assert(
+				pToken != nil,
+				"should have locked the page (the table is locked in the shared mode)",
+			)
+
+			pg, err := iter.pool.GetPageNoCreate(pageIdent)
+			if !errors.Is(err, disk.ErrNoSuchPage) {
+				return
+			} else if err != nil {
+				yieldErrorTripple(err, yield)
+				return
+			}
+			continueFlag, err := func() (bool, error) {
+				defer iter.pool.Unpin(pageIdent)
+				pg.RLock()
+				defer pg.RUnlock()
+
+				for i := uint16(0); i < pg.NumSlots(); i++ {
+					if pg.SlotInfo(i) != page.SlotStatusInserted {
+						continue
+					}
+
+					data := pg.UnsafeRead(i)
+					dirItem, err := parseDirectoryRecord(data)
+					if err != nil {
+						return false, err
+					}
+
+					item := utils.Triple[common.RecordID, storage.DirectoryItem, error]{
+						First: common.RecordID{
+							FileID:  pageIdent.FileID,
+							PageID:  pageIdent.PageID,
+							SlotNum: i,
+						},
+						Second: dirItem,
+						Third:  nil,
+					}
+
+					if !yield(item) {
+						return false, nil
+					}
+				}
+				return true, nil
+			}()
+			if err != nil {
+				yieldErrorTripple(err, yield)
+				return
+			}
+			if !continueFlag {
+				return
+			}
+		}
+	}
+}
+
+func (iter *dirItemsScanIter) Close() error {
 	return nil
 }

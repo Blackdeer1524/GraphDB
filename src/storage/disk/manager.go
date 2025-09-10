@@ -16,8 +16,6 @@ import (
 
 var ErrNoSuchPage = errors.New("no such page")
 
-const PageSize = 4096
-
 type Manager struct {
 	mu           sync.Mutex
 	fileIDToPath map[common.FileID]string
@@ -72,8 +70,8 @@ func (m *Manager) ReadPageAssumeLocked(
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageIdent.PageID * PageSize)
-	data := make([]byte, PageSize)
+	offset := int64(pageIdent.PageID * page.PageSize)
+	data := make([]byte, page.PageSize)
 
 	_, err = file.ReadAt(data, offset)
 	if errors.Is(err, io.EOF) {
@@ -116,8 +114,8 @@ func (m *Manager) GetPageNoNewAssumeLocked(
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageIdent.PageID * PageSize)
-	data := make([]byte, PageSize)
+	offset := int64(pageIdent.PageID * page.PageSize)
+	data := make([]byte, page.PageSize)
 
 	_, err = file.ReadAt(data, offset)
 	if err != nil {
@@ -153,7 +151,7 @@ func (m *Manager) WritePageAssumeLocked(
 	defer file.Close()
 
 	//nolint:gosec
-	offset := int64(pageIdent.PageID * PageSize)
+	offset := int64(pageIdent.PageID * page.PageSize)
 
 	_, err = file.WriteAt(data, offset)
 	if err != nil {
@@ -257,4 +255,57 @@ func (m *Manager) InsertToFileMap(id common.FileID, path string) {
 	defer m.mu.Unlock()
 
 	m.fileIDToPath[id] = path
+}
+
+func (m *Manager) GetLastFilePage(fileID common.FileID) (common.PageID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	path, ok := m.fileIDToPath[fileID]
+	if !ok {
+		return 0, fmt.Errorf("fileID %d not found in path map", fileID)
+	}
+
+	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR, 0o644)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	filesize := info.Size()
+	pagesCount := filesize / page.PageSize
+	if pagesCount == 0 {
+		return 0, ErrNoSuchPage
+	}
+	return common.PageID(pagesCount - 1), nil
+}
+
+func (m *Manager) GetEmptyPage(fileID common.FileID) (common.PageID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	path, ok := m.fileIDToPath[fileID]
+	if !ok {
+		return 0, fmt.Errorf("fileID %d not found in path map", fileID)
+	}
+
+	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	filesize := info.Size()
+	pagesCount := filesize / page.PageSize
+	return common.PageID(pagesCount), nil
 }

@@ -123,6 +123,19 @@ func (s *StorageEngine) GetAllEdges(
 	return iter, nil
 }
 
+func (s *StorageEngine) GetAllDirItems(
+	txnID common.TxnID,
+	dirTableToken *txns.FileLockToken,
+) (storage.DirItemsIter, error) {
+	iter := newDirItemsScanIter(
+		s,
+		s.pool,
+		dirTableToken,
+		s.locker,
+	)
+	return iter, nil
+}
+
 func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 	t common.TxnID,
 	v storage.VertexSystemID,

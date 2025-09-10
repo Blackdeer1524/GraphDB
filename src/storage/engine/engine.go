@@ -13,8 +13,11 @@ type StorageEngine struct {
 	catalog                storage.SystemCatalog
 	pool                   bufferpool.BufferPool
 	diskMgrInsertToFileMap func(fileID common.FileID, path string)
-	locker                 *txns.LockManager
-	fs                     afero.Fs
+	diskMgrGetLastPage     func(fileID common.FileID) (common.PageID, error)
+	diskMgrGetEmptyPage    func(fileID common.FileID) (common.PageID, error)
+
+	locker *txns.LockManager
+	fs     afero.Fs
 
 	loadIndex func(
 		indexMeta storage.IndexMeta,
@@ -65,18 +68,22 @@ func New(
 	sysCat storage.SystemCatalog,
 	pool bufferpool.BufferPool,
 	diskMgrInsertToFileMap func(fileID common.FileID, path string),
+	diskMgrGetLastPage func(fileID common.FileID) (common.PageID, error),
+	diskMgrGetEmptyPage func(fileID common.FileID) (common.PageID, error),
 	locker *txns.LockManager,
 	fs afero.Fs,
 	indexLoader func(
-		indexMeta storage.IndexMeta, 
-		pool bufferpool.BufferPool, 
-		locker *txns.LockManager, 
+		indexMeta storage.IndexMeta,
+		pool bufferpool.BufferPool,
+		locker *txns.LockManager,
 		logger common.ITxnLoggerWithContext,
 	) (storage.Index, error),
 ) *StorageEngine {
 	return &StorageEngine{
 		catalog:                sysCat,
 		diskMgrInsertToFileMap: diskMgrInsertToFileMap,
+		diskMgrGetLastPage:     diskMgrGetLastPage,
+		diskMgrGetEmptyPage:    diskMgrGetEmptyPage,
 		locker:                 locker,
 		fs:                     fs,
 		pool:                   pool,

@@ -212,6 +212,11 @@ type EdgesIter interface {
 	Close() error
 }
 
+type DirItemsIter interface {
+	Seq() iter.Seq[utils.Triple[common.RecordID, DirectoryItem, error]]
+	Close() error
+}
+
 type Edge struct {
 	EdgeSystemFields
 	Data map[string]any

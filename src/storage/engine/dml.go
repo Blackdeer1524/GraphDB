@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -10,10 +11,6 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
-
-func (s *StorageEngine) getPageWithFreeSpace(fileID common.FileID) (common.PageID, error) {
-	panic("not implemented")
-}
 
 func GetVertexRID(
 	txnID common.TxnID,
@@ -142,68 +139,76 @@ func (s *StorageEngine) InsertVertex(
 
 	ctxLogger common.ITxnLoggerWithContext,
 ) (storage.VertexSystemID, error) {
-	pageID, err := s.getPageWithFreeSpace(vertexFileToken.GetFileID())
+	pageID, err := s.diskMgrGetLastPage(vertexFileToken.GetFileID())
 	if err != nil {
 		return storage.NilVertexID, fmt.Errorf("failed to get free page: %w", err)
 	}
-	if s.locker.LockPage(vertexFileToken, pageID, txns.PageLockExclusive) == nil {
-		return storage.NilVertexID, fmt.Errorf("failed to lock page: %w", err)
-	}
+	for {
+		if s.locker.LockPage(vertexFileToken, pageID, txns.PageLockExclusive) == nil {
+			return storage.NilVertexID, fmt.Errorf("failed to lock page: %w", err)
+		}
 
-	pageIdent := common.PageIdentity{
-		FileID: vertexFileToken.GetFileID(),
-		PageID: pageID,
-	}
-	pg, err := s.pool.GetPage(pageIdent)
-	if err != nil {
-		return storage.NilVertexID, fmt.Errorf("failed to get page: %w", err)
-	}
-	defer s.pool.Unpin(pageIdent)
+		pageIdent := common.PageIdentity{
+			FileID: vertexFileToken.GetFileID(),
+			PageID: pageID,
+		}
+		pg, err := s.pool.GetPage(pageIdent)
+		if err != nil {
+			return storage.NilVertexID, fmt.Errorf("failed to get page: %w", err)
+		}
+		defer s.pool.Unpin(pageIdent)
 
-	internalFields := storage.NewVertexSystemFields(
-		storage.VertexSystemID(uuid.New()),
-		storage.NilDirItemID,
-	)
-	serializedData, err := serializeVertexRecord(
-		internalFields,
-		data,
-		schema,
-	)
-	if err != nil {
-		return storage.NilVertexID, fmt.Errorf("failed to serialize vertex record: %w", err)
-	}
+		internalFields := storage.NewVertexSystemFields(
+			storage.VertexSystemID(uuid.New()),
+			storage.NilDirItemID,
+		)
+		serializedData, err := serializeVertexRecord(
+			internalFields,
+			data,
+			schema,
+		)
+		if err != nil {
+			return storage.NilVertexID, fmt.Errorf("failed to serialize vertex record: %w", err)
+		}
 
-	slot := uint16(0)
-	err = s.pool.WithMarkDirty(
-		txnID,
-		pageIdent,
-		pg,
-		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-			var loc common.LogRecordLocInfo
-			var err error
-			slot, loc, err = lockedPage.InsertWithLogs(serializedData, pageIdent, ctxLogger)
-			return loc, err
-		},
-	)
-	if err != nil {
-		return storage.NilVertexID, fmt.Errorf("failed to insert vertex record: %w", err)
-	}
+		slot := uint16(0)
+		err = s.pool.WithMarkDirty(
+			txnID,
+			pageIdent,
+			pg,
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+				var loc common.LogRecordLocInfo
+				var err error
+				slot, loc, err = lockedPage.InsertWithLogs(serializedData, pageIdent, ctxLogger)
+				return loc, err
+			},
+		)
+		if errors.Is(err, page.ErrNoSpaceLeft) {
+			pageID, err = s.diskMgrGetEmptyPage(vertexFileToken.GetFileID())
+			if err != nil {
+				return storage.NilVertexID, fmt.Errorf("failed to get empty page: %w", err)
+			}
+			continue
+		} else if err != nil {
+			return storage.NilVertexID, fmt.Errorf("failed to insert vertex record: %w", err)
+		}
 
-	vertexRID := common.RecordID{
-		FileID:  pageIdent.FileID,
-		PageID:  pageIdent.PageID,
-		SlotNum: slot,
-	}
+		vertexRID := common.RecordID{
+			FileID:  pageIdent.FileID,
+			PageID:  pageIdent.PageID,
+			SlotNum: slot,
+		}
 
-	marshalledID, err := internalFields.ID.MarshalBinary()
-	if err != nil {
-		return storage.NilVertexID, fmt.Errorf("failed to marshal vertex ID: %w", err)
+		marshalledID, err := internalFields.ID.MarshalBinary()
+		if err != nil {
+			return storage.NilVertexID, fmt.Errorf("failed to marshal vertex ID: %w", err)
+		}
+		err = vertexIndex.Insert(marshalledID, vertexRID)
+		if err != nil {
+			return storage.NilVertexID, fmt.Errorf("failed to insert vertex record: %w", err)
+		}
+		return internalFields.ID, nil
 	}
-	err = vertexIndex.Insert(marshalledID, vertexRID)
-	if err != nil {
-		return storage.NilVertexID, fmt.Errorf("failed to insert vertex record: %w", err)
-	}
-	return internalFields.ID, nil
 }
 
 func (s *StorageEngine) DeleteVertex(
@@ -414,72 +419,81 @@ func (s *StorageEngine) insertEdgeHelper(
 	edgeSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
 ) (storage.EdgeSystemID, error) {
-	edgePageID, err := s.getPageWithFreeSpace(edgesFileToken.GetFileID())
+	pageID, err := s.diskMgrGetLastPage(edgesFileToken.GetFileID())
 	if err != nil {
 		return storage.NilEdgeID, fmt.Errorf("failed to get free page: %w", err)
 	}
-	if s.locker.LockPage(edgesFileToken, edgePageID, txns.PageLockExclusive) == nil {
-		return storage.NilEdgeID, fmt.Errorf("failed to lock page: %w", err)
-	}
+	for {
+		if s.locker.LockPage(edgesFileToken, pageID, txns.PageLockExclusive) == nil {
+			return storage.NilEdgeID, fmt.Errorf("failed to lock page: %w", err)
+		}
 
-	edgeSystemFields := storage.NewEdgeSystemFields(
-		storage.EdgeSystemID(uuid.New()),
-		dirItemID,
-		srcVertexID,
-		dstVertexID,
-		storage.NilEdgeID,
-		nextEdgeID,
-	)
+		pageIdent := common.PageIdentity{
+			FileID: edgesFileToken.GetFileID(),
+			PageID: pageID,
+		}
+		pg, err := s.pool.GetPage(pageIdent)
+		if err != nil {
+			return storage.NilEdgeID, fmt.Errorf("failed to get page: %w", err)
+		}
+		defer s.pool.Unpin(pageIdent)
 
-	edgePageIdent := common.PageIdentity{
-		FileID: edgesFileToken.GetFileID(),
-		PageID: edgePageID,
-	}
-	edgePg, err := s.pool.GetPage(edgePageIdent)
-	if err != nil {
-		return storage.NilEdgeID, fmt.Errorf("failed to get page: %w", err)
-	}
-	defer s.pool.Unpin(edgePageIdent)
+		edgeSystemFields := storage.NewEdgeSystemFields(
+			storage.EdgeSystemID(uuid.New()),
+			dirItemID,
+			srcVertexID,
+			dstVertexID,
+			storage.NilEdgeID,
+			nextEdgeID,
+		)
 
-	edgeRecordBytes, err := serializeEdgeRecord(edgeSystemFields, edgeFields, schema)
-	if err != nil {
-		err = fmt.Errorf("failed to serialize edge record: %w", err)
-		return storage.NilEdgeID, err
-	}
+		serializedData, err := serializeEdgeRecord(
+			edgeSystemFields,
+			edgeFields,
+			schema,
+		)
+		if err != nil {
+			return storage.NilEdgeID, fmt.Errorf("failed to serialize edge record: %w", err)
+		}
 
-	slot := uint16(0)
-	err = s.pool.WithMarkDirty(
-		txnID,
-		edgePageIdent,
-		edgePg,
-		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-			var loc common.LogRecordLocInfo
-			var err error
-			slot, loc, err = lockedPage.InsertWithLogs(edgeRecordBytes, edgePageIdent, ctxLogger)
-			return loc, err
-		},
-	)
+		slot := uint16(0)
+		err = s.pool.WithMarkDirty(
+			txnID,
+			pageIdent,
+			pg,
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+				var loc common.LogRecordLocInfo
+				var err error
+				slot, loc, err = lockedPage.InsertWithLogs(serializedData, pageIdent, ctxLogger)
+				return loc, err
+			},
+		)
+		if errors.Is(err, page.ErrNoSpaceLeft) {
+			pageID, err = s.diskMgrGetEmptyPage(edgesFileToken.GetFileID())
+			if err != nil {
+				return storage.NilEdgeID, fmt.Errorf("failed to get empty page: %w", err)
+			}
+			continue
+		} else if err != nil {
+			return storage.NilEdgeID, fmt.Errorf("failed to insert edge record: %w", err)
+		}
 
-	if err != nil {
-		return storage.NilEdgeID, fmt.Errorf("failed to insert edge record: %w", err)
-	}
+		edgeRID := common.RecordID{
+			FileID:  pageIdent.FileID,
+			PageID:  pageIdent.PageID,
+			SlotNum: slot,
+		}
 
-	marshalledEdgeID, err := edgeSystemFields.ID.MarshalBinary()
-	if err != nil {
-		return storage.NilEdgeID, fmt.Errorf("failed to marshal edge ID: %w", err)
+		marshalledID, err := edgeSystemFields.ID.MarshalBinary()
+		if err != nil {
+			return storage.NilEdgeID, fmt.Errorf("failed to marshal edge ID: %w", err)
+		}
+		err = edgeSystemIndex.Insert(marshalledID, edgeRID)
+		if err != nil {
+			return storage.NilEdgeID, fmt.Errorf("failed to insert edge record: %w", err)
+		}
+		return edgeSystemFields.ID, nil
 	}
-
-	edgeRID := common.RecordID{
-		FileID:  edgePageIdent.FileID,
-		PageID:  edgePageIdent.PageID,
-		SlotNum: slot,
-	}
-	err = edgeSystemIndex.Insert(marshalledEdgeID, edgeRID)
-	if err != nil {
-		return storage.NilEdgeID, fmt.Errorf("failed to insert edge info into index: %w", err)
-	}
-
-	return edgeSystemFields.ID, nil
 }
 
 func (s *StorageEngine) insertEdgeWithDirItem(
@@ -783,7 +797,7 @@ func (s *StorageEngine) insertDirectoryItem(
 		return storage.NilDirItemID, err
 	}
 
-	pageID, err := s.getPageWithFreeSpace(dirFileToken.GetFileID())
+	pageID, err := s.diskMgrGetLastPage(dirFileToken.GetFileID())
 	if err != nil {
 		return storage.NilDirItemID, fmt.Errorf("failed to get free page: %w", err)
 	}

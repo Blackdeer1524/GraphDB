@@ -10,12 +10,7 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
 
-var ErrDeadlockPrevention = fmt.Errorf("deadlock prevention")
-
-func NewErrDeadlockPrevention(err error) error {
-	err = errors.Join(ErrDeadlockPrevention, err)
-	return err
-}
+var ErrDeadlockPrevention = errors.New("deadlock prevention")
 
 type ILockManager interface {
 	LockCatalog(txnID common.TxnID, lockMode GranularLockMode) *CatalogLockToken
