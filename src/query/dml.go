@@ -1,10 +1,8 @@
 package query
 
 import (
-	"errors"
 	"fmt"
 
-	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
@@ -16,24 +14,6 @@ func (e *Executor) SelectVertex(
 	vertexID storage.VertexSystemID,
 	logger common.ITxnLoggerWithContext,
 ) (v storage.Vertex, err error) {
-	if err := logger.AppendBegin(); err != nil {
-		return storage.Vertex{}, fmt.Errorf("failed to append begin: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			assert.NoError(logger.AppendAbort())
-			logger.Rollback()
-			err = errors.Join(err, logger.AppendTxnEnd())
-		} else {
-			if err = logger.AppendCommit(); err != nil {
-				err = fmt.Errorf("failed to append commit: %w", err)
-			} else if err = logger.AppendTxnEnd(); err != nil {
-				err = fmt.Errorf("failed to append txn end: %w", err)
-			}
-		}
-	}()
-
 	cToken := txns.NewNilCatalogLockToken(txnID)
 	vertexTableMeta, err := e.se.GetVertexTableMeta(tableName, cToken)
 	if err != nil {
@@ -73,24 +53,6 @@ func (e *Executor) InsertVertex(
 	data map[string]any,
 	logger common.ITxnLoggerWithContext,
 ) (vID storage.VertexSystemID, err error) {
-	if err := logger.AppendBegin(); err != nil {
-		return storage.NilVertexID, fmt.Errorf("failed to append begin: %w", err)
-	}
-
-	defer func() {
-		if err != nil {
-			assert.NoError(logger.AppendAbort())
-			logger.Rollback()
-			err = errors.Join(err, logger.AppendTxnEnd())
-			return
-		}
-		if err = logger.AppendCommit(); err != nil {
-			err = fmt.Errorf("failed to append commit: %w", err)
-		} else if err = logger.AppendTxnEnd(); err != nil {
-			err = fmt.Errorf("failed to append txn end: %w", err)
-		}
-	}()
-
 	cToken := txns.NewNilCatalogLockToken(txnID)
 	tableMeta, err := e.se.GetVertexTableMeta(tableName, cToken)
 	if err != nil {

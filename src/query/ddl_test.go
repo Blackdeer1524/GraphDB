@@ -84,53 +84,211 @@ func setupExecutor(poolPageCount uint64) (*Executor, common.ITxnLogger, error) {
 	return executor, logger, nil
 }
 
+var ErrRollback = errors.New("rollback")
+
+func Execute(
+	ticker *atomic.Uint64,
+	executor *Executor,
+	logger common.ITxnLogger,
+	fn Task,
+) (err error) {
+	txnID := common.TxnID(ticker.Add(1))
+	defer executor.locker.Unlock(txnID)
+	ctxLogger := logger.WithContext(txnID)
+
+	if err := ctxLogger.AppendBegin(); err != nil {
+		return fmt.Errorf("failed to append begin: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			assert.NoError(ctxLogger.AppendAbort())
+			ctxLogger.Rollback()
+			if err == ErrRollback {
+				err = nil
+				return
+			}
+			assert.NoError(ctxLogger.AppendTxnEnd())
+			return
+		}
+		if err = ctxLogger.AppendCommit(); err != nil {
+			err = fmt.Errorf("failed to append commit: %w", err)
+		} else if err = ctxLogger.AppendTxnEnd(); err != nil {
+			err = fmt.Errorf("failed to append txn end: %w", err)
+		}
+	}()
+
+	return fn(txnID, executor, ctxLogger)
+}
+
 func TestCreateVertexType(t *testing.T) {
 	e, logger, err := setupExecutor(10)
 	require.NoError(t, err)
 
-	ticket := atomic.Uint64{}
-
-	err = func(txnID common.TxnID) (err error) {
-		logger := logger.WithContext(txnID)
-
-		if err := logger.AppendBegin(); err != nil {
-			return fmt.Errorf("failed to append begin: %w", err)
-		}
-
-		defer func() {
-			if err != nil {
-				assert.NoError(logger.AppendAbort())
-				logger.Rollback()
-				err = errors.Join(err, logger.AppendTxnEnd())
-				return
+	ticker := atomic.Uint64{}
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			tableName := "test"
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
 			}
-			if err = logger.AppendCommit(); err != nil {
-				err = fmt.Errorf("failed to append commit: %w", err)
-			} else if err = logger.AppendTxnEnd(); err != nil {
-				err = fmt.Errorf("failed to append txn end: %w", err)
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+}
+
+func TestCreateVertexSimpleInsert(t *testing.T) {
+	e, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+
+	ticker := atomic.Uint64{}
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			tableName := "test"
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
 			}
-		}()
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			require.NoError(t, err)
 
-		tableName := "test"
-		schema := storage.Schema{
-			{Name: "money", Type: storage.ColumnTypeInt64},
-		}
-		err = e.CreateVertexType(txnID, tableName, schema, logger)
-		require.NoError(t, err)
+			data := map[string]any{
+				"money": int64(100),
+			}
+			vID, err := e.InsertVertex(txnID, tableName, data, logger)
+			require.NoError(t, err)
 
-		data := map[string]any{
-			"money": int64(100),
-		}
-		vID, err := e.InsertVertex(txnID, tableName, data, logger)
-		require.NoError(t, err)
+			v, err := e.SelectVertex(txnID, tableName, vID, logger)
+			require.NoError(t, err)
+			require.Equal(t, v.Data["money"], int64(100))
+			return nil
+		},
+	)
 
-		v, err := e.SelectVertex(txnID, tableName, vID, logger)
-		require.NoError(t, err)
-		require.Equal(t, v.Data["money"], int64(100))
+	require.NoError(t, err)
+}
 
-		require.NoError(t, logger.AppendCommit())
-		return nil
-	}(common.TxnID(ticket.Add(1)))
+func TestVertexTableInserts(t *testing.T) {
+	e, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+
+	tableName := "test"
+	ticker := atomic.Uint64{}
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			N := 1000
+			vertices := make(map[storage.VertexSystemID]int64, N)
+			for i := range N {
+				val := int64(i)
+				data := map[string]any{
+					"money": val,
+				}
+				vID, err := e.InsertVertex(txnID, tableName, data, logger)
+				require.NoError(t, err)
+
+				vertices[vID] = val
+			}
+
+			for vID, val := range vertices {
+				v, err := e.SelectVertex(txnID, tableName, vID, logger)
+				require.NoError(t, err)
+				require.Equal(t, v.Data["money"], val)
+			}
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+}
+
+func TestVertexTableInsertsRollback(t *testing.T) {
+	e, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+
+	tableName := "test"
+	ticker := atomic.Uint64{}
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	N := 300
+	vertices := make(map[storage.VertexSystemID]int64, N)
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			for i := range N {
+				val := int64(i)
+				data := map[string]any{
+					"money": val,
+				}
+				vID, err := e.InsertVertex(txnID, tableName, data, logger)
+				require.NoError(t, err)
+
+				vertices[vID] = val
+			}
+
+			for vID, val := range vertices {
+				v, err := e.SelectVertex(txnID, tableName, vID, logger)
+				require.NoError(t, err)
+				require.Equal(t, v.Data["money"], val)
+			}
+			return ErrRollback
+		},
+	)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			for vID := range vertices {
+				_, err := e.SelectVertex(txnID, tableName, vID, logger)
+				require.Error(t, err)
+			}
+			return nil
+		},
+	)
 
 	require.NoError(t, err)
 }
