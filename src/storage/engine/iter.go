@@ -898,7 +898,7 @@ func (iter *dirItemsScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 			)
 
 			pg, err := iter.pool.GetPageNoCreate(pageIdent)
-			if !errors.Is(err, disk.ErrNoSuchPage) {
+			if errors.Is(err, disk.ErrNoSuchPage) {
 				return
 			} else if err != nil {
 				yieldErrorTripple(err, yield)

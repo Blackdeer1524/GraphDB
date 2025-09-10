@@ -155,6 +155,8 @@ func (s *StorageEngine) CreateVertexTable(
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
+	s.diskMgrInsertToFileMap(common.FileID(tableFileID), tableFilePath)
+
 	err = s.createSystemVertexTableIndex(txnID, tableName, tableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal vertex index: %w", err)
@@ -165,7 +167,6 @@ func (s *StorageEngine) CreateVertexTable(
 		return fmt.Errorf("unable to create directory table: %w", err)
 	}
 
-	s.diskMgrInsertToFileMap(common.FileID(tableFileID), tableFilePath)
 	return nil
 }
 
@@ -221,12 +222,13 @@ func (s *StorageEngine) createDirTable(
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
+	s.diskMgrInsertToFileMap(common.FileID(dirTableFileID), tableFilePath)
+
 	err = s.createSystemDirTableIndex(txnID, vertexTableFileID, dirTableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal directory index: %w", err)
 	}
 
-	s.diskMgrInsertToFileMap(common.FileID(dirTableFileID), tableFilePath)
 	return nil
 }
 
@@ -288,12 +290,12 @@ func (s *StorageEngine) CreateEdgeTable(
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
 
+	s.diskMgrInsertToFileMap(common.FileID(tableFileID), tableFilePath)
+
 	err = s.createSystemEdgeTableIndex(txnID, tableName, tableFileID, cToken, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create internal edge index: %w", err)
 	}
-
-	s.diskMgrInsertToFileMap(common.FileID(tableFileID), tableFilePath)
 	return nil
 }
 
@@ -446,17 +448,22 @@ func (s *StorageEngine) CreateVertexTableIndex(
 		return err
 	}
 
-	schemaMap := make(map[string]storage.ColumnType)
+	schemaMap := storage.GetVertexSystemSchemaMap()
 	for _, col := range vertexTableMeta.Schema {
 		if _, ok := schemaMap[col.Name]; ok {
-			assert.Assert(false, "duplicate column name: %s", col.Name)
+			err := fmt.Errorf("duplicate column name: %s", col.Name)
+			return err
 		}
 		schemaMap[col.Name] = col.Type
 	}
 
 	calculatedKeyBytesCnt := uint32(0)
 	for _, colName := range columns {
-		calculatedKeyBytesCnt += uint32(schemaMap[colName].Size())
+		colInfo, ok := schemaMap[colName]
+		if !ok {
+			return fmt.Errorf("column %s not found in table %s", colName, tableName)
+		}
+		calculatedKeyBytesCnt += uint32(colInfo.Size())
 	}
 
 	err = prepareFSforTable(s.fs, indexFilePath)
@@ -542,17 +549,22 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 		return err
 	}
 
-	schemaMap := make(map[string]storage.ColumnType)
+	schemaMap := storage.GetEdgeSystemSchemaMap()
 	for _, col := range edgeTableMeta.Schema {
 		if _, ok := schemaMap[col.Name]; ok {
-			assert.Assert(false, "duplicate column name: %s", col.Name)
+			err := fmt.Errorf("duplicate column name: %s", col.Name)
+			return err
 		}
 		schemaMap[col.Name] = col.Type
 	}
 
 	keyBytesCnt := uint32(0)
 	for _, colName := range columns {
-		keyBytesCnt += uint32(schemaMap[colName].Size())
+		colInfo, ok := schemaMap[colName]
+		if !ok {
+			return fmt.Errorf("column %s not found in table %s", colName, tableName)
+		}
+		keyBytesCnt += uint32(colInfo.Size())
 	}
 
 	err = prepareFSforTable(s.fs, indexFilePath)
@@ -794,7 +806,6 @@ func (s *StorageEngine) createDirTableIndex(
 	indexName string,
 	vertexTableFileID common.FileID,
 	columns []string,
-	keyBytesCnt uint32,
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
@@ -818,14 +829,19 @@ func (s *StorageEngine) createDirTableIndex(
 		return fmt.Errorf("index %s already exists", indexName)
 	}
 
+	schemaMap := storage.GetDirectoryItemSchemaMap()
 	// Directory tables have a fixed schema - only ID column
 	calculatedKeyBytesCnt := uint32(0)
 	for _, colName := range columns {
-		if colName == "ID" {
-			calculatedKeyBytesCnt += uint32(storage.DirItemSystemIDSize)
-		} else {
-			return fmt.Errorf("directory table only supports ID column, got: %s", colName)
+		colInfo, ok := schemaMap[colName]
+		if !ok {
+			return fmt.Errorf(
+				"column %s not found in directory table %s",
+				colName,
+				systemcatalog.GetDirTableName(vertexTableFileID),
+			)
 		}
+		calculatedKeyBytesCnt += uint32(colInfo.Size())
 	}
 
 	err = prepareFSforTable(s.fs, indexFilePath)
@@ -912,13 +928,11 @@ func (s *StorageEngine) createSystemDirTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	columns := []string{"ID"}
-	keyBytesCnt := storage.DirItemSystemIDSize
 	return s.createDirTableIndex(
 		txnID,
 		getTableSystemIndexName(directoryTableFileID),
 		vertexTableFileID,
 		columns,
-		uint32(keyBytesCnt),
 		cToken,
 		logger,
 	)

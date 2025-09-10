@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
@@ -21,6 +22,7 @@ func (e *Executor) CreateVertexType(tableName string, schema storage.Schema) (er
 
 	defer func() {
 		if err != nil {
+			assert.NoError(logger.AppendAbort())
 			logger.Rollback()
 			err = errors.Join(err, logger.AppendTxnEnd())
 		} else {

@@ -247,7 +247,19 @@ func (m *Manager) UpdateFileMap(mp map[common.FileID]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.fileIDToPath = mp
+	for k, v := range mp {
+		if prevPath, ok := m.fileIDToPath[k]; ok {
+			panic(
+				fmt.Sprintf(
+					"fileID %d already exists in path map. Tried to update: %s -> %s",
+					k,
+					prevPath,
+					v,
+				),
+			)
+		}
+		m.fileIDToPath[k] = v
+	}
 }
 
 func (m *Manager) InsertToFileMap(id common.FileID, path string) {

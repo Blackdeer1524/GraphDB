@@ -214,6 +214,18 @@ type DirectoryItem struct {
 	DirectoryItemGraphFields
 }
 
+func GetDirectoryItemSchemaMap() map[string]ColumnType {
+	DirectoryItemSchemaMap := map[string]ColumnType{
+		"ID":           ColumnTypeUUID,
+		"NEXT_ITEM_ID": ColumnTypeUUID,
+		"PREV_ITEM_ID": ColumnTypeUUID,
+		"VERTEX_ID":    ColumnTypeUUID,
+		"EDGE_FILE_ID": ColumnTypeUint64,
+		"EDGE_ID":      ColumnTypeUUID,
+	}
+	return DirectoryItemSchemaMap
+}
+
 type EdgeSystemFields struct {
 	ID              EdgeSystemID
 	DirectoryItemID DirItemSystemID
@@ -221,6 +233,18 @@ type EdgeSystemFields struct {
 	DstVertexID     VertexSystemID
 	NextEdgeID      EdgeSystemID
 	PrevEdgeID      EdgeSystemID
+}
+
+func GetEdgeSystemSchemaMap() map[string]ColumnType {
+	EdgeSchemaMap := map[string]ColumnType{
+		"ID":            ColumnTypeUUID,
+		"DIR_ITEM_ID":   ColumnTypeUUID,
+		"SRC_VERTEX_ID": ColumnTypeUUID,
+		"DST_VERTEX_ID": ColumnTypeUUID,
+		"NEXT_EDGE_ID":  ColumnTypeUUID,
+		"PREV_EDGE_ID":  ColumnTypeUUID,
+	}
+	return EdgeSchemaMap
 }
 
 func NewEdgeSystemFields(
@@ -244,6 +268,14 @@ func NewEdgeSystemFields(
 type VertexSystemFields struct {
 	ID        VertexSystemID
 	DirItemID DirItemSystemID
+}
+
+func GetVertexSystemSchemaMap() map[string]ColumnType {
+	VertexSchemaMap := map[string]ColumnType{
+		"ID":          ColumnTypeUUID,
+		"DIR_ITEM_ID": ColumnTypeUUID,
+	}
+	return VertexSchemaMap
 }
 
 func NewVertexSystemFields(

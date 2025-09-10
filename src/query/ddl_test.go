@@ -47,6 +47,10 @@ func setupExecutor(poolPageCount uint64) (*Executor, error) {
 
 	debugPool := bufferpool.NewDebugBufferPool(pool)
 	sysCat, err := systemcatalog.New(catalogBasePath, fs, debugPool)
+	if err != nil {
+		return nil, err
+	}
+
 	debugPool.MarkPageAsLeaking(systemcatalog.CatalogVersionPageIdent())
 	debugPool.MarkPageAsLeaking(recovery.GetMasterPageIdent(systemcatalog.LogFileID))
 
@@ -86,9 +90,9 @@ func TestCreateVertexType(t *testing.T) {
 	}
 	err = e.CreateVertexType(tableName, schema)
 	require.NoError(t, err)
-	//
-	// vid, err := e.InsertVertex(tableName, map[string]any{
-	// 	"money": 100,
-	// })
-	// require.NoError(t, err)
+
+	_, err = e.InsertVertex(tableName, map[string]any{
+		"money": 100,
+	})
+	require.NoError(t, err)
 }

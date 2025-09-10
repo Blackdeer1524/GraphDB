@@ -768,9 +768,6 @@ func (m *Catalog) AddEdgeIndex(index storage.IndexMeta) error {
 }
 
 func (m *Catalog) AddDirIndex(index storage.IndexMeta) error {
-	assert.Assert(len(index.Columns) == 1, "directory index must have exactly 1 column")
-	assert.Assert(index.Columns[0] == "ID", "directory index must have only `ID` column")
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
