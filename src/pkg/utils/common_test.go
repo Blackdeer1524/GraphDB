@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,7 +10,7 @@ import (
 
 func TestGenerateUniqueInts(t *testing.T) {
 	t.Run("basic functionality", func(t *testing.T) {
-		result := GenerateUniqueInts[int](5, 1, 10)
+		result := GenerateUniqueInts[int](5, 1, 10, rand.New(rand.NewSource(42)))
 
 		require.Len(t, result, 5, "Should return exactly 5 numbers")
 
@@ -33,13 +34,13 @@ func TestGenerateUniqueInts(t *testing.T) {
 	})
 
 	t.Run("zero count", func(t *testing.T) {
-		result := GenerateUniqueInts[int](0, 1, 10)
+		result := GenerateUniqueInts[int](0, 1, 10, rand.New(rand.NewSource(42)))
 
 		assert.Empty(t, result, "Should return empty slice when count is 0")
 	})
 
 	t.Run("single number", func(t *testing.T) {
-		result := GenerateUniqueInts[int](1, 5, 5)
+		result := GenerateUniqueInts[int](1, 5, 5, rand.New(rand.NewSource(42)))
 
 		require.Len(t, result, 1, "Should return exactly 1 number")
 		assert.Equal(
@@ -51,7 +52,7 @@ func TestGenerateUniqueInts(t *testing.T) {
 	})
 
 	t.Run("full range", func(t *testing.T) {
-		result := GenerateUniqueInts[int](3, 1, 3)
+		result := GenerateUniqueInts[int](3, 1, 3, rand.New(rand.NewSource(42)))
 
 		require.Len(t, result, 3, "Should return exactly 3 numbers")
 
@@ -69,20 +70,20 @@ func TestGenerateUniqueInts(t *testing.T) {
 
 	t.Run("different integer types", func(t *testing.T) {
 		// Test with int64
-		result64 := GenerateUniqueInts[int64](3, 1, 10)
+		result64 := GenerateUniqueInts[int64](3, 1, 10, rand.New(rand.NewSource(42)))
 		assert.Len(t, result64, 3, "int64 result should have length 3")
 
 		// Test with uint64
-		resultU64 := GenerateUniqueInts[uint64](3, 1, 10)
+		resultU64 := GenerateUniqueInts[uint64](3, 1, 10, rand.New(rand.NewSource(42)))
 		assert.Len(t, resultU64, 3, "uint64 result should have length 3")
 
 		// Test with int
-		resultInt := GenerateUniqueInts[int](3, 1, 10)
+		resultInt := GenerateUniqueInts[int](3, 1, 10, rand.New(rand.NewSource(42)))
 		assert.Len(t, resultInt, 3, "int result should have length 3")
 	})
 
 	t.Run("large range", func(t *testing.T) {
-		result := GenerateUniqueInts[int](5, 1000, 2000)
+		result := GenerateUniqueInts[int](5, 1000, 2000, rand.New(rand.NewSource(42)))
 
 		require.Len(t, result, 5, "Should return exactly 5 numbers")
 
@@ -94,7 +95,7 @@ func TestGenerateUniqueInts(t *testing.T) {
 	})
 
 	t.Run("negative numbers", func(t *testing.T) {
-		result := GenerateUniqueInts[int](3, -5, -1)
+		result := GenerateUniqueInts[int](3, -5, -1, rand.New(rand.NewSource(42)))
 
 		require.Len(t, result, 3, "Should return exactly 3 numbers")
 
@@ -108,7 +109,7 @@ func TestGenerateUniqueInts(t *testing.T) {
 
 func TestGenerateUniqueIntsEdgeCases(t *testing.T) {
 	t.Run("min equals max", func(t *testing.T) {
-		result := GenerateUniqueInts[int](1, 42, 42)
+		result := GenerateUniqueInts[int](1, 42, 42, rand.New(rand.NewSource(42)))
 
 		require.Len(t, result, 1, "Should return exactly 1 number")
 		assert.Equal(
@@ -120,7 +121,7 @@ func TestGenerateUniqueIntsEdgeCases(t *testing.T) {
 	})
 
 	t.Run("range size equals count", func(t *testing.T) {
-		result := GenerateUniqueInts[int](5, 1, 5)
+		result := GenerateUniqueInts[int](5, 1, 5, rand.New(rand.NewSource(42)))
 
 		require.Len(t, result, 5, "Should return exactly 5 numbers")
 
@@ -138,7 +139,7 @@ func TestGenerateUniqueIntsEdgeCases(t *testing.T) {
 
 	t.Run("count greater than half range", func(t *testing.T) {
 		// This tests the Fisher-Yates shuffle path
-		result := GenerateUniqueInts[int](6, 1, 10)
+		result := GenerateUniqueInts[int](6, 1, 10, rand.New(rand.NewSource(42)))
 
 		require.Len(t, result, 6, "Should return exactly 6 numbers")
 

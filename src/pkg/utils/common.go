@@ -67,7 +67,7 @@ type Integer interface {
 	~int64 | ~uint64 | ~int
 }
 
-func GenerateUniqueInts[T Integer](n, min, max int) []T {
+func GenerateUniqueInts[T Integer](n, min, max int, r *rand.Rand) []T {
 	assert.Assert(min <= max, "min must be less than or equal to max")
 
 	rangeSize := max - min + 1
@@ -88,7 +88,7 @@ func GenerateUniqueInts[T Integer](n, min, max int) []T {
 
 		// Fisher-Yates shuffle - only shuffle first n elements
 		for i := range n {
-			j := rand.Intn(rangeSize-i) + i
+			j := r.Intn(rangeSize-i) + i
 			all[i], all[j] = all[j], all[i]
 		}
 
@@ -99,7 +99,7 @@ func GenerateUniqueInts[T Integer](n, min, max int) []T {
 	res := make([]T, 0, n)
 
 	for len(res) < n {
-		val := T(rand.Intn(rangeSize) + min)
+		val := T(r.Intn(rangeSize) + min)
 		if _, exists := nums[val]; !exists {
 			nums[val] = struct{}{}
 			res = append(res, val)

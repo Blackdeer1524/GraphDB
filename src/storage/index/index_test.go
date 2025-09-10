@@ -2,6 +2,7 @@ package index
 
 import (
 	"errors"
+	"math/rand"
 	"sync"
 	"testing"
 
@@ -44,7 +45,7 @@ func setup(
 	diskMgr := disk.New(newPageFunc, fs)
 
 	logFileID := common.FileID(42)
-	indexFileID := common.FileID(1)
+	indexFileID := common.FileID(33)
 	diskMgr.InsertToFileMap(logFileID, "/tmp/graphdb_test/log")
 	diskMgr.InsertToFileMap(indexFileID, "/tmp/graphdb_test/index")
 
@@ -299,27 +300,37 @@ func TestConcurrentInserts(t *testing.T) {
 	pool, logger, indexMeta, locker := setup(t, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	const numGoroutines = 5
-	const insertsPerGoroutine = 20 // Reduced to avoid growth issues
+	const numGoroutines = 100
+	const insertsPerGoroutine = 200 // Reduced to avoid growth issues
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	insertedKeys := make(map[string]common.RecordID)
 
-	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
+	r := rand.New(rand.NewSource(12))
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines, r)
 
 	// Start concurrent insert operations
 	for _, goroutineID := range goroutineIDs {
 		wg.Add(1)
 		go func(goroutineID uint64) {
-			txnID := common.TxnID(goroutineID + 1)
 			defer wg.Done()
 
+			txnID := common.TxnID(goroutineID + 1)
 			ctxLogger := logger.WithContext(txnID)
-			require.NoError(t, ctxLogger.AppendBegin())
-
-			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
-			require.NoError(t, err)
 			defer locker.Unlock(txnID)
+
+			require.NoError(t, ctxLogger.AppendBegin())
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+			if errors.Is(err, txns.ErrDeadlockPrevention) {
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			} else if err != nil {
+				assert.NoError(t, err)
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			}
 			defer index.Close()
 
 			localInsertedKeys := make(map[string]common.RecordID)
@@ -407,7 +418,8 @@ func TestConcurrentGets(t *testing.T) {
 	const getsPerGoroutine = 20
 	var wg sync.WaitGroup
 
-	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 2, numGoroutines+2)
+	r := rand.New(rand.NewSource(42))
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 2, numGoroutines+2, r)
 	// Start concurrent get operations
 	for _, goroutineID := range goroutineIDs {
 		wg.Add(1)
@@ -495,16 +507,24 @@ func TestConcurrentDeletes(t *testing.T) {
 			// Create a separate index for this goroutine
 			txnID := common.TxnID(goroutineID + 2)
 			ctxLogger := logger.WithContext(txnID)
+			defer locker.Unlock(txnID)
 
 			require.NoError(t, ctxLogger.AppendBegin())
 
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
-			require.NoError(t, err)
-			defer locker.Unlock(txnID)
+			if errors.Is(err, txns.ErrDeadlockPrevention) {
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			} else if err != nil {
+				assert.NoError(t, err)
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			}
 			defer index.Close()
 
 			localDeletedKeys := make(map[string]bool)
-
 			for j := 0; j < deletesPerGoroutine; j++ {
 				keyIndex := (goroutineID*deletesPerGoroutine + j) % numKeys
 				key := keys[keyIndex]
@@ -564,8 +584,9 @@ func TestConcurrentMixedOperations(t *testing.T) {
 	var mu sync.Mutex
 	insertedKeys := make(map[string]common.RecordID)
 
-	keys := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
-	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
+	r := rand.New(rand.NewSource(42))
+	keys := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines, r)
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines, r)
 	// Start mixed concurrent operations
 	for _, goroutineID := range goroutineIDs {
 		wg.Add(1)
@@ -574,12 +595,23 @@ func TestConcurrentMixedOperations(t *testing.T) {
 
 			// Create a separate index for this goroutine
 			txnID := common.TxnID(goroutineID + 1)
+			defer locker.Unlock(txnID)
+
 			ctxLogger := logger.WithContext(txnID)
 			require.NoError(t, ctxLogger.AppendBegin())
 
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+			if errors.Is(err, txns.ErrDeadlockPrevention) {
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			} else if err != nil {
+				assert.NoError(t, err)
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			}
 			require.NoError(t, err)
-			defer locker.Unlock(txnID)
 			defer index.Close()
 
 			localInsertedKeys := make(map[string]common.RecordID)
@@ -696,7 +728,8 @@ func TestConcurrentStressTest(t *testing.T) {
 	var mu sync.Mutex
 	insertedKeys := make(map[string]common.RecordID)
 
-	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
+	r := rand.New(rand.NewSource(42))
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines, r)
 	for _, goroutineID := range goroutineIDs {
 		wg.Add(1)
 		go func(goroutineID uint64) {
@@ -825,7 +858,8 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 	var mu sync.Mutex
 	insertedKeys := make(map[string]common.RecordID)
 
-	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines)
+	r := rand.New(rand.NewSource(42))
+	goroutineIDs := utils.GenerateUniqueInts[uint64](numGoroutines, 1, numGoroutines, r)
 
 	// Start concurrent inserts that will trigger index growth
 	for _, goroutineID := range goroutineIDs {
@@ -835,10 +869,21 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 
 			// Create a separate index for this goroutine
 			txnID := common.TxnID(goroutineID + 1)
+			defer locker.Unlock(txnID)
+
 			ctxLogger := logger.WithContext(txnID)
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
-			require.NoError(t, err)
-			defer locker.Unlock(txnID)
+			if errors.Is(err, txns.ErrDeadlockPrevention) {
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			} else if err != nil {
+				assert.NoError(t, err)
+				require.NoError(t, ctxLogger.AppendAbort())
+				ctxLogger.Rollback()
+				return
+			}
+
 			defer index.Close()
 
 			localInsertedKeys := make(map[string]common.RecordID)

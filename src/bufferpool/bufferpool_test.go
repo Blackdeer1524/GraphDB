@@ -249,7 +249,7 @@ func TestManager_Replacement(t *testing.T) {
 	N := uint64(100)
 	failedCh := make(chan uint64, N)
 
-	pool := NewDebugBufferPool(New(4, replacer, dk), map[common.PageIdentity]struct{}{})
+	pool := NewDebugBufferPool(New(4, replacer, dk))
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	fileID := common.FileID(1)

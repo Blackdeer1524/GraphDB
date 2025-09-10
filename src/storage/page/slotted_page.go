@@ -49,6 +49,14 @@ const (
 	SlotStatusDeleted
 )
 
+func (st slotStatus) String() string {
+	return []string{
+		"PrepareInsert",
+		"Inserted",
+		"Deleted",
+	}[st]
+}
+
 func newSlotPtr(status slotStatus, recordOffset uint16) slotPointer {
 	assert.Assert(recordOffset <= slotOffsetMask, "the offset is too big")
 	return slotPointer((uint16(status) << slotOffsetSize) | recordOffset)
@@ -119,6 +127,10 @@ func (p *SlottedPage) Clear() {
 
 	h.slotsCount = 0
 	h.slots = slotPointer(0)
+
+	for i := h.freeStart; i < h.freeEnd; i++ {
+		p.data[i] = 0
+	}
 }
 
 func (p *SlottedPage) PageLSN() common.LSN {
@@ -235,7 +247,7 @@ func (p *SlottedPage) UndoInsert(slotID uint16) {
 
 	assert.Assert(
 		slotInfo == SlotStatusPrepareInsert || slotInfo == SlotStatusInserted,
-		"tried to call `UndoInsert` on a slot with status %d", ptr.slotInfo(),
+		"tried to call `UndoInsert` on a slot with status %s", ptr.slotInfo().String(),
 	)
 
 	p.UnsafeOverrideSlotStatus(slotID, SlotStatusDeleted)
@@ -257,7 +269,7 @@ func (p *SlottedPage) assertSlotInserted(slotID uint16) slotPointer {
 	ptr := header.getSlots()[slotID]
 	assert.Assert(
 		ptr.slotInfo() == SlotStatusInserted,
-		"tried to read from a slot with status %d", ptr.slotInfo(),
+		"tried to read from a slot with status %s", ptr.slotInfo().String(),
 	)
 	return ptr
 }
@@ -315,7 +327,7 @@ func (p *SlottedPage) UndoDelete(slotID uint16) {
 	ptr := header.getSlots()[slotID]
 	assert.Assert(
 		ptr.slotInfo() == SlotStatusDeleted,
-		"tried to UndoDelete from a slot with status %d", ptr.slotInfo(),
+		"tried to UndoDelete from a slot with status %s", ptr.slotInfo().String(),
 	)
 
 	p.UnsafeOverrideSlotStatus(slotID, SlotStatusInserted)
@@ -409,5 +421,8 @@ func InsertSerializable[T encoding.BinaryMarshaler](
 }
 
 func (p *SlottedPage) SlotInfo(slotID uint16) slotStatus {
-	return p.assertSlotInserted(slotID).slotInfo()
+	header := p.getHeader()
+	assert.Assert(slotID < header.slotsCount, "slotID is too large")
+	ptr := header.getSlots()[slotID]
+	return ptr.slotInfo()
 }

@@ -146,6 +146,7 @@ func NewLinearProbingIndex(
 	}
 
 	if err := index.setupMasterPage(meta); err != nil {
+		pool.Unpin(getMasterPageIdent(meta.FileID))
 		return nil, fmt.Errorf("failed to setup master page: %w", err)
 	}
 
@@ -648,8 +649,8 @@ func (i *LinearProbingIndex) grow() error {
 	)
 
 	dummyRecord := make([]byte, bucketItemSize)
-	firstNewPageID := startPageID + common.PageID(bucketsCount)
-	lastNewPageID := startPageID + common.PageID(bucketsCount*2) - 1
+	firstNewPageID := (startPageID + common.PageID(bucketsCount))
+	lastNewPageID := firstNewPageID + common.PageID(bucketsCount*2) - 1
 	log.Printf(
 		"txn=%d Grow: initializing %d new buckets; new pages [%d..%d]",
 		i.logger.GetTxnID(),
@@ -864,9 +865,20 @@ func (i *LinearProbingIndex) setupMasterPage(indexMeta storage.IndexMeta) error 
 		}
 		defer i.pool.Unpin(masterPageIdent)
 
+		masterPage.RLock()
 		if masterPage.NumSlots() == masterPageSlotsCount {
-			return nil
+			foundAbnormal := false
+			for slotIdx := range masterPage.NumSlots() {
+				if masterPage.SlotInfo(slotIdx) != page.SlotStatusInserted {
+					foundAbnormal = true
+				}
+			}
+			if !foundAbnormal {
+				masterPage.RUnlock()
+				return nil
+			}
 		}
+		masterPage.RUnlock()
 
 		if !i.locker.UpgradePageLock(masterPageToken, txns.PageLockExclusive) {
 			return fmt.Errorf(
@@ -876,7 +888,6 @@ func (i *LinearProbingIndex) setupMasterPage(indexMeta storage.IndexMeta) error 
 			)
 		}
 
-		masterPage.Clear()
 		inserts := []struct {
 			expectedSlotNum uint16
 			data            uint64
@@ -901,7 +912,6 @@ func (i *LinearProbingIndex) setupMasterPage(indexMeta storage.IndexMeta) error 
 			masterPage,
 			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
 				var loc common.LogRecordLocInfo
-
 				lockedPage.Clear()
 				for _, insert := range inserts {
 					var slot uint16
@@ -925,10 +935,7 @@ func (i *LinearProbingIndex) setupMasterPage(indexMeta storage.IndexMeta) error 
 				return loc, nil
 			},
 		)
-		if err != nil {
-			return err
-		}
-		return nil
+		return err
 	}()
 
 	if err != nil {
@@ -957,9 +964,20 @@ func (i *LinearProbingIndex) setupMasterPage(indexMeta storage.IndexMeta) error 
 		}
 		defer i.pool.Unpin(bucketPageIdent)
 
+		bucketPage.RLock()
 		if bucketPage.NumSlots() == uint16(bucketCapacity) {
-			return nil
+			foundAbnormal := false
+			for slotIdx := range bucketPage.NumSlots() {
+				if bucketPage.SlotInfo(slotIdx) != page.SlotStatusInserted {
+					foundAbnormal = true
+				}
+			}
+			if !foundAbnormal {
+				bucketPage.RUnlock()
+				return nil
+			}
 		}
+		bucketPage.RUnlock()
 
 		if !i.locker.UpgradePageLock(bucketPageToken, txns.PageLockExclusive) {
 			return fmt.Errorf(
