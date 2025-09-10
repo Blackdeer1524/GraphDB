@@ -349,6 +349,7 @@ func (m *Catalog) Load() error {
 		return nil
 	}
 
+	m.masterVersion = onDiskVersionNum
 	sysCatFilename := getSystemCatalogFilename(m.basePath, m.masterVersion)
 	dataBytes, err := afero.ReadFile(m.fs, sysCatFilename)
 	if err != nil {

@@ -108,7 +108,6 @@ func Execute(
 				err = nil
 				return
 			}
-			assert.NoError(ctxLogger.AppendTxnEnd())
 			return
 		}
 		if err = ctxLogger.AppendCommit(); err != nil {
@@ -226,6 +225,43 @@ func TestVertexTableInserts(t *testing.T) {
 		},
 	)
 
+	require.NoError(t, err)
+}
+
+func TestCreateVertexRollback(t *testing.T) {
+	e, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+
+	ticker := atomic.Uint64{}
+	tableName := "test"
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			require.NoError(t, err)
+			return ErrRollback
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: "money2", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
 	require.NoError(t, err)
 }
 

@@ -3,6 +3,7 @@ package engine
 import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/datastructures/inmemory"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
@@ -10,17 +11,17 @@ import (
 func (s *StorageEngine) NewAggregationAssociativeArray(
 	common.TxnID,
 ) (storage.AssociativeArray[storage.VertexID, float64], error) {
-	panic("unimplemented")
+	return inmemory.NewInMemoryAssociativeArray[storage.VertexID, float64](), nil
 }
 
 // NewBitMap implements storage.StorageEngine.
 func (s *StorageEngine) NewBitMap(common.TxnID) (storage.BitMap, error) {
-	panic("unimplemented")
+	return inmemory.NewInMemoryBitMap(), nil
 }
 
 // NewQueue implements storage.StorageEngine.
 func (s *StorageEngine) NewQueue(common.TxnID) (storage.Queue, error) {
-	panic("unimplemented")
+	return inmemory.NewInMemoryQueue(), nil
 }
 
 // AllVerticesWithValue implements storage.StorageEngine.
