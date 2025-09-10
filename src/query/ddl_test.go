@@ -413,6 +413,9 @@ func TestCreateEdgeTable(t *testing.T) {
 	edgeTableName := "indepted_to"
 	ticker := atomic.Uint64{}
 
+	var v1 storage.VertexSystemID
+	var v2 storage.VertexSystemID
+	edgeID := storage.EdgeSystemID{}
 	err = Execute(
 		&ticker,
 		e,
@@ -430,20 +433,47 @@ func TestCreateEdgeTable(t *testing.T) {
 			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
 			require.NoError(t, err)
 
-			v1, err := e.InsertVertex(txnID, vertTableName, map[string]any{
+			v1, err = e.InsertVertex(txnID, vertTableName, map[string]any{
 				"money": int64(100),
 			}, logger)
 			require.NoError(t, err)
 
-			v2, err := e.InsertVertex(txnID, vertTableName, map[string]any{
+			v2, err = e.InsertVertex(txnID, vertTableName, map[string]any{
 				"money": int64(200),
 			}, logger)
 			require.NoError(t, err)
 
-			_, err = e.InsertEdge(txnID, edgeTableName, v1, v2, map[string]any{
-				"debt_amount": int64(100),
+			edgeID, err = e.InsertEdge(txnID, edgeTableName, v1, v2, map[string]any{
+				"debt_amount": int64(40),
 			}, logger)
 			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			edge, err := e.SelectEdge(txnID, edgeTableName, edgeID, logger)
+			require.NoError(t, err)
+			require.Equal(t, edge.Data["debt_amount"], int64(40))
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			res, err := e.GetVertexesOnDepth(txnID, vertTableName, v1, 1, logger)
+			require.NoError(t, err)
+			require.Equal(t, len(res), 1)
+			require.Equal(t, res[0].V, v2)
 			return nil
 		},
 	)

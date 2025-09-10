@@ -154,16 +154,19 @@ func (e *Executor) bfsWithDepth(
 // We will use BFS on graph because DFS cannot calculate right depth on graphs (except trees).
 func (e *Executor) GetVertexesOnDepth(
 	txnID common.TxnID,
-	vertTableID common.FileID,
+	vertTableName string,
 	start storage.VertexSystemID,
 	targetDepth uint32,
 	logger common.ITxnLoggerWithContext,
 ) (r []storage.VertexSystemIDWithRID, err error) {
-	defer e.locker.Unlock(txnID)
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	vertTableMeta, err := e.se.GetVertexTableMeta(vertTableName, cToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get vertex table meta: %w", err)
+	}
 
 	var st storage.VertexSystemIDWithRID
-	cToken := txns.NewNilCatalogLockToken(txnID)
-	index, err := e.se.GetVertexTableSystemIndex(txnID, vertTableID, cToken, logger)
+	index, err := e.se.GetVertexTableSystemIndex(txnID, vertTableMeta.FileID, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
@@ -355,8 +358,6 @@ func (e *Executor) SumNeighborAttributes(
 	pred storage.SumNeighborAttributesFilter,
 	logger common.ITxnLoggerWithContext,
 ) (r storage.AssociativeArray[storage.VertexID, float64], err error) {
-	defer e.locker.Unlock(txnID)
-
 	r, err = e.se.NewAggregationAssociativeArray(txnID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create aggregation associative array: %w", err)

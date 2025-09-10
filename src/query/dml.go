@@ -81,8 +81,45 @@ func (e *Executor) UpdateVertex() error {
 	return nil
 }
 
-func (e *Executor) SelectEdge() error {
-	return nil
+func (e *Executor) SelectEdge(
+	txnID common.TxnID,
+	tableName string,
+	edgeID storage.EdgeSystemID,
+	logger common.ITxnLoggerWithContext,
+) (edge storage.Edge, err error) {
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	edgeTableMeta, err := e.se.GetEdgeTableMeta(tableName, cToken)
+	if err != nil {
+		return storage.Edge{}, fmt.Errorf("failed to get edge table meta: %w", err)
+	}
+
+	edgeIndex, err := e.se.GetEdgeTableSystemIndex(
+		txnID,
+		edgeTableMeta.FileID,
+		cToken,
+		logger,
+	)
+	if err != nil {
+		return storage.Edge{}, fmt.Errorf("failed to get edge table internal index: %w", err)
+	}
+
+	edgeFileToken := txns.NewNilFileLockToken(cToken, edgeTableMeta.FileID)
+	edgeSystems, data, err := e.se.SelectEdge(
+		txnID,
+		edgeID,
+		edgeFileToken,
+		edgeIndex,
+		edgeTableMeta.Schema,
+	)
+	if err != nil {
+		return storage.Edge{}, fmt.Errorf("failed to select edge: %w", err)
+	}
+
+	edge = storage.Edge{
+		EdgeSystemFields: edgeSystems,
+		Data:             data,
+	}
+	return edge, nil
 }
 
 func (e *Executor) InsertEdge(
@@ -114,9 +151,9 @@ func (e *Executor) InsertEdge(
 		return storage.NilEdgeID, fmt.Errorf("failed to get dir table meta: %w", err)
 	}
 
-	srcVertDirTableIndex, err := e.se.GetVertexTableSystemIndex(
+	srcVertDirTableIndex, err := e.se.GetDirTableSystemIndex(
 		txnID,
-		dirTableMeta.VertexTableID,
+		dirTableMeta.FileID,
 		cToken,
 		logger,
 	)
