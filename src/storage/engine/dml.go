@@ -8,6 +8,7 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
@@ -140,7 +141,12 @@ func (s *StorageEngine) InsertVertex(
 	ctxLogger common.ITxnLoggerWithContext,
 ) (storage.VertexSystemID, error) {
 	pageID, err := s.diskMgrGetLastPage(vertexFileToken.GetFileID())
-	if err != nil {
+	if errors.Is(err, disk.ErrNoSuchPage) {
+		pageID, err = s.diskMgrGetEmptyPage(vertexFileToken.GetFileID())
+		if err != nil {
+			return storage.NilVertexID, fmt.Errorf("failed to get empty page: %w", err)
+		}
+	} else if err != nil {
 		return storage.NilVertexID, fmt.Errorf("failed to get free page: %w", err)
 	}
 	for {
@@ -420,7 +426,12 @@ func (s *StorageEngine) insertEdgeHelper(
 	ctxLogger common.ITxnLoggerWithContext,
 ) (storage.EdgeSystemID, error) {
 	pageID, err := s.diskMgrGetLastPage(edgesFileToken.GetFileID())
-	if err != nil {
+	if errors.Is(err, disk.ErrNoSuchPage) {
+		pageID, err = s.diskMgrGetEmptyPage(edgesFileToken.GetFileID())
+		if err != nil {
+			return storage.NilEdgeID, fmt.Errorf("failed to get empty page: %w", err)
+		}
+	} else if err != nil {
 		return storage.NilEdgeID, fmt.Errorf("failed to get free page: %w", err)
 	}
 	for {
@@ -793,70 +804,81 @@ func (s *StorageEngine) insertDirectoryItem(
 	}
 	directoryRecordBytes, err := serializeDirectoryRecord(dirItem)
 	if err != nil {
-		err = fmt.Errorf("failed to serialize directory record: %w", err)
-		return storage.NilDirItemID, err
+		return storage.NilDirItemID, fmt.Errorf("failed to serialize directory record: %w", err)
 	}
 
 	pageID, err := s.diskMgrGetLastPage(dirFileToken.GetFileID())
-	if err != nil {
+	if errors.Is(err, disk.ErrNoSuchPage) {
+		pageID, err = s.diskMgrGetEmptyPage(dirFileToken.GetFileID())
+		if err != nil {
+			return storage.NilDirItemID, fmt.Errorf("failed to get empty page: %w", err)
+		}
+	} else if err != nil {
 		return storage.NilDirItemID, fmt.Errorf("failed to get free page: %w", err)
 	}
 
-	if s.locker.LockPage(dirFileToken, pageID, txns.PageLockExclusive) == nil {
-		return storage.NilDirItemID, fmt.Errorf("failed to lock page: %w", err)
-	}
+	for {
+		if s.locker.LockPage(dirFileToken, pageID, txns.PageLockExclusive) == nil {
+			return storage.NilDirItemID, fmt.Errorf("failed to lock page: %w", err)
+		}
 
-	pageIdent := common.PageIdentity{
-		FileID: dirFileToken.GetFileID(),
-		PageID: pageID,
-	}
+		pageIdent := common.PageIdentity{
+			FileID: dirFileToken.GetFileID(),
+			PageID: pageID,
+		}
+		pg, err := s.pool.GetPage(pageIdent)
+		if err != nil {
+			return storage.NilDirItemID, fmt.Errorf("failed to get page: %w", err)
+		}
+		defer s.pool.Unpin(pageIdent)
 
-	pToken := s.locker.LockPage(dirFileToken, pageID, txns.PageLockExclusive)
-	if pToken == nil {
-		return storage.NilDirItemID, fmt.Errorf("failed to lock page: %v", pageIdent)
-	}
+		slot := uint16(0)
+		err = s.pool.WithMarkDirty(
+			txnID,
+			pageIdent,
+			pg,
+			func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+				var loc common.LogRecordLocInfo
+				var err error
+				slot, loc, err = lockedPage.InsertWithLogs(
+					directoryRecordBytes,
+					pageIdent,
+					ctxLogger,
+				)
+				return loc, err
+			},
+		)
+		if errors.Is(err, page.ErrNoSpaceLeft) {
+			pageID, err = s.diskMgrGetEmptyPage(dirFileToken.GetFileID())
+			if err != nil {
+				return storage.NilDirItemID, fmt.Errorf("failed to get empty page: %w", err)
+			}
+			continue
+		} else if err != nil {
+			return storage.NilDirItemID, fmt.Errorf("failed to insert directory item: %w", err)
+		}
 
-	pg, err := s.pool.GetPageNoCreate(pageIdent)
-	if err != nil {
-		return storage.NilDirItemID, fmt.Errorf("failed to get page: %w", err)
-	}
-	defer s.pool.Unpin(pageIdent)
+		dirRID := common.RecordID{
+			FileID:  pageIdent.FileID,
+			PageID:  pageIdent.PageID,
+			SlotNum: slot,
+		}
 
-	slot := uint16(0)
-	err = s.pool.WithMarkDirty(
-		txnID,
-		pageIdent,
-		pg,
-		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-			var loc common.LogRecordLocInfo
-			var err error
-			slot, loc, err = lockedPage.InsertWithLogs(directoryRecordBytes, pageIdent, ctxLogger)
-			return loc, err
-		},
-	)
-	if err != nil {
-		return storage.NilDirItemID, fmt.Errorf("failed to insert directory item: %w", err)
-	}
+		marshalledDirID, err := dirItemSystemFields.ID.MarshalBinary()
+		if err != nil {
+			return storage.NilDirItemID, fmt.Errorf("failed to marshal directory item ID: %w", err)
+		}
 
-	dirRID := common.RecordID{
-		FileID:  pageIdent.FileID,
-		PageID:  pageIdent.PageID,
-		SlotNum: slot,
-	}
+		err = dirSystemIndex.Insert(marshalledDirID, dirRID)
+		if err != nil {
+			return storage.NilDirItemID, fmt.Errorf(
+				"failed to insert directory item info into index: %w",
+				err,
+			)
+		}
 
-	marshalledDirID, err := dirItemSystemFields.ID.MarshalBinary()
-	if err != nil {
-		err = fmt.Errorf("failed to marshal directory item ID: %w", err)
-		return storage.NilDirItemID, err
+		return dirItemSystemFields.ID, nil
 	}
-
-	err = dirSystemIndex.Insert(marshalledDirID, dirRID)
-	if err != nil {
-		err = fmt.Errorf("failed to insert directory item info into index: %w", err)
-		return storage.NilDirItemID, err
-	}
-
-	return dirItemSystemFields.ID, nil
 }
 
 func (s *StorageEngine) updateDirItemEdgeID(

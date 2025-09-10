@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
@@ -21,6 +22,7 @@ func (e *Executor) SelectVertex(
 
 	defer func() {
 		if err != nil {
+			assert.NoError(logger.AppendAbort())
 			logger.Rollback()
 			err = errors.Join(err, logger.AppendTxnEnd())
 		} else {
@@ -78,6 +80,7 @@ func (e *Executor) InsertVertex(
 
 	defer func() {
 		if err != nil {
+			assert.NoError(logger.AppendAbort())
 			logger.Rollback()
 			err = errors.Join(err, logger.AppendTxnEnd())
 			return
@@ -136,6 +139,7 @@ func (e *Executor) InsertEdge(
 
 	defer func() {
 		if err != nil {
+			assert.NoError(logger.AppendAbort())
 			logger.Rollback()
 			err = errors.Join(err, logger.AppendTxnEnd())
 			return
