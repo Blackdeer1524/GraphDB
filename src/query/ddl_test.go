@@ -479,3 +479,170 @@ func TestCreateEdgeTable(t *testing.T) {
 	)
 	require.NoError(t, err)
 }
+
+func setupTables(
+	t *testing.T,
+	e *Executor,
+	ticker *atomic.Uint64,
+	vertTableName string,
+	edgeTableName string,
+	logger common.ITxnLogger,
+) {
+	err := Execute(
+		ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, vertTableName, schema, logger)
+			require.NoError(t, err)
+
+			edgeSchema := storage.Schema{
+				{Name: "debt_amount", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+}
+
+func TestSnowflakeNeighbours(t *testing.T) {
+	e, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+
+	vertTableName := "person"
+	edgeTableName := "indepted_to"
+	ticker := atomic.Uint64{}
+	setupTables(t, e, &ticker, vertTableName, edgeTableName, logger)
+
+	N := 10
+	var vCenterID storage.VertexSystemID
+	neighbors := make([]storage.VertexSystemID, 0, N)
+	edgeIDs := make([]storage.EdgeSystemID, 0, N)
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			centerData := map[string]any{
+				"money": int64(33),
+			}
+			vCenterID, err = e.InsertVertex(txnID, vertTableName, centerData, logger)
+			require.NoError(t, err)
+
+			for i := range N {
+				neighborData := map[string]any{
+					"money": int64(i) + 42,
+				}
+				neighborID, err := e.InsertVertex(txnID, vertTableName, neighborData, logger)
+				require.NoError(t, err)
+				neighbors = append(neighbors, neighborID)
+
+				edgeData := map[string]any{
+					"debt_amount": int64(i) + 100,
+				}
+				edgeID, err := e.InsertEdge(
+					txnID,
+					edgeTableName,
+					vCenterID,
+					neighborID,
+					edgeData,
+					logger,
+				)
+				require.NoError(t, err)
+				edgeIDs = append(edgeIDs, edgeID)
+			}
+
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	t.Run("GetNeighborsOfCenterVertex_Depth=1", func(t *testing.T) {
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				recordedNeighbors, err := e.GetVertexesOnDepth(
+					txnID,
+					vertTableName,
+					vCenterID,
+					1,
+					logger,
+				)
+				require.NoError(t, err)
+				require.Equal(t, len(recordedNeighbors), N)
+
+				neighborsIDS := make([]storage.VertexSystemID, 0, N)
+				for _, neighbor := range recordedNeighbors {
+					neighborsIDS = append(neighborsIDS, neighbor.V)
+				}
+
+				require.ElementsMatch(t, neighborsIDS, neighbors)
+
+				for _, noEdgesNeighbor := range neighborsIDS {
+					ns, err := e.GetVertexesOnDepth(
+						txnID,
+						vertTableName,
+						noEdgesNeighbor,
+						1,
+						logger,
+					)
+					require.NoError(t, err)
+					require.Equal(t, len(ns), 0)
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("GetNeighborsOfCenterVertex_Depth=2", func(t *testing.T) {
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				recordedNeighbors, err := e.GetVertexesOnDepth(
+					txnID,
+					vertTableName,
+					vCenterID,
+					2,
+					logger,
+				)
+				require.NoError(t, err)
+				require.ElementsMatch(t, recordedNeighbors, []storage.VertexSystemIDWithRID{})
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("GetNeighborsOfSnowflakeEdges_Depth=1", func(t *testing.T) {
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				for _, noEdgesNeighbor := range neighbors {
+					ns, err := e.GetVertexesOnDepth(
+						txnID,
+						vertTableName,
+						noEdgesNeighbor,
+						1,
+						logger,
+					)
+					require.NoError(t, err)
+					require.Equal(t, len(ns), 0)
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	})
+}
