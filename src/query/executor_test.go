@@ -1366,4 +1366,58 @@ func TestNeighboursMultipleTables(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
+
+	var firstVID storage.VertexSystemID
+	var secondVID storage.VertexSystemID
+	var edgeID storage.EdgeSystemID
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			firstVRecord := map[string]any{
+				firstVFieldName: int64(1),
+			}
+			firstVID, err = e.InsertVertex(txnID, firstVTableName, firstVRecord, logger)
+			require.NoError(t, err)
+			secondVRecord := map[string]any{
+				secondVFieldName: int64(1),
+			}
+			secondVID, err = e.InsertVertex(txnID, secondVTableName, secondVRecord, logger)
+			require.NoError(t, err)
+			edgeRecord := EdgeInfo{
+				SrcVertexID: firstVID,
+				DstVertexID: secondVID,
+				Data: map[string]any{
+					edgesFieldName: int64(1),
+				},
+			}
+			edgeID, err = e.InsertEdge(txnID, edgeTableName, edgeRecord, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			edge, err := e.SelectEdge(txnID, edgeTableName, edgeID, logger)
+			require.NoError(t, err)
+			require.Equal(t, edge.Data[edgesFieldName], int64(1))
+
+			neighbors, err := e.GetVertexesOnDepth(txnID, firstVTableName, firstVID, 1, logger)
+			require.NoError(t, err)
+			require.Equal(t, len(neighbors), 1)
+			require.Equal(t, neighbors[0].V, secondVID)
+
+			neighbors, err = e.GetVertexesOnDepth(txnID, secondVTableName, secondVID, 1, logger)
+			require.NoError(t, err)
+			require.Equal(t, len(neighbors), 0)
+			return nil
+		},
+	)
+	require.NoError(t, err)
 }
