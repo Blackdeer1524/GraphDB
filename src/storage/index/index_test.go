@@ -5,7 +5,10 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
+	"time"
+	"unsafe"
 
+	"github.com/google/uuid"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,7 +38,7 @@ func TestMarshalAndUnmarshalBucketItem(t *testing.T) {
 }
 
 func setup(
-	t *testing.T,
+	t testing.TB,
 	keyLength uint32,
 ) (*bufferpool.DebugBufferPool, common.ITxnLogger, storage.IndexMeta, *txns.LockManager) {
 	newPageFunc := func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
@@ -944,4 +947,50 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, expectedRID, actualRID)
 	}
+}
+
+func BenchmarkIndexInsert(b *testing.B) {
+	require.Equal(b, int(unsafe.Sizeof(uuid.UUID{})), 16)
+
+	pool, logger, indexMeta, locker := setup(b, 8)
+	defer func() { assert.NoError(b, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ctxLogger := logger.WithContext(common.TxnID(1))
+	defer locker.Unlock(common.TxnID(1))
+
+	require.NoError(b, ctxLogger.AppendBegin())
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger)
+	require.NoError(b, err)
+	defer index.Close()
+
+	// Pre-generate keys to avoid timing key generation
+	keys := make([][]byte, b.N)
+	rids := make([]common.RecordID, b.N)
+
+	r := rand.New(rand.NewSource(42))
+	for i := 0; i < b.N; i++ {
+		id := r.Uint64()
+		keys[i] = utils.ToBytes[uint64](id)
+		rids[i] = common.RecordID{
+			FileID:  1,
+			PageID:  2,
+			SlotNum: uint16(i),
+		}
+	}
+
+	go func() {
+		time.AfterFunc(20*time.Second, func() {
+			b.Logf("dumping dependency graph:\n%s", locker.DumpDependencyGraph())
+		})
+	}()
+
+	// Reset timer to exclude setup time
+	b.ResetTimer()
+
+	// Benchmark the actual insert operations
+	for i := 0; i < b.N; i++ {
+		require.NoError(b, index.Insert(keys[i], rids[i]))
+	}
+
+	require.NoError(b, ctxLogger.AppendCommit())
 }

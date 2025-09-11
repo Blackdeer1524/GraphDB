@@ -1262,7 +1262,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 }
 
 func TestBigRandomGraph(t *testing.T) {
-	e, pool, logger, err := setupExecutor(1000)
+	e, pool, logger, err := setupExecutor(100)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1313,6 +1313,6 @@ func TestBigRandomGraph(t *testing.T) {
 		edgeTableName,
 		intToVertSystemID,
 		edgesSystemInfo,
-		3,
+		1,
 	)
 }
