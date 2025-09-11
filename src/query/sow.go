@@ -481,6 +481,10 @@ func (e *Executor) countCommonNeighbors(
 		}
 
 		rightVertID := storage.VertexID{SystemID: rightRID.V, TableID: rightRID.R.FileID}
+		if rightVertID.SystemID == left && rightVertID.TableID == leftFileToken.GetFileID() {
+			continue
+		}
+
 		_, ok := leftNeighbours.Get(rightVertID)
 		if !ok {
 			continue
@@ -493,7 +497,7 @@ func (e *Executor) countCommonNeighbors(
 
 func (e *Executor) getVertexTriangleCount(
 	txnID common.TxnID,
-	vSystemID storage.VertexSystemID,
+	vertSysID storage.VertexSystemID,
 	vertTableToken *txns.FileLockToken,
 	vertIndex storage.Index,
 	logger common.ITxnLoggerWithContext,
@@ -501,13 +505,13 @@ func (e *Executor) getVertexTriangleCount(
 	r = 0
 	leftNeighboursIter, err := e.se.Neighbours(
 		txnID,
-		vSystemID,
+		vertSysID,
 		vertTableToken,
 		vertIndex,
 		logger,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get neighbors of vertex %v: %w", vSystemID, err)
+		return 0, fmt.Errorf("failed to get neighbors of vertex %v: %w", vertSysID, err)
 	}
 	defer func() {
 		err1 := leftNeighboursIter.Close()
@@ -523,11 +527,15 @@ func (e *Executor) getVertexTriangleCount(
 			return 0, fmt.Errorf("failed to get neighbor vertex: %w", err)
 		}
 
-		vertID := storage.VertexID{
+		nVertID := storage.VertexID{
 			SystemID: vSystemIDwithRID.V,
 			TableID:  vSystemIDwithRID.R.FileID,
 		}
-		err = leftNeighbours.Set(vertID, struct{}{})
+		if nVertID.SystemID == vertSysID && nVertID.TableID == vertTableToken.GetFileID() {
+			continue
+		}
+
+		err = leftNeighbours.Set(nVertID, struct{}{})
 		if err != nil {
 			err = fmt.Errorf("failed to set value in left neighbors associative array: %w", err)
 			return 0, err

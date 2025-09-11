@@ -693,6 +693,7 @@ func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, st
 				return
 			}
 			continueFlag, err := func() (bool, error) {
+				defer iter.pool.Unpin(pageIdent)
 				pg.RLock()
 				defer pg.RUnlock()
 				recordID := common.RecordID{
@@ -812,6 +813,8 @@ func (iter *edgeTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, stor
 				return
 			}
 			continueFlag, err := func() (bool, error) {
+				defer iter.pool.Unpin(pageIdent)
+
 				pg.RLock()
 				defer pg.RUnlock()
 				recordID := common.RecordID{

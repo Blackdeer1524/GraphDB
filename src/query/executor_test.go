@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -516,8 +517,8 @@ func setupTables(
 	ticker *atomic.Uint64,
 	vertTableName string,
 	vertFieldName string,
-	edgeFieldName string,
 	edgeTableName string,
+	edgeFieldName string,
 	logger common.ITxnLogger,
 ) {
 	err := Execute(
@@ -559,7 +560,7 @@ func TestVertexAndEdgeTableDrop(t *testing.T) {
 	vertFieldName := "money"
 	edgeFieldName := "debt_amount"
 	ticker := atomic.Uint64{}
-	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeFieldName, edgeTableName, logger)
+	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeTableName, edgeFieldName, logger)
 
 	err = Execute(
 		&ticker,
@@ -602,7 +603,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 	vertFieldName := "money"
 	edgeFieldName := "debt_amount"
 	ticker := atomic.Uint64{}
-	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeFieldName, edgeTableName, logger)
+	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeTableName, edgeFieldName, logger)
 
 	N := 1000
 	var vCenterID storage.VertexSystemID
@@ -870,6 +871,49 @@ type GraphInfo struct {
 	edgesInfo    map[utils.Pair[int, int]]int64
 }
 
+func (g *GraphInfo) GraphVizRepr() string {
+	var result strings.Builder
+
+	result.WriteString("digraph GraphInfo {\n")
+	result.WriteString("\trankdir=LR;\n")
+	result.WriteString("\tnode [shape=circle];\n")
+	result.WriteString("\n")
+
+	// Add vertices with their labels and weights
+	for vertexID, weight := range g.verticesInfo {
+		result.WriteString(
+			fmt.Sprintf("\t\"v_%d\" [label=\"%d (w:%d)\"];\n", vertexID, vertexID, weight),
+		)
+	}
+	result.WriteString("\n")
+
+	// Add edges with their weights
+	for fromVertex, neighbors := range g.g {
+		for _, toVertex := range neighbors {
+			edgePair := utils.Pair[int, int]{First: fromVertex, Second: toVertex}
+			edgeWeight, hasWeight := g.edgesInfo[edgePair]
+
+			if hasWeight {
+				result.WriteString(
+					fmt.Sprintf(
+						"\t\"v_%d\" -> \"v_%d\" [label=\"%d\"];\n",
+						fromVertex,
+						toVertex,
+						edgeWeight,
+					),
+				)
+			} else {
+				result.WriteString(
+					fmt.Sprintf("\t\"v_%d\" -> \"v_%d\";\n", fromVertex, toVertex),
+				)
+			}
+		}
+	}
+
+	result.WriteString("}\n")
+	return result.String()
+}
+
 func assertDBGraph(
 	t *testing.T,
 	ticker *atomic.Uint64,
@@ -878,8 +922,8 @@ func assertDBGraph(
 	graphInfo GraphInfo,
 	vertTableName string,
 	verticesFieldName string,
-	edgesFieldName string,
 	edgeTableName string,
+	edgesFieldName string,
 	intToVertSystemID map[int]storage.VertexSystemID,
 	edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID,
 	maxDepthAssertion int,
@@ -1067,8 +1111,8 @@ func TestBuildGraph(t *testing.T) {
 				&ticker,
 				vertTableName,
 				verticesFieldName,
-				edgesFieldName,
 				edgeTableName,
+				edgesFieldName,
 				logger,
 			)
 
@@ -1097,8 +1141,8 @@ func TestBuildGraph(t *testing.T) {
 				graphInfo,
 				vertTableName,
 				verticesFieldName,
-				edgesFieldName,
 				edgeTableName,
+				edgesFieldName,
 				intToVertSystemID,
 				edgesSystemInfo,
 				5,
@@ -1122,7 +1166,7 @@ func TestBuildGraph(t *testing.T) {
 	}
 }
 
-func generateRandomGraph(n int, connectivity float32, r *rand.Rand) GraphInfo {
+func generateRandomGraph(n int, connectivity float32, r *rand.Rand, bidirectional bool) GraphInfo {
 	myassert.Assert(connectivity >= 0.0 && connectivity <= 1.0)
 
 	graphInfo := GraphInfo{
@@ -1132,16 +1176,35 @@ func generateRandomGraph(n int, connectivity float32, r *rand.Rand) GraphInfo {
 	}
 
 	for i := 0; i < n; i++ {
-		graphInfo.verticesInfo[i] = r.Int63()
+		graphInfo.verticesInfo[i] = r.Int63() % 100
 		graphInfo.g[i] = []int{}
 	}
 
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			if r.Float32() <= connectivity {
-				graphInfo.g[i] = append(graphInfo.g[i], j)
-				edgePair := utils.Pair[int, int]{First: i, Second: j}
-				graphInfo.edgesInfo[edgePair] = r.Int63()
+	if bidirectional {
+		for i := 0; i < n; i++ {
+			for j := i; j < n; j++ {
+				if r.Float32() <= connectivity {
+					graphInfo.g[i] = append(graphInfo.g[i], j)
+
+					edgePair := utils.Pair[int, int]{First: i, Second: j}
+					edgeWeight := r.Int63() % 100
+					graphInfo.edgesInfo[edgePair] = edgeWeight
+
+					graphInfo.g[j] = append(graphInfo.g[j], i)
+					edgePair = utils.Pair[int, int]{First: j, Second: i}
+					graphInfo.edgesInfo[edgePair] = edgeWeight
+				}
+			}
+		}
+	} else {
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				if r.Float32() <= connectivity {
+					graphInfo.g[i] = append(graphInfo.g[i], j)
+					edgePair := utils.Pair[int, int]{First: i, Second: j}
+					edgeWeight := r.Int63() % 100
+					graphInfo.edgesInfo[edgePair] = edgeWeight
+				}
 			}
 		}
 	}
@@ -1194,7 +1257,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 
 	for _, test := range tests {
 		for range nTries {
-			graphInfo := generateRandomGraph(test.vertexCount, test.connectivity, r)
+			graphInfo := generateRandomGraph(test.vertexCount, test.connectivity, r, false)
 			t.Run(
 				fmt.Sprintf("vertexCount=%d,connectivity=%f", test.vertexCount, test.connectivity),
 				func(t *testing.T) {
@@ -1204,8 +1267,8 @@ func TestRandomizedBuildGraph(t *testing.T) {
 						&ticker,
 						vertTableName,
 						verticesFieldName,
-						edgesFieldName,
 						edgeTableName,
+						edgesFieldName,
 						logger,
 					)
 
@@ -1234,8 +1297,8 @@ func TestRandomizedBuildGraph(t *testing.T) {
 						graphInfo,
 						vertTableName,
 						verticesFieldName,
-						edgesFieldName,
 						edgeTableName,
+						edgesFieldName,
 						intToVertSystemID,
 						edgesSystemInfo,
 						3,
@@ -1274,7 +1337,7 @@ func TestBigRandomGraph(t *testing.T) {
 	verticesFieldName := "money"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(10_000, 0.0005, rand.New(rand.NewSource(42)))
+	graphInfo := generateRandomGraph(10_000, 0.0005, rand.New(rand.NewSource(42)), false)
 
 	setupTables(
 		t,
@@ -1282,8 +1345,8 @@ func TestBigRandomGraph(t *testing.T) {
 		&ticker,
 		vertTableName,
 		verticesFieldName,
-		edgesFieldName,
 		edgeTableName,
+		edgesFieldName,
 		logger,
 	)
 
@@ -1309,8 +1372,8 @@ func TestBigRandomGraph(t *testing.T) {
 		graphInfo,
 		vertTableName,
 		verticesFieldName,
-		edgesFieldName,
 		edgeTableName,
+		edgesFieldName,
 		intToVertSystemID,
 		edgesSystemInfo,
 		1,
@@ -1498,4 +1561,527 @@ func TestNeighboursMultipleTables(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
+}
+
+func TestSelectVerticesWithValues(t *testing.T) {
+	e, pool, logger, err := setupExecutor(100)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+
+	vertTableName := "person"
+	vertFieldName := "money"
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{
+				{Name: vertFieldName, Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, vertTableName, schema, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	N := 10
+	offset := 42
+	var vIDs []storage.VertexSystemID
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			vRecords := make([]map[string]any, 0)
+			for i := range N {
+				for j := range N {
+					vRecords = append(vRecords, map[string]any{
+						vertFieldName: int64(i*N + j + offset),
+					})
+				}
+				vRecords = append(vRecords, map[string]any{
+					vertFieldName: int64(offset - 1),
+				})
+			}
+			vIDs, err = e.InsertVertices(txnID, vertTableName, vRecords, logger)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	c := 0
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			for _, vID := range vIDs {
+				v, err := e.SelectVertex(txnID, vertTableName, vID, logger)
+				require.NoError(t, err)
+				if v.Data[vertFieldName].(int64) == int64(offset-1) {
+					c++
+				}
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, c, N)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			vertices, err := e.GetAllVertexesWithFieldValue(
+				txnID,
+				vertTableName,
+				vertFieldName,
+				utils.ToBytes(int64(offset-1)),
+				logger,
+			)
+			require.NoError(t, err)
+			require.Equal(t, len(vertices), N)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			vertices, err := e.GetAllVertexesWithFieldValue(
+				txnID,
+				vertTableName,
+				vertFieldName,
+				utils.ToBytes(int64(0)),
+				logger,
+			)
+			require.NoError(t, err)
+			require.Equal(t, len(vertices), 0)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+}
+
+func TestGetAllTriangles(t *testing.T) {
+	e, pool, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+
+	vertTableName := "person"
+	vertFieldName := "money"
+
+	edgeTableName := "indepted_to"
+	edgeFieldName := "debt_amount"
+
+	tests := []struct {
+		graphInfo GraphInfo
+		name      string
+		expected  uint64
+	}{
+		{
+			name: "empty graph",
+			graphInfo: GraphInfo{
+				g:            map[int][]int{},
+				edgesInfo:    map[utils.Pair[int, int]]int64{},
+				verticesInfo: map[int]int64{},
+			},
+			expected: 0,
+		},
+		{
+			name: "one triangle",
+			graphInfo: GraphInfo{
+				g: map[int][]int{
+					1: {2, 3},
+					2: {1, 3},
+					3: {1, 2},
+				},
+				edgesInfo: map[utils.Pair[int, int]]int64{
+					{First: 1, Second: 2}: 100,
+					{First: 1, Second: 3}: 200,
+					{First: 2, Second: 3}: 300,
+					{First: 2, Second: 1}: 400,
+					{First: 3, Second: 1}: 500,
+					{First: 3, Second: 2}: 600,
+				},
+				verticesInfo: map[int]int64{
+					1: 100,
+					2: 200,
+					3: 300,
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "two triangle",
+			graphInfo: GraphInfo{
+				g: map[int][]int{
+					1: {2, 3},
+					2: {1, 3, 4},
+					3: {1, 2, 4},
+					4: {2, 3},
+				},
+				edgesInfo: map[utils.Pair[int, int]]int64{
+					{First: 1, Second: 2}: 100,
+					{First: 1, Second: 3}: 200,
+					{First: 2, Second: 1}: 300,
+					{First: 2, Second: 3}: 400,
+					{First: 2, Second: 4}: 500,
+					{First: 3, Second: 1}: 600,
+					{First: 3, Second: 2}: 700,
+					{First: 3, Second: 4}: 800,
+					{First: 4, Second: 2}: 900,
+					{First: 4, Second: 3}: 1000,
+				},
+				verticesInfo: map[int]int64{
+					1: 100,
+					2: 200,
+					3: 300,
+					4: 400,
+				},
+			},
+			expected: 2,
+		},
+	}
+
+	for _, test := range tests {
+		setupTables(
+			t,
+			e,
+			&ticker,
+			vertTableName,
+			vertFieldName,
+			edgeTableName,
+			edgeFieldName,
+			logger,
+		)
+		BuildGraph(
+			t,
+			&ticker,
+			vertTableName,
+			edgeTableName,
+			e,
+			logger,
+			test.graphInfo.g,
+			edgeFieldName,
+			test.graphInfo.edgesInfo,
+			vertFieldName,
+			test.graphInfo.verticesInfo,
+		)
+
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+				require.NoError(t, err)
+				require.Equal(t, triangles, test.expected)
+				return nil
+			},
+		)
+		require.NoError(t, err)
+
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				require.NoError(t, e.DropVertexTable(txnID, vertTableName, logger))
+				require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	}
+}
+
+func graphCountTriangles(g map[int][]int) [][]int {
+	// For an oriented graph, three vertices V1, V2, V3 form a triangle if there exist
+	// all 6 directed edges: V1->V2, V2->V1, V1->V3, V3->V1, V2->V3, V3->V2
+
+	triangles := make([][]int, 0)
+
+	// Get all vertices
+	vertices := make([]int, 0, len(g))
+	for v := range g {
+		vertices = append(vertices, v)
+	}
+
+	// Check all possible triplets of vertices
+	for i := 0; i < len(vertices); i++ {
+		for j := i + 1; j < len(vertices); j++ {
+			for k := j + 1; k < len(vertices); k++ {
+				v1, v2, v3 := vertices[i], vertices[j], vertices[k]
+
+				// Check if all 6 directed edges exist
+				if hasDirectedEdge(g, v1, v2) && hasDirectedEdge(g, v2, v1) &&
+					hasDirectedEdge(g, v1, v3) && hasDirectedEdge(g, v3, v1) &&
+					hasDirectedEdge(g, v2, v3) && hasDirectedEdge(g, v3, v2) {
+					triangles = append(triangles, []int{v1, v2, v3})
+				}
+			}
+		}
+	}
+
+	return triangles
+}
+
+// hasDirectedEdge checks if there's a directed edge from src to dst
+func hasDirectedEdge(g map[int][]int, src, dst int) bool {
+	neighbors, exists := g[src]
+	if !exists {
+		return false
+	}
+
+	for _, neighbor := range neighbors {
+		if neighbor == dst {
+			return true
+		}
+	}
+	return false
+}
+
+func TestGraphCountTriangles(t *testing.T) {
+	tests := []struct {
+		name     string
+		graph    map[int][]int
+		expected uint64
+	}{
+		{
+			name:     "empty graph",
+			graph:    map[int][]int{},
+			expected: 0,
+		},
+		{
+			name: "single vertex",
+			graph: map[int][]int{
+				1: {},
+			},
+			expected: 0,
+		},
+		{
+			name: "two vertices, no edges",
+			graph: map[int][]int{
+				1: {},
+				2: {},
+			},
+			expected: 0,
+		},
+		{
+			name: "two vertices, one edge",
+			graph: map[int][]int{
+				1: {2},
+				2: {},
+			},
+			expected: 0,
+		},
+		{
+			name: "two vertices, bidirectional edge",
+			graph: map[int][]int{
+				1: {2},
+				2: {1},
+			},
+			expected: 0,
+		},
+		{
+			name: "three vertices, no triangle",
+			graph: map[int][]int{
+				1: {2},
+				2: {1},
+				3: {},
+			},
+			expected: 0,
+		},
+		{
+			name: "three vertices, partial triangle (missing some edges)",
+			graph: map[int][]int{
+				1: {2, 3},
+				2: {1},
+				3: {1},
+			},
+			expected: 0,
+		},
+		{
+			name: "one complete oriented triangle",
+			graph: map[int][]int{
+				1: {2, 3},
+				2: {1, 3},
+				3: {1, 2},
+			},
+			expected: 1,
+		},
+		{
+			name: "two complete oriented triangles",
+			graph: map[int][]int{
+				1: {2, 3},
+				2: {1, 3, 4},
+				3: {1, 2, 4},
+				4: {2, 3},
+			},
+			expected: 2,
+		},
+		{
+			name: "three complete oriented triangles",
+			graph: map[int][]int{
+				1: {2, 3, 4},
+				2: {1, 3, 4},
+				3: {1, 2, 4},
+				4: {1, 2, 3},
+			},
+			expected: 4, // C(4,3) = 4 triangles
+		},
+		{
+			name: "complex graph with mixed triangles",
+			graph: map[int][]int{
+				1: {2, 3},
+				2: {1, 3, 4},
+				3: {1, 2, 4, 5},
+				4: {2, 3, 5},
+				5: {3, 4},
+			},
+			expected: 3, // (1,2,3), (2,3,4), and (3,4,5) form complete oriented triangles
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := graphCountTriangles(test.graph)
+			require.Equal(t, test.expected, uint64(len(result)),
+				"Expected %d triangles but got %d for graph %v",
+				test.expected, result, test.graph)
+		})
+	}
+}
+
+func TestRandomizedGetAllTriangles(t *testing.T) {
+	_, pool, _, err := setupExecutor(10)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	tests := []struct {
+		vertexCount  int
+		connectivity float32
+	}{
+		{
+			vertexCount:  10,
+			connectivity: 0.3,
+		},
+		{
+			vertexCount:  10,
+			connectivity: 0.5,
+		},
+		{
+			vertexCount:  50,
+			connectivity: 1.0,
+		},
+	}
+
+	e, pool, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	verticesFieldName := "money"
+	edgeTableName := "indepted_to"
+	edgesFieldName := "debt_amount"
+
+	for _, test := range tests {
+		t.Run(
+			fmt.Sprintf("vertexCount=%d,connectivity=%f", test.vertexCount, test.connectivity),
+			func(t *testing.T) {
+				setupTables(
+					t,
+					e,
+					&ticker,
+					vertTableName,
+					verticesFieldName,
+					edgeTableName,
+					edgesFieldName,
+					logger,
+				)
+
+				graphInfo := generateRandomGraph(
+					test.vertexCount,
+					test.connectivity,
+					rand.New(rand.NewSource(42)),
+					true,
+				)
+				expectedTriangles := graphCountTriangles(graphInfo.g)
+
+				intToVertSystemID, edgesSystemInfo := BuildGraph(
+					t,
+					&ticker,
+					vertTableName,
+					edgeTableName,
+					e,
+					logger,
+					graphInfo.g,
+					edgesFieldName,
+					graphInfo.edgesInfo,
+					verticesFieldName,
+					graphInfo.verticesInfo,
+				)
+
+				assertDBGraph(
+					t,
+					&ticker,
+					e,
+					logger,
+					graphInfo,
+					vertTableName,
+					verticesFieldName,
+					edgeTableName,
+					edgesFieldName,
+					intToVertSystemID,
+					edgesSystemInfo,
+					1,
+				)
+
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+						require.NoError(t, err)
+						if !assert.Equal(t, uint64(len(expectedTriangles)), triangles) {
+							t.Logf(
+								"Graph: \n%s\nExpected triangles %v",
+								graphInfo.GraphVizRepr(),
+								expectedTriangles,
+							)
+							t.FailNow()
+						}
+						return nil
+					},
+				)
+				require.NoError(t, err)
+
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						require.NoError(t, e.DropVertexTable(txnID, vertTableName, logger))
+						require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
+						return nil
+					},
+				)
+				require.NoError(t, err)
+			},
+		)
+	}
 }
