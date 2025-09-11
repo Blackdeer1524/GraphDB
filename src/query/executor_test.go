@@ -1324,75 +1324,121 @@ func TestNeighboursMultipleTables(t *testing.T) {
 
 	ticker := atomic.Uint64{}
 
-	firstVTableName := "person"
-	secondVTableName := "workplace"
-	edgeTableName := "employs"
+	personVTableName := "person"
+	personFieldName := "some"
 
-	firstVFieldName := "some"
-	secondVFieldName := "another"
-	edgesFieldName := "salary"
+	workplaceVTableName := "workplace"
+	workplaceFieldName := "aaaa"
+
+	employsETableName := "employs"
+	employsFieldName := "salary"
+
+	friendETableName := "friend"
+	friendFieldName := "how_long"
 
 	err = Execute(
 		&ticker,
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			firstVTableShema := storage.Schema{
-				{Name: firstVFieldName, Type: storage.ColumnTypeInt64},
+			personVTableShema := storage.Schema{
+				{Name: personFieldName, Type: storage.ColumnTypeInt64},
 			}
-			err = e.CreateVertexType(txnID, firstVTableName, firstVTableShema, logger)
+			err = e.CreateVertexType(txnID, personVTableName, personVTableShema, logger)
 			require.NoError(t, err)
 
-			secondVTableShema := storage.Schema{
-				{Name: secondVFieldName, Type: storage.ColumnTypeInt64},
+			workplaceVTableShema := storage.Schema{
+				{Name: workplaceFieldName, Type: storage.ColumnTypeInt64},
 			}
-			err = e.CreateVertexType(txnID, secondVTableName, secondVTableShema, logger)
+			err = e.CreateVertexType(txnID, workplaceVTableName, workplaceVTableShema, logger)
 			require.NoError(t, err)
 
-			edgeTableShema := storage.Schema{
-				{Name: edgesFieldName, Type: storage.ColumnTypeInt64},
+			employsETableShema := storage.Schema{
+				{Name: employsFieldName, Type: storage.ColumnTypeInt64},
 			}
 			err = e.CreateEdgeType(
 				txnID,
-				edgeTableName,
-				edgeTableShema,
-				firstVTableName,
-				secondVTableName,
+				employsETableName,
+				employsETableShema,
+				personVTableName,
+				workplaceVTableName,
 				logger,
 			)
+			require.NoError(t, err)
 
+			friendETableSchema := storage.Schema{
+				{Name: friendFieldName, Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateEdgeType(
+				txnID,
+				friendETableName,
+				friendETableSchema,
+				personVTableName,
+				personVTableName,
+				logger,
+			)
 			require.NoError(t, err)
 			return nil
 		},
 	)
 	require.NoError(t, err)
 
-	var firstVID storage.VertexSystemID
-	var secondVID storage.VertexSystemID
-	var edgeID storage.EdgeSystemID
+	var firstPersonVID storage.VertexSystemID
+	var secondPersonVID storage.VertexSystemID
+	var workplaceVID storage.VertexSystemID
+	var epmploysEdgeID storage.EdgeSystemID
+	var friendEdgeID storage.EdgeSystemID
 	err = Execute(
 		&ticker,
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			firstVRecord := map[string]any{
-				firstVFieldName: int64(1),
+			firstPersonVRecord := map[string]any{
+				personFieldName: int64(1),
 			}
-			firstVID, err = e.InsertVertex(txnID, firstVTableName, firstVRecord, logger)
+			firstPersonVID, err = e.InsertVertex(
+				txnID,
+				personVTableName,
+				firstPersonVRecord,
+				logger,
+			)
 			require.NoError(t, err)
-			secondVRecord := map[string]any{
-				secondVFieldName: int64(1),
+
+			secondPersonVRecord := map[string]any{
+				personFieldName: int64(2),
 			}
-			secondVID, err = e.InsertVertex(txnID, secondVTableName, secondVRecord, logger)
+			secondPersonVID, err = e.InsertVertex(
+				txnID,
+				personVTableName,
+				secondPersonVRecord,
+				logger,
+			)
 			require.NoError(t, err)
-			edgeRecord := EdgeInfo{
-				SrcVertexID: firstVID,
-				DstVertexID: secondVID,
+
+			workplaceVRecord := map[string]any{
+				workplaceFieldName: int64(3),
+			}
+			workplaceVID, err = e.InsertVertex(txnID, workplaceVTableName, workplaceVRecord, logger)
+			require.NoError(t, err)
+
+			employsEdgeRecord := EdgeInfo{
+				SrcVertexID: firstPersonVID,
+				DstVertexID: workplaceVID,
 				Data: map[string]any{
-					edgesFieldName: int64(1),
+					employsFieldName: int64(4),
 				},
 			}
-			edgeID, err = e.InsertEdge(txnID, edgeTableName, edgeRecord, logger)
+			epmploysEdgeID, err = e.InsertEdge(txnID, employsETableName, employsEdgeRecord, logger)
+			require.NoError(t, err)
+
+			friendEdgeRecord := EdgeInfo{
+				SrcVertexID: firstPersonVID,
+				DstVertexID: secondPersonVID,
+				Data: map[string]any{
+					friendFieldName: int64(5),
+				},
+			}
+			friendEdgeID, err = e.InsertEdge(txnID, friendETableName, friendEdgeRecord, logger)
 			require.NoError(t, err)
 			return nil
 		},
@@ -1404,16 +1450,33 @@ func TestNeighboursMultipleTables(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			edge, err := e.SelectEdge(txnID, edgeTableName, edgeID, logger)
+			employsEdge, err := e.SelectEdge(txnID, employsETableName, epmploysEdgeID, logger)
 			require.NoError(t, err)
-			require.Equal(t, edge.Data[edgesFieldName], int64(1))
+			require.Equal(t, int64(4), employsEdge.Data[employsFieldName])
 
-			neighbors, err := e.GetVertexesOnDepth(txnID, firstVTableName, firstVID, 1, logger)
+			friendEdge, err := e.SelectEdge(txnID, friendETableName, friendEdgeID, logger)
 			require.NoError(t, err)
-			require.Equal(t, len(neighbors), 1)
-			require.Equal(t, neighbors[0].V, secondVID)
+			require.Equal(t, int64(5), friendEdge.Data[friendFieldName])
 
-			neighbors, err = e.GetVertexesOnDepth(txnID, secondVTableName, secondVID, 1, logger)
+			neighbors, err := e.GetVertexesOnDepth(
+				txnID,
+				personVTableName,
+				firstPersonVID,
+				1,
+				logger,
+			)
+			require.NoError(t, err)
+			require.Equal(t, len(neighbors), 2)
+			require.Equal(t, neighbors[1].V, secondPersonVID)
+			require.Equal(t, neighbors[0].V, workplaceVID)
+
+			neighbors, err = e.GetVertexesOnDepth(
+				txnID,
+				workplaceVTableName,
+				workplaceVID,
+				1,
+				logger,
+			)
 			require.NoError(t, err)
 			require.Equal(t, len(neighbors), 0)
 			return nil
