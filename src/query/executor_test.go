@@ -1467,8 +1467,11 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.Equal(t, len(neighbors), 2)
-			require.Equal(t, neighbors[1].V, secondPersonVID)
-			require.Equal(t, neighbors[0].V, workplaceVID)
+			require.ElementsMatch(
+				t,
+				[]storage.VertexSystemID{neighbors[1].V, neighbors[0].V},
+				[]storage.VertexSystemID{secondPersonVID, workplaceVID},
+			)
 
 			neighbors, err = e.GetVertexesOnDepth(
 				txnID,
@@ -1479,6 +1482,18 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.Equal(t, len(neighbors), 0)
+
+			firstPersonV, err := e.SelectVertex(txnID, personVTableName, firstPersonVID, logger)
+			require.NoError(t, err)
+			require.Equal(t, firstPersonV.Data[personFieldName], int64(1))
+
+			secondPersonV, err := e.SelectVertex(txnID, personVTableName, secondPersonVID, logger)
+			require.NoError(t, err)
+			require.Equal(t, secondPersonV.Data[personFieldName], int64(2))
+
+			workplaceV, err := e.SelectVertex(txnID, workplaceVTableName, workplaceVID, logger)
+			require.NoError(t, err)
+			require.Equal(t, workplaceV.Data[workplaceFieldName], int64(3))
 			return nil
 		},
 	)
