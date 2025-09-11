@@ -29,6 +29,7 @@ func (e *Executor) traverseNeighborsWithDepth(
 	if err != nil {
 		return fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
+	defer vertIndex.Close()
 
 	it, err := e.se.Neighbours(t, v.V, startFileToken, vertIndex, logger)
 	if err != nil {
@@ -170,6 +171,7 @@ func (e *Executor) GetVertexesOnDepth(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
+	defer index.Close()
 
 	st, err = engine.GetVertexRID(txnID, start, index)
 	if err != nil {
@@ -207,6 +209,7 @@ func (e *Executor) GetAllVertexesWithFieldValue(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
+	defer vertIndex.Close()
 
 	vertToken := txns.NewNilFileLockToken(cToken, tableMeta.FileID)
 	verticesIter, err = e.se.AllVerticesWithValue(txnID, vertToken, vertIndex, logger, field, value)
@@ -254,6 +257,7 @@ func (e *Executor) GetAllVertexesWithFieldValue2(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
+	defer vertIndex.Close()
 
 	vertToken := txns.NewNilFileLockToken(cToken, tableMeta.FileID)
 	verticesIter, err = e.se.AllVerticesWithValue(txnID, vertToken, vertIndex, logger, field, value)
@@ -386,6 +390,11 @@ func (e *Executor) SumNeighborAttributes(
 	lastVertexTableID := common.NilFileID
 	var lastVertexToken *txns.FileLockToken
 	var lastVertexIndex storage.Index
+	defer func() {
+		if lastVertexIndex != nil {
+			lastVertexIndex.Close()
+		}
+	}()
 	for v := range verticesIter.Seq() {
 		vRID, nVert, err := v.Destruct()
 		if err != nil {
@@ -395,6 +404,9 @@ func (e *Executor) SumNeighborAttributes(
 		if vRID.FileID != lastVertexTableID {
 			lastVertexTableID = vRID.FileID
 			lastVertexToken = txns.NewNilFileLockToken(cToken, vRID.FileID)
+			if lastVertexIndex != nil {
+				lastVertexIndex.Close()
+			}
 			lastVertexIndex, err = e.se.GetVertexTableSystemIndex(
 				txnID,
 				vRID.FileID,
@@ -532,6 +544,7 @@ func (e *Executor) getVertexTriangleCount(
 		if err != nil {
 			return false
 		}
+		defer leftIndex.Close()
 
 		add, err = e.countCommonNeighbors(
 			txnID,
@@ -574,6 +587,8 @@ func (e *Executor) GetAllTriangles(
 	if err != nil {
 		return 0, fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
+	defer vertIndex.Close()
+
 	vertToken := txns.NewNilFileLockToken(cToken, tableMeta.FileID)
 	verticesIter, err := e.se.GetAllVertices(txnID, vertToken)
 	if err != nil {
