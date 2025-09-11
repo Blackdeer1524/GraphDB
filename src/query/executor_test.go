@@ -1316,3 +1316,54 @@ func TestBigRandomGraph(t *testing.T) {
 		1,
 	)
 }
+
+func TestNeighboursMultipleTables(t *testing.T) {
+	e, pool, logger, err := setupExecutor(100)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+
+	firstVTableName := "person"
+	secondVTableName := "workplace"
+	edgeTableName := "employs"
+
+	firstVFieldName := "some"
+	secondVFieldName := "another"
+	edgesFieldName := "salary"
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			firstVTableShema := storage.Schema{
+				{Name: firstVFieldName, Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, firstVTableName, firstVTableShema, logger)
+			require.NoError(t, err)
+
+			secondVTableShema := storage.Schema{
+				{Name: secondVFieldName, Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, secondVTableName, secondVTableShema, logger)
+			require.NoError(t, err)
+
+			edgeTableShema := storage.Schema{
+				{Name: edgesFieldName, Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateEdgeType(
+				txnID,
+				edgeTableName,
+				edgeTableShema,
+				firstVTableName,
+				secondVTableName,
+				logger,
+			)
+
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+}
