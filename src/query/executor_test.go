@@ -3,6 +3,7 @@ package query
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"sync/atomic"
 	"testing"
 
@@ -170,10 +171,10 @@ func TestCreateVertexSimpleInsert(t *testing.T) {
 			data := map[string]any{
 				"money": int64(100),
 			}
-			vID, err := e.InsertVertex(txnID, tableName, data, logger)
+			vIDs, err := e.InsertVertices(txnID, tableName, []map[string]any{data}, logger)
 			require.NoError(t, err)
 
-			v, err := e.SelectVertex(txnID, tableName, vID, logger)
+			v, err := e.SelectVertex(txnID, tableName, vIDs[0], logger)
 			require.NoError(t, err)
 			require.Equal(t, v.Data["money"], int64(100))
 			return nil
@@ -212,15 +213,19 @@ func TestVertexTableInserts(t *testing.T) {
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 			N := 1000
 			vertices := make(map[storage.VertexSystemID]int64, N)
-			for i := range N {
-				val := int64(i)
-				data := map[string]any{
-					"money": val,
-				}
-				vID, err := e.InsertVertex(txnID, tableName, data, logger)
-				require.NoError(t, err)
 
-				vertices[vID] = val
+			vRecords := make([]map[string]any, N)
+			for i := range N {
+				vRecords[i] = map[string]any{
+					"money": int64(i),
+				}
+			}
+
+			vIDs, err := e.InsertVertices(txnID, tableName, vRecords, logger)
+			require.NoError(t, err)
+
+			for i, vID := range vIDs {
+				vertices[vID] = int64(i)
 			}
 
 			for vID, val := range vertices {
@@ -302,15 +307,18 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			vRecords := make([]map[string]any, N)
 			for i := range N {
-				val := int64(i)
-				data := map[string]any{
-					"money": val,
+				vRecords[i] = map[string]any{
+					"money": int64(i),
 				}
-				vID, err := e.InsertVertex(txnID, tableName, data, logger)
-				require.NoError(t, err)
+			}
 
-				vertices[vID] = val
+			vIDs, err := e.InsertVertices(txnID, tableName, vRecords, logger)
+			require.NoError(t, err)
+
+			for i, vID := range vIDs {
+				vertices[vID] = int64(i)
 			}
 
 			for vID, val := range vertices {
@@ -321,6 +329,7 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 			return ErrRollback
 		},
 	)
+	require.NoError(t, err)
 
 	err = Execute(
 		&ticker,
@@ -360,14 +369,17 @@ func TestDropVertexTable(t *testing.T) {
 			err = e.CreateVertexType(txnID, tableName, schema, logger)
 			require.NoError(t, err)
 
+			vRecords := make([]map[string]any, N)
 			for i := range N {
-				val := int64(i) + 42
-				data := map[string]any{
-					"money": val,
+				vRecords[i] = map[string]any{
+					"money": int64(i) + 42,
 				}
-				vID, err := e.InsertVertex(txnID, tableName, data, logger)
-				require.NoError(t, err)
-				vertices[vID] = val
+			}
+			vIDs, err := e.InsertVertices(txnID, tableName, vRecords, logger)
+			require.NoError(t, err)
+
+			for i, vID := range vIDs {
+				vertices[vID] = int64(i) + 42
 			}
 			return nil
 		},
@@ -444,19 +456,26 @@ func TestCreateEdgeTable(t *testing.T) {
 			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
 			require.NoError(t, err)
 
-			v1, err = e.InsertVertex(txnID, vertTableName, map[string]any{
+			v1Record := map[string]any{
 				"money": int64(100),
-			}, logger)
+			}
+			v1, err = e.InsertVertex(txnID, vertTableName, v1Record, logger)
 			require.NoError(t, err)
 
-			v2, err = e.InsertVertex(txnID, vertTableName, map[string]any{
+			v2Record := map[string]any{
 				"money": int64(200),
-			}, logger)
+			}
+			v2, err = e.InsertVertex(txnID, vertTableName, v2Record, logger)
 			require.NoError(t, err)
 
-			edgeID, err = e.InsertEdge(txnID, edgeTableName, v1, v2, map[string]any{
-				"debt_amount": int64(40),
-			}, logger)
+			edgeRecord := EdgeInfo{
+				SrcVertexID: v1,
+				DstVertexID: v2,
+				Data: map[string]any{
+					"debt_amount": int64(40),
+				},
+			}
+			edgeID, err = e.InsertEdge(txnID, edgeTableName, edgeRecord, logger)
 			require.NoError(t, err)
 			return nil
 		},
@@ -585,7 +604,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 	ticker := atomic.Uint64{}
 	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeFieldName, edgeTableName, logger)
 
-	N := 10
+	N := 1000
 	var vCenterID storage.VertexSystemID
 	neighbors := make([]storage.VertexSystemID, 0, N)
 	edgeIDs := make([]storage.EdgeSystemID, 0, N)
@@ -597,36 +616,59 @@ func TestSnowflakeNeighbours(t *testing.T) {
 			centerData := map[string]any{
 				vertFieldName: int64(33),
 			}
-			vCenterID, err = e.InsertVertex(txnID, vertTableName, centerData, logger)
+			vCenterID, err = e.InsertVertex(
+				txnID,
+				vertTableName,
+				centerData,
+				logger,
+			)
 			require.NoError(t, err)
 
+			neighborRecords := make([]map[string]any, N)
 			for i := range N {
-				neighborData := map[string]any{
+				neighborRecords[i] = map[string]any{
 					vertFieldName: int64(i) + 42,
 				}
-				neighborID, err := e.InsertVertex(txnID, vertTableName, neighborData, logger)
-				require.NoError(t, err)
-				neighbors = append(neighbors, neighborID)
-
-				edgeData := map[string]any{
-					edgeFieldName: int64(i) + 100,
-				}
-				edgeID, err := e.InsertEdge(
-					txnID,
-					edgeTableName,
-					vCenterID,
-					neighborID,
-					edgeData,
-					logger,
-				)
-				require.NoError(t, err)
-				edgeIDs = append(edgeIDs, edgeID)
 			}
+
+			neighbors, err = e.InsertVertices(txnID, vertTableName, neighborRecords, logger)
+			require.NoError(t, err)
+
+			edgeRecords := make([]EdgeInfo, N)
+			for i := range N {
+				edgeRecords[i] = EdgeInfo{
+					SrcVertexID: vCenterID,
+					DstVertexID: neighbors[i],
+					Data: map[string]any{
+						edgeFieldName: int64(i) + 100,
+					},
+				}
+			}
+
+			edgeIDs, err = e.InsertEdges(txnID, edgeTableName, edgeRecords, logger)
+			require.NoError(t, err)
 
 			return nil
 		},
 	)
 	require.NoError(t, err)
+
+	t.Run("AssertEdgesInserted", func(t *testing.T) {
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				for i := range N {
+					edge, err := e.SelectEdge(txnID, edgeTableName, edgeIDs[i], logger)
+					require.NoError(t, err)
+					require.Equal(t, edge.Data[edgeFieldName], int64(i)+100)
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	})
 
 	t.Run("GetNeighborsOfCenterVertex_Depth=1", func(t *testing.T) {
 		err = Execute(
@@ -737,46 +779,205 @@ func BuildGraph(
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			for srcID, val := range verticesInfo {
-				srcData := map[string]any{
+			vRecords := make([]map[string]any, 0, len(verticesInfo))
+
+			vIntIDs := make([]int, 0, len(verticesInfo))
+			for vertIntID, val := range verticesInfo {
+				record := map[string]any{
 					verticesFieldName: val,
 				}
-				srcSystemID, err := e.InsertVertex(txnID, vertTableName, srcData, logger)
-				require.NoError(t, err)
-				intVertID2systemID[srcID] = srcSystemID
+				vRecords = append(vRecords, record)
+				vIntIDs = append(vIntIDs, vertIntID)
+			}
+			vSystemIDs, err := e.InsertVertices(txnID, vertTableName, vRecords, logger)
+			require.NoError(t, err)
+
+			for i, vSystemID := range vSystemIDs {
+				intVertID2systemID[vIntIDs[i]] = vSystemID
 			}
 
+			edgeRecords := make([]EdgeInfo, 0, len(edgesInfo))
+			edgeInsertionOrder := make([]utils.Pair[int, int], 0, len(edgesInfo))
 			for srcIntID, neighbors := range g {
 				srcSystemID, srcExists := intVertID2systemID[srcIntID]
 				require.True(t, srcExists)
-				for _, nIntID := range neighbors {
-					dstSystemID, dstExists := intVertID2systemID[nIntID]
+				for _, dstIntID := range neighbors {
+					dstSystemID, dstExists := intVertID2systemID[dstIntID]
 					require.True(t, dstExists)
 
-					edgeInfo, ok := edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
+					edgeInfo, ok := edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: dstIntID}]
 					require.True(t, ok)
 
-					edgeData := map[string]any{
-						edgesFieldName: edgeInfo,
-					}
+					edgeRecords = append(edgeRecords, EdgeInfo{
+						SrcVertexID: srcSystemID,
+						DstVertexID: dstSystemID,
+						Data: map[string]any{
+							edgesFieldName: edgeInfo,
+						},
+					})
 
-					edgeSystemID, err := e.InsertEdge(
-						txnID,
-						edgeTableName,
-						srcSystemID,
-						dstSystemID,
-						edgeData,
-						logger,
+					edgeInsertionOrder = append(
+						edgeInsertionOrder,
+						utils.Pair[int, int]{First: srcIntID, Second: dstIntID},
 					)
-					require.NoError(t, err)
-					edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}] = edgeSystemID
 				}
+			}
+
+			edgeSystemIDs, err := e.InsertEdges(txnID, edgeTableName, edgeRecords, logger)
+			require.NoError(t, err)
+			require.Equal(t, len(edgeSystemIDs), len(edgeRecords))
+			require.Equal(t, len(edgeSystemIDs), len(edgeInsertionOrder))
+
+			for i, pair := range edgeInsertionOrder {
+				edgesSystemInfo[pair] = edgeSystemIDs[i]
 			}
 			return nil
 		},
 	)
 	require.NoError(t, err)
 	return intVertID2systemID, edgesSystemInfo
+}
+
+func getVerticesOnDepth(g map[int][]int, depth int) map[int][]int {
+	result := make(map[int][]int)
+	for startVertex := range g {
+		visited := make(map[int]bool)
+		currentLevel := []int{startVertex}
+		visited[startVertex] = true
+
+		for d := 0; d < depth && len(currentLevel) > 0; d++ {
+			nextLevel := []int{}
+			for _, vertex := range currentLevel {
+				for _, neighbor := range g[vertex] {
+					if !visited[neighbor] {
+						visited[neighbor] = true
+						nextLevel = append(nextLevel, neighbor)
+					}
+				}
+			}
+			currentLevel = nextLevel
+		}
+
+		result[startVertex] = currentLevel
+	}
+
+	return result
+}
+
+type GraphInfo struct {
+	g            map[int][]int
+	verticesInfo map[int]int64
+	edgesInfo    map[utils.Pair[int, int]]int64
+}
+
+func assertDBGraph(
+	t *testing.T,
+	ticker *atomic.Uint64,
+	e *Executor,
+	logger common.ITxnLogger,
+	graphInfo GraphInfo,
+	vertTableName string,
+	verticesFieldName string,
+	edgesFieldName string,
+	edgeTableName string,
+	intToVertSystemID map[int]storage.VertexSystemID,
+	edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID,
+	maxDepthAssertion int,
+) {
+	t.Run("AssertVerticesInserted", func(t *testing.T) {
+		err := Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				for vertIntID, vertSystemID := range intToVertSystemID {
+					vert, err := e.SelectVertex(txnID, vertTableName, vertSystemID, logger)
+					require.NoError(t, err)
+					require.Equal(
+						t,
+						vert.Data[verticesFieldName],
+						graphInfo.verticesInfo[vertIntID],
+					)
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("AssertEdgesInserted", func(t *testing.T) {
+		err := Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				for srcIntID, neighbors := range graphInfo.g {
+					for _, nIntID := range neighbors {
+						edgeSystemID, ok := edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
+						require.True(t, ok)
+
+						edge, err := e.SelectEdge(
+							txnID,
+							edgeTableName,
+							edgeSystemID,
+							logger,
+						)
+						require.NoError(t, err)
+						require.Equal(
+							t,
+							edge.Data[edgesFieldName],
+							graphInfo.edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}],
+						)
+					}
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("AssertVerticesOnDepth", func(t *testing.T) {
+		err := Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				for depth := 1; depth <= maxDepthAssertion; depth++ {
+					for startIntID, depthNeighbours := range getVerticesOnDepth(graphInfo.g, depth) {
+						startSystemID := intToVertSystemID[startIntID]
+						expectedNeighborIDS := make(
+							[]storage.VertexSystemID,
+							0,
+							len(depthNeighbours),
+						)
+
+						for _, nIntID := range depthNeighbours {
+							nSystemID, ok := intToVertSystemID[nIntID]
+							require.True(t, ok)
+
+							expectedNeighborIDS = append(expectedNeighborIDS, nSystemID)
+						}
+						neighboursIDWithRID, err := e.GetVertexesOnDepth(
+							txnID,
+							vertTableName,
+							startSystemID,
+							uint32(depth),
+							logger,
+						)
+						require.NoError(t, err)
+
+						actualNeighbours := make([]storage.VertexSystemID, 0)
+						for _, storedNeighbour := range neighboursIDWithRID {
+							actualNeighbours = append(actualNeighbours, storedNeighbour.V)
+						}
+						require.ElementsMatch(t, expectedNeighborIDS, actualNeighbours)
+					}
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	})
 }
 
 func TestBuildGraph(t *testing.T) {
@@ -793,67 +994,72 @@ func TestBuildGraph(t *testing.T) {
 	edgesFieldName := "debt_amount"
 
 	tests := []struct {
-		name         string
-		g            map[int][]int
-		verticesInfo map[int]int64
-		edgesInfo    map[utils.Pair[int, int]]int64
+		graphInfo GraphInfo
+		name      string
 	}{
 		{
 			name: "simple",
-			g: map[int][]int{
-				1: {2, 3},
-				2: {4, 5},
-			},
-			verticesInfo: map[int]int64{
-				1: 100,
-				2: 200,
-				3: 300,
-				4: 400,
-				5: 500,
-			},
-			edgesInfo: map[utils.Pair[int, int]]int64{
-				{First: 1, Second: 2}: 100,
-				{First: 1, Second: 3}: 200,
-				{First: 2, Second: 4}: 300,
-				{First: 2, Second: 5}: 400,
+			graphInfo: GraphInfo{
+				g: map[int][]int{
+					1: {2, 3},
+					2: {4, 5},
+				},
+				verticesInfo: map[int]int64{
+					1: 100,
+					2: 200,
+					3: 300,
+					4: 400,
+					5: 500,
+				},
+				edgesInfo: map[utils.Pair[int, int]]int64{
+					{First: 1, Second: 2}: 100,
+					{First: 1, Second: 3}: 200,
+					{First: 2, Second: 4}: 300,
+					{First: 2, Second: 5}: 400,
+				},
 			},
 		},
 		{
 			name: "medium",
-			g: map[int][]int{
-				1: {2, 3},
-				2: {4, 5},
-				3: {2},
-				5: {6},
-				6: {7},
-				8: {9},
-			},
-			verticesInfo: map[int]int64{
-				1:  100,
-				2:  200,
-				3:  300,
-				4:  400,
-				5:  500,
-				6:  600,
-				7:  700,
-				8:  800,
-				9:  900,
-				10: 1000,
-			},
-			edgesInfo: map[utils.Pair[int, int]]int64{
-				{First: 1, Second: 2}: 100,
-				{First: 1, Second: 3}: 200,
-				{First: 2, Second: 4}: 300,
-				{First: 2, Second: 5}: 400,
-				{First: 3, Second: 2}: 500,
-				{First: 5, Second: 6}: 600,
-				{First: 6, Second: 7}: 700,
-				{First: 8, Second: 9}: 800,
+			graphInfo: GraphInfo{
+				g: map[int][]int{
+					2:  {3, 4},
+					3:  {5, 6},
+					4:  {3},
+					6:  {7},
+					7:  {8},
+					9:  {10},
+					10: {2},
+				},
+				verticesInfo: map[int]int64{
+					2:  100,
+					3:  200,
+					4:  300,
+					5:  400,
+					6:  500,
+					7:  600,
+					8:  700,
+					9:  800,
+					10: 900,
+					11: 1000,
+				},
+				edgesInfo: map[utils.Pair[int, int]]int64{
+					{First: 2, Second: 3}:  100,
+					{First: 2, Second: 4}:  200,
+					{First: 3, Second: 5}:  300,
+					{First: 3, Second: 6}:  400,
+					{First: 4, Second: 3}:  500,
+					{First: 6, Second: 7}:  600,
+					{First: 7, Second: 8}:  700,
+					{First: 9, Second: 10}: 800,
+					{First: 10, Second: 2}: 900,
+				},
 			},
 		},
 	}
 
 	for _, test := range tests {
+		graphInfo := test.graphInfo
 		t.Run(test.name, func(t *testing.T) {
 			setupTables(
 				t,
@@ -873,61 +1079,32 @@ func TestBuildGraph(t *testing.T) {
 				edgeTableName,
 				e,
 				logger,
-				test.g,
+				graphInfo.g,
 				edgesFieldName,
-				test.edgesInfo,
+				graphInfo.edgesInfo,
 				verticesFieldName,
-				test.verticesInfo,
+				graphInfo.verticesInfo,
 			)
 
-			assert.Equal(t, len(test.verticesInfo), len(intToVertSystemID))
-			assert.Equal(t, len(test.edgesInfo), len(edgesSystemInfo))
+			assert.Equal(t, len(graphInfo.verticesInfo), len(intToVertSystemID))
+			assert.Equal(t, len(graphInfo.edgesInfo), len(edgesSystemInfo))
 
-			err = Execute(
+			assertDBGraph(
+				t,
 				&ticker,
 				e,
 				logger,
-				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-					for vertIntID, vertSystemID := range intToVertSystemID {
-						vert, err := e.SelectVertex(txnID, vertTableName, vertSystemID, logger)
-						require.NoError(t, err)
-						require.Equal(t, vert.Data[verticesFieldName], test.verticesInfo[vertIntID])
-					}
-					return nil
-				},
+				graphInfo,
+				vertTableName,
+				verticesFieldName,
+				edgesFieldName,
+				edgeTableName,
+				intToVertSystemID,
+				edgesSystemInfo,
+				5,
 			)
-			require.NoError(t, err)
 
-			err = Execute(
-				&ticker,
-				e,
-				logger,
-				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-					for srcIntID, neighbors := range test.g {
-						for _, nIntID := range neighbors {
-							edgeSystemID, ok := edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
-							require.True(t, ok)
-
-							edge, err := e.SelectEdge(
-								txnID,
-								edgeTableName,
-								edgeSystemID,
-								logger,
-							)
-							require.NoError(t, err)
-							require.Equal(
-								t,
-								edge.Data[edgesFieldName],
-								test.edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}],
-							)
-						}
-					}
-					return nil
-				},
-			)
-			require.NoError(t, err)
-
-			err = Execute(
+			err := Execute(
 				&ticker,
 				e,
 				logger,
@@ -943,4 +1120,199 @@ func TestBuildGraph(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func generateRandomGraph(n int, connectivity float32, r *rand.Rand) GraphInfo {
+	myassert.Assert(connectivity >= 0.0 && connectivity <= 1.0)
+
+	graphInfo := GraphInfo{
+		g:            make(map[int][]int),
+		verticesInfo: make(map[int]int64),
+		edgesInfo:    make(map[utils.Pair[int, int]]int64),
+	}
+
+	for i := 0; i < n; i++ {
+		graphInfo.verticesInfo[i] = r.Int63()
+		graphInfo.g[i] = []int{}
+	}
+
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if r.Float32() <= connectivity {
+				graphInfo.g[i] = append(graphInfo.g[i], j)
+				edgePair := utils.Pair[int, int]{First: i, Second: j}
+				graphInfo.edgesInfo[edgePair] = r.Int63()
+			}
+		}
+	}
+
+	return graphInfo
+}
+
+func TestRandomizedBuildGraph(t *testing.T) {
+	e, pool, logger, err := setupExecutor(100)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+
+	vertTableName := "person"
+	edgeTableName := "indepted_to"
+
+	verticesFieldName := "money"
+	edgesFieldName := "debt_amount"
+
+	nTries := 1
+
+	tests := []struct {
+		vertexCount  int
+		connectivity float32
+	}{
+		{
+			vertexCount:  10,
+			connectivity: 0.3,
+		},
+		{
+			vertexCount:  10,
+			connectivity: 0.5,
+		},
+		{
+			vertexCount:  50,
+			connectivity: 1.0,
+		},
+		{
+			vertexCount:  100,
+			connectivity: 0.3,
+		},
+		{
+			vertexCount:  100,
+			connectivity: 0.5,
+		},
+	}
+
+	r := rand.New(rand.NewSource(42))
+
+	for _, test := range tests {
+		for range nTries {
+			graphInfo := generateRandomGraph(test.vertexCount, test.connectivity, r)
+			t.Run(
+				fmt.Sprintf("vertexCount=%d,connectivity=%f", test.vertexCount, test.connectivity),
+				func(t *testing.T) {
+					setupTables(
+						t,
+						e,
+						&ticker,
+						vertTableName,
+						verticesFieldName,
+						edgesFieldName,
+						edgeTableName,
+						logger,
+					)
+
+					intToVertSystemID, edgesSystemInfo := BuildGraph(
+						t,
+						&ticker,
+						vertTableName,
+						edgeTableName,
+						e,
+						logger,
+						graphInfo.g,
+						edgesFieldName,
+						graphInfo.edgesInfo,
+						verticesFieldName,
+						graphInfo.verticesInfo,
+					)
+
+					assert.Equal(t, len(graphInfo.verticesInfo), len(intToVertSystemID))
+					assert.Equal(t, len(graphInfo.edgesInfo), len(edgesSystemInfo))
+
+					assertDBGraph(
+						t,
+						&ticker,
+						e,
+						logger,
+						graphInfo,
+						vertTableName,
+						verticesFieldName,
+						edgesFieldName,
+						edgeTableName,
+						intToVertSystemID,
+						edgesSystemInfo,
+						3,
+					)
+
+					err := Execute(
+						&ticker,
+						e,
+						logger,
+						func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+							err = e.DropVertexTable(txnID, vertTableName, logger)
+							require.NoError(t, err)
+
+							err = e.DropEdgeTable(txnID, edgeTableName, logger)
+							require.NoError(t, err)
+							return nil
+						},
+					)
+					require.NoError(t, err)
+				},
+			)
+		}
+	}
+}
+
+func TestBigRandomGraph(t *testing.T) {
+	e, pool, logger, err := setupExecutor(1000)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+
+	vertTableName := "person"
+	edgeTableName := "indepted_to"
+
+	verticesFieldName := "money"
+	edgesFieldName := "debt_amount"
+
+	graphInfo := generateRandomGraph(10_000, 0.0005, rand.New(rand.NewSource(42)))
+
+	setupTables(
+		t,
+		e,
+		&ticker,
+		vertTableName,
+		verticesFieldName,
+		edgesFieldName,
+		edgeTableName,
+		logger,
+	)
+
+	intToVertSystemID, edgesSystemInfo := BuildGraph(
+		t,
+		&ticker,
+		vertTableName,
+		edgeTableName,
+		e,
+		logger,
+		graphInfo.g,
+		edgesFieldName,
+		graphInfo.edgesInfo,
+		verticesFieldName,
+		graphInfo.verticesInfo,
+	)
+
+	assertDBGraph(
+		t,
+		&ticker,
+		e,
+		logger,
+		graphInfo,
+		vertTableName,
+		verticesFieldName,
+		edgesFieldName,
+		edgeTableName,
+		intToVertSystemID,
+		edgesSystemInfo,
+		3,
+	)
 }
