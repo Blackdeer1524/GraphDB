@@ -337,12 +337,12 @@ func (s *StorageEngine) DropEdgeTable(
 		return fmt.Errorf("unable to load catalog: %w", err)
 	}
 
-	err = s.catalog.DropEdgeTable(name)
+	edgeTableMeta, err := s.catalog.GetEdgeTableMeta(name)
 	if err != nil {
 		return err
 	}
 
-	edgeTableMeta, err := s.catalog.GetEdgeTableMeta(name)
+	err = s.catalog.DropEdgeTable(name)
 	if err != nil {
 		return err
 	}

@@ -7,11 +7,13 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
-	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	myassert "github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/recovery"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
@@ -22,17 +24,19 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
-func setupExecutor(poolPageCount uint64) (*Executor, common.ITxnLogger, error) {
+func setupExecutor(
+	poolPageCount uint64,
+) (*Executor, *bufferpool.DebugBufferPool, common.ITxnLogger, error) {
 	catalogBasePath := "/tmp/graphdb_test"
 	fs := afero.NewMemMapFs()
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	err = systemcatalog.CreateLogFileIfDoesntExist(catalogBasePath, fs)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	versionFilePath := systemcatalog.GetSystemCatalogVersionFilePath(catalogBasePath)
@@ -52,7 +56,7 @@ func setupExecutor(poolPageCount uint64) (*Executor, common.ITxnLogger, error) {
 	debugPool := bufferpool.NewDebugBufferPool(pool)
 	sysCat, err := systemcatalog.New(catalogBasePath, fs, debugPool)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	debugPool.MarkPageAsLeaking(systemcatalog.CatalogVersionPageIdent())
@@ -81,7 +85,7 @@ func setupExecutor(poolPageCount uint64) (*Executor, common.ITxnLogger, error) {
 		indexLoader,
 	)
 	executor := New(se, locker)
-	return executor, logger, nil
+	return executor, debugPool, logger, nil
 }
 
 var ErrRollback = errors.New("rollback")
@@ -102,7 +106,7 @@ func Execute(
 
 	defer func() {
 		if err != nil {
-			assert.NoError(ctxLogger.AppendAbort())
+			myassert.NoError(ctxLogger.AppendAbort())
 			ctxLogger.Rollback()
 			if err == ErrRollback {
 				err = nil
@@ -121,8 +125,9 @@ func Execute(
 }
 
 func TestCreateVertexType(t *testing.T) {
-	e, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	ticker := atomic.Uint64{}
 	err = Execute(
@@ -144,8 +149,9 @@ func TestCreateVertexType(t *testing.T) {
 }
 
 func TestCreateVertexSimpleInsert(t *testing.T) {
-	e, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	ticker := atomic.Uint64{}
 
@@ -178,8 +184,9 @@ func TestCreateVertexSimpleInsert(t *testing.T) {
 }
 
 func TestVertexTableInserts(t *testing.T) {
-	e, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	tableName := "test"
 	ticker := atomic.Uint64{}
@@ -229,8 +236,9 @@ func TestVertexTableInserts(t *testing.T) {
 }
 
 func TestCreateVertexRollback(t *testing.T) {
-	e, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	ticker := atomic.Uint64{}
 	tableName := "test"
@@ -266,8 +274,9 @@ func TestCreateVertexRollback(t *testing.T) {
 }
 
 func TestVertexTableInsertsRollback(t *testing.T) {
-	e, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	tableName := "test"
 	ticker := atomic.Uint64{}
@@ -330,8 +339,9 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 }
 
 func TestDropVertexTable(t *testing.T) {
-	e, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	tableName := "test"
 	ticker := atomic.Uint64{}
@@ -406,8 +416,9 @@ func TestDropVertexTable(t *testing.T) {
 }
 
 func TestCreateEdgeTable(t *testing.T) {
-	e, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	vertTableName := "person"
 	edgeTableName := "indepted_to"
@@ -485,6 +496,8 @@ func setupTables(
 	e *Executor,
 	ticker *atomic.Uint64,
 	vertTableName string,
+	vertFieldName string,
+	edgeFieldName string,
 	edgeTableName string,
 	logger common.ITxnLogger,
 ) {
@@ -494,15 +507,65 @@ func setupTables(
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 			schema := storage.Schema{
-				{Name: "money", Type: storage.ColumnTypeInt64},
+				{Name: vertFieldName, Type: storage.ColumnTypeInt64},
 			}
 			err = e.CreateVertexType(txnID, vertTableName, schema, logger)
 			require.NoError(t, err)
 
 			edgeSchema := storage.Schema{
-				{Name: "debt_amount", Type: storage.ColumnTypeInt64},
+				{Name: edgeFieldName, Type: storage.ColumnTypeInt64},
 			}
-			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
+			err = e.CreateEdgeType(
+				txnID,
+				edgeTableName,
+				edgeSchema,
+				vertTableName,
+				vertTableName,
+				logger,
+			)
+			require.NoError(t, err)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+}
+
+func TestVertexAndEdgeTableDrop(t *testing.T) {
+	e, pool, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	vertTableName := "person"
+	edgeTableName := "indepted_to"
+	vertFieldName := "money"
+	edgeFieldName := "debt_amount"
+	ticker := atomic.Uint64{}
+	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeFieldName, edgeTableName, logger)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			err = e.DropVertexTable(txnID, vertTableName, logger)
+			require.NoError(t, err)
+
+			err = e.DropEdgeTable(txnID, edgeTableName, logger)
+			require.NoError(t, err)
+			return ErrRollback
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			err = e.DropVertexTable(txnID, vertTableName, logger)
+			require.NoError(t, err)
+
+			err = e.DropEdgeTable(txnID, edgeTableName, logger)
 			require.NoError(t, err)
 			return nil
 		},
@@ -511,13 +574,16 @@ func setupTables(
 }
 
 func TestSnowflakeNeighbours(t *testing.T) {
-	e, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	vertTableName := "person"
 	edgeTableName := "indepted_to"
+	vertFieldName := "money"
+	edgeFieldName := "debt_amount"
 	ticker := atomic.Uint64{}
-	setupTables(t, e, &ticker, vertTableName, edgeTableName, logger)
+	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeFieldName, edgeTableName, logger)
 
 	N := 10
 	var vCenterID storage.VertexSystemID
@@ -529,21 +595,21 @@ func TestSnowflakeNeighbours(t *testing.T) {
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 			centerData := map[string]any{
-				"money": int64(33),
+				vertFieldName: int64(33),
 			}
 			vCenterID, err = e.InsertVertex(txnID, vertTableName, centerData, logger)
 			require.NoError(t, err)
 
 			for i := range N {
 				neighborData := map[string]any{
-					"money": int64(i) + 42,
+					vertFieldName: int64(i) + 42,
 				}
 				neighborID, err := e.InsertVertex(txnID, vertTableName, neighborData, logger)
 				require.NoError(t, err)
 				neighbors = append(neighbors, neighborID)
 
 				edgeData := map[string]any{
-					"debt_amount": int64(i) + 100,
+					edgeFieldName: int64(i) + 100,
 				}
 				edgeID, err := e.InsertEdge(
 					txnID,
@@ -645,4 +711,236 @@ func TestSnowflakeNeighbours(t *testing.T) {
 		)
 		require.NoError(t, err)
 	})
+}
+
+func BuildGraph(
+	t *testing.T,
+	ticker *atomic.Uint64,
+	vertTableName string,
+	edgeTableName string,
+	e *Executor,
+	logger common.ITxnLogger,
+
+	g map[int][]int,
+
+	edgesFieldName string,
+	edgesInfo map[utils.Pair[int, int]]int64,
+
+	verticesFieldName string,
+	verticesInfo map[int]int64,
+) (map[int]storage.VertexSystemID, map[utils.Pair[int, int]]storage.EdgeSystemID) {
+	intVertID2systemID := make(map[int]storage.VertexSystemID)
+	edgesSystemInfo := make(map[utils.Pair[int, int]]storage.EdgeSystemID)
+
+	err := Execute(
+		ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			for srcID, val := range verticesInfo {
+				srcData := map[string]any{
+					verticesFieldName: val,
+				}
+				srcSystemID, err := e.InsertVertex(txnID, vertTableName, srcData, logger)
+				require.NoError(t, err)
+				intVertID2systemID[srcID] = srcSystemID
+			}
+
+			for srcIntID, neighbors := range g {
+				srcSystemID, srcExists := intVertID2systemID[srcIntID]
+				require.True(t, srcExists)
+				for _, nIntID := range neighbors {
+					dstSystemID, dstExists := intVertID2systemID[nIntID]
+					require.True(t, dstExists)
+
+					edgeInfo, ok := edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
+					require.True(t, ok)
+
+					edgeData := map[string]any{
+						edgesFieldName: edgeInfo,
+					}
+
+					edgeSystemID, err := e.InsertEdge(
+						txnID,
+						edgeTableName,
+						srcSystemID,
+						dstSystemID,
+						edgeData,
+						logger,
+					)
+					require.NoError(t, err)
+					edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}] = edgeSystemID
+				}
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	return intVertID2systemID, edgesSystemInfo
+}
+
+func TestBuildGraph(t *testing.T) {
+	e, pool, logger, err := setupExecutor(10)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+
+	vertTableName := "person"
+	edgeTableName := "indepted_to"
+
+	verticesFieldName := "money"
+	edgesFieldName := "debt_amount"
+
+	tests := []struct {
+		name         string
+		g            map[int][]int
+		verticesInfo map[int]int64
+		edgesInfo    map[utils.Pair[int, int]]int64
+	}{
+		{
+			name: "simple",
+			g: map[int][]int{
+				1: {2, 3},
+				2: {4, 5},
+			},
+			verticesInfo: map[int]int64{
+				1: 100,
+				2: 200,
+				3: 300,
+				4: 400,
+				5: 500,
+			},
+			edgesInfo: map[utils.Pair[int, int]]int64{
+				{First: 1, Second: 2}: 100,
+				{First: 1, Second: 3}: 200,
+				{First: 2, Second: 4}: 300,
+				{First: 2, Second: 5}: 400,
+			},
+		},
+		{
+			name: "medium",
+			g: map[int][]int{
+				1: {2, 3},
+				2: {4, 5},
+				3: {2},
+				5: {6},
+				6: {7},
+				8: {9},
+			},
+			verticesInfo: map[int]int64{
+				1:  100,
+				2:  200,
+				3:  300,
+				4:  400,
+				5:  500,
+				6:  600,
+				7:  700,
+				8:  800,
+				9:  900,
+				10: 1000,
+			},
+			edgesInfo: map[utils.Pair[int, int]]int64{
+				{First: 1, Second: 2}: 100,
+				{First: 1, Second: 3}: 200,
+				{First: 2, Second: 4}: 300,
+				{First: 2, Second: 5}: 400,
+				{First: 3, Second: 2}: 500,
+				{First: 5, Second: 6}: 600,
+				{First: 6, Second: 7}: 700,
+				{First: 8, Second: 9}: 800,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setupTables(
+				t,
+				e,
+				&ticker,
+				vertTableName,
+				verticesFieldName,
+				edgesFieldName,
+				edgeTableName,
+				logger,
+			)
+
+			intToVertSystemID, edgesSystemInfo := BuildGraph(
+				t,
+				&ticker,
+				vertTableName,
+				edgeTableName,
+				e,
+				logger,
+				test.g,
+				edgesFieldName,
+				test.edgesInfo,
+				verticesFieldName,
+				test.verticesInfo,
+			)
+
+			assert.Equal(t, len(test.verticesInfo), len(intToVertSystemID))
+			assert.Equal(t, len(test.edgesInfo), len(edgesSystemInfo))
+
+			err = Execute(
+				&ticker,
+				e,
+				logger,
+				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+					for vertIntID, vertSystemID := range intToVertSystemID {
+						vert, err := e.SelectVertex(txnID, vertTableName, vertSystemID, logger)
+						require.NoError(t, err)
+						require.Equal(t, vert.Data[verticesFieldName], test.verticesInfo[vertIntID])
+					}
+					return nil
+				},
+			)
+			require.NoError(t, err)
+
+			err = Execute(
+				&ticker,
+				e,
+				logger,
+				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+					for srcIntID, neighbors := range test.g {
+						for _, nIntID := range neighbors {
+							edgeSystemID, ok := edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
+							require.True(t, ok)
+
+							edge, err := e.SelectEdge(
+								txnID,
+								edgeTableName,
+								edgeSystemID,
+								logger,
+							)
+							require.NoError(t, err)
+							require.Equal(
+								t,
+								edge.Data[edgesFieldName],
+								test.edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}],
+							)
+						}
+					}
+					return nil
+				},
+			)
+			require.NoError(t, err)
+
+			err = Execute(
+				&ticker,
+				e,
+				logger,
+				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+					err = e.DropVertexTable(txnID, vertTableName, logger)
+					require.NoError(t, err)
+
+					err = e.DropEdgeTable(txnID, edgeTableName, logger)
+					require.NoError(t, err)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		})
+	}
 }
