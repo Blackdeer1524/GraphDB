@@ -426,7 +426,7 @@ func TestCreateEdgeTable(t *testing.T) {
 
 	var v1 storage.VertexSystemID
 	var v2 storage.VertexSystemID
-	edgeID := storage.EdgeSystemID{}
+	var edgeID storage.EdgeSystemID
 	err = Execute(
 		&ticker,
 		e,

@@ -292,7 +292,6 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 	}
 	if vertSystemFields.DirItemID.IsNil() {
 		return func(yield func(utils.Triple[common.RecordID, storage.Edge, error]) bool) {
-			return
 		}
 	}
 
@@ -314,6 +313,8 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 
 	dirFileToken := txns.NewNilFileLockToken(cToken, dirTableMeta.FileID)
 	return func(yield func(utils.Triple[common.RecordID, storage.Edge, error]) bool) {
+		defer dirIndex.Close()
+
 		dirItemsIter, err := newDirItemsIter(
 			i.se,
 			vertSystemFields.DirItemID,
@@ -337,46 +338,54 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 			}
 
 			edgesFileToken := txns.NewNilFileLockToken(cToken, dirItem.EdgeFileID)
-			edgesIndex, err := i.se.GetEdgeTableSystemIndex(
-				txnID,
-				dirItem.EdgeFileID,
-				cToken,
-				i.logger,
-			)
-			if err != nil {
-				yieldErrorTripple(err, yield)
-				return
-			}
-
-			edgesMeta, err := i.se.GetEdgeTableMetaByFileID(dirItem.EdgeFileID, cToken)
-			if err != nil {
-				yieldErrorTripple(err, yield)
-				return
-			}
-
-			edgesIter, err := newEdgesIter(
-				i.se,
-				dirItem.EdgeID,
-				edgesMeta.Schema,
-				i.edgeFilter,
-				edgesFileToken,
-				edgesIndex,
-			)
-			if err != nil {
-				yieldErrorTripple(err, yield)
-				return
-			}
-
-			for ridEdgesErr := range edgesIter.Seq() {
-				_, _, err := ridEdgesErr.Destruct()
+			continueFlag, err := func() (bool, error) {
+				edgesIndex, err := i.se.GetEdgeTableSystemIndex(
+					txnID,
+					dirItem.EdgeFileID,
+					cToken,
+					i.logger,
+				)
 				if err != nil {
-					yieldErrorTripple(err, yield)
-					return
+					return false, err
+				}
+				defer edgesIndex.Close()
+
+				edgesMeta, err := i.se.GetEdgeTableMetaByFileID(dirItem.EdgeFileID, cToken)
+				if err != nil {
+					return false, err
 				}
 
-				if !yield(ridEdgesErr) {
-					return
+				edgesIter, err := newEdgesIter(
+					i.se,
+					dirItem.EdgeID,
+					edgesMeta.Schema,
+					i.edgeFilter,
+					edgesFileToken,
+					edgesIndex,
+				)
+				if err != nil {
+					return false, err
 				}
+
+				for ridEdgesErr := range edgesIter.Seq() {
+					_, _, err := ridEdgesErr.Destruct()
+					if err != nil {
+						return false, err
+					}
+
+					if !yield(ridEdgesErr) {
+						return false, nil
+					}
+				}
+				return true, nil
+			}()
+
+			if err != nil {
+				yieldErrorTripple(err, yield)
+				return
+			}
+			if !continueFlag {
+				return
 			}
 		}
 	}
@@ -430,6 +439,12 @@ func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexSystemI
 	return func(yield func(utils.Pair[storage.VertexSystemIDWithRID, error]) bool) {
 		lastEdgeFileID := common.NilFileID
 		var dstVertIndex storage.Index
+		defer func() {
+			if dstVertIndex != nil {
+				dstVertIndex.Close()
+			}
+		}()
+
 		for ridEdgeErr := range edgesIter.Seq() {
 			edgeRID, edge, err := ridEdgeErr.Destruct()
 			if err != nil {
@@ -445,13 +460,15 @@ func (i *neighbourVertexIDsIter) Seq() iter.Seq[utils.Pair[storage.VertexSystemI
 					return
 				}
 
+				if dstVertIndex != nil {
+					dstVertIndex.Close()
+				}
 				dstVertIndex, err = i.se.GetVertexTableSystemIndex(
 					cToken.GetTxnID(),
 					edgeMeta.DstVertexFileID,
 					cToken,
 					i.logger,
 				)
-
 				if err != nil {
 					yieldErrorPair(err, yield)
 					return

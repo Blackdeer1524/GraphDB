@@ -27,6 +27,8 @@ type LinearProbingIndex struct {
 	pool           bufferpool.BufferPool
 	locker         txns.ILockManager
 	logger         common.ITxnLoggerWithContext
+
+	debug_already_closed bool
 }
 
 type bucketItemStatus byte
@@ -143,6 +145,8 @@ func NewLinearProbingIndex(
 		hasher:         NewDeterministicHasher64(DefaultHashSeed),
 		masterPage:     masterPage,
 		pool:           pool,
+
+		debug_already_closed: false,
 	}
 
 	if err := index.setupMasterPage(meta); err != nil {
@@ -839,6 +843,9 @@ func (i *LinearProbingIndex) grow() error {
 }
 
 func (i *LinearProbingIndex) Close() error {
+	assert.Assert(!i.debug_already_closed, "index already closed")
+	i.debug_already_closed = true
+
 	masterPageIdent := getMasterPageIdent(i.indexFileToken.GetFileID())
 	i.pool.Unpin(masterPageIdent)
 	return nil
