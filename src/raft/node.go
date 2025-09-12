@@ -41,7 +41,12 @@ func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node,
 	stableStore := hraft.NewInmemStore()
 	snapStore := hraft.NewInmemSnapshotStore()
 
-	r, err := hraft.NewRaft(cfg, nil, logStore, stableStore, snapStore, tr.Transport())
+	fsmInit := &fsm{
+		nodeID: id,
+		log:    logger,
+	}
+
+	r, err := hraft.NewRaft(cfg, fsmInit, logStore, stableStore, snapStore, tr.Transport())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create raft node: %w", err)
 	}
@@ -77,5 +82,6 @@ func (n *Node) Close() {
 		n.logger.Errorw("raft node failed to close raft", zap.Error(err))
 	}
 	n.grpc.GracefulStop()
-	n.logger.Infow("raft node gracefully stopped", zap.String("address", n.addr))
+	n.logger.Infow("raft node gracefully stopped",
+		zap.String("node_id", n.id), zap.String("address", n.addr))
 }
