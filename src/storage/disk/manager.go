@@ -123,6 +123,7 @@ func (m *Manager) GetPageNoNewAssumeLocked(
 	}
 
 	pg.SetData(data)
+	pg.UnsafeInitLatch()
 	return nil
 }
 

@@ -30,7 +30,7 @@ import (
 func setupExecutor(
 	fs afero.Fs,
 	poolPageCount uint64,
-	debugCheckPage bool,
+	debugMode bool,
 ) (*Executor, *bufferpool.DebugBufferPool, *txns.LockManager, common.ITxnLogger, error) {
 	catalogBasePath := "/tmp/graphdb_test"
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
@@ -62,6 +62,7 @@ func setupExecutor(
 		return nil, nil, nil, nil, err
 	}
 	diskMgr.UpdateFileMap(sysCat.GetFileIDToPathMap())
+
 	debugPool.MarkPageAsLeaking(systemcatalog.CatalogVersionPageIdent())
 	debugPool.MarkPageAsLeaking(recovery.GetMasterPageIdent(systemcatalog.LogFileID))
 
@@ -74,7 +75,7 @@ func setupExecutor(
 		locker *txns.LockManager,
 		logger common.ITxnLoggerWithContext,
 	) (storage.Index, error) {
-		return index.NewLinearProbingIndex(indexMeta, pool, locker, logger, debugCheckPage, 42)
+		return index.NewLinearProbingIndex(indexMeta, pool, locker, logger, debugMode, 42)
 	}
 
 	se := engine.New(
@@ -2125,18 +2126,24 @@ func TestRecovery(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	graphInfo := generateRandomGraph(
-		10,
-		0.3,
-		rand.New(rand.NewSource(42)),
-		true,
-	)
-
 	ticker := atomic.Uint64{}
 	vertTableName := "person"
 	verticesFieldName := "money"
 	edgeTableName := "indepted_to"
 	edgesFieldName := "debt_amount"
+
+	graphInfo := GraphInfo{
+		g: map[int][]int{
+			1: {2},
+		},
+		edgesInfo: map[utils.Pair[int, int]]int64{
+			{First: 1, Second: 2}: 100,
+		},
+		verticesInfo: map[int]int64{
+			1: 100,
+			2: 200,
+		},
+	}
 
 	setupTables(
 		t,
@@ -2178,12 +2185,13 @@ func TestRecovery(t *testing.T) {
 		edgesSystemInfo,
 		1,
 	)
+	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 
 	{
 		t.Log("recovering a graph...")
 		e, _, _, logger, err := setupExecutor(fs, 10, false)
 		require.NoError(t, err)
-		t.Log("asserting a graph...")
+		t.Log("asserting a graph after recovery...")
 		assertDBGraph(
 			t,
 			&ticker,

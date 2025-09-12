@@ -120,10 +120,7 @@ func NewTxnLogger(pool bufferpool.BufferPool, logfileID common.FileID) *txnLogge
 	checkpointLocation := l.masterPage.GetCheckpointLocation()
 	l.firstDirtyPage = checkpointLocation.Location.PageID
 	l.curPage = checkpointLocation.Location.PageID
-
-	if !checkpointLocation.IsNil() {
-		l.Recover()
-	}
+	l.Recover()
 	return l
 }
 
@@ -163,6 +160,9 @@ func (l *txnLogger) iter(
 	})
 	if err != nil {
 		return nil, err
+	}
+	if p.NumSlots() == 0 {
+		return nil, ErrInvalidIterator
 	}
 
 	iter := newLogRecordIter(
@@ -265,6 +265,27 @@ func (l *txnLogger) UpdateFlushLSN(lsn common.LSN) {
 
 func (l *txnLogger) Recover() {
 	checkpointLocation := l.masterPage.GetCheckpointLocation()
+
+	hasRecords := func() bool {
+		pgIdent := common.PageIdentity{
+			FileID: l.logfileID,
+			PageID: checkpointLocation.Location.PageID,
+		}
+		p, err := l.pool.GetPageNoCreate(pgIdent)
+		if errors.Is(err, disk.ErrNoSuchPage) {
+			return false
+		}
+		assert.NoError(err)
+
+		defer l.pool.Unpin(pgIdent)
+		p.RLock()
+		defer p.RUnlock()
+
+		return p.NumSlots() != 0
+	}()
+	if !hasRecords {
+		return
+	}
 
 	lastRecordLSN, ATT, DPT := l.recoverAnalyze(checkpointLocation)
 	l.logRecordsCount = uint64(lastRecordLSN)
