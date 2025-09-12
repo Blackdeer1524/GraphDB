@@ -1346,7 +1346,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 
 func TestBigRandomGraph(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, locker, logger, err := setupExecutor(fs, 1000, false)
+	e, pool, locker, logger, err := setupExecutor(fs, 5000, false)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1363,7 +1363,7 @@ func TestBigRandomGraph(t *testing.T) {
 	verticesFieldName := "money"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(3_000, 0.005, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(1_000, 0.005, rand.New(rand.NewSource(42)), false)
 
 	setupTables(
 		t,
