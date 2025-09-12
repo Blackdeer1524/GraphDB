@@ -286,16 +286,14 @@ func (l *TxnLogger) Recover() {
 		return
 	}
 
-	lastRecordLSN, ATT, DPT := l.recoverAnalyze(checkpointLocation)
-	l.logRecordsCount = uint64(lastRecordLSN)
-
+	ATT, DPT := l.recoverAnalyze(checkpointLocation)
 	earliestLogLocation := l.recoverPrepareCLRs(ATT, DPT)
 	l.recoverRedo(earliestLogLocation)
 }
 
 func (l *TxnLogger) recoverAnalyze(
 	checkpointLocation common.LogRecordLocInfo,
-) (common.LSN, ActiveTransactionsTable, map[common.PageIdentity]common.LogRecordLocInfo) {
+) (ActiveTransactionsTable, map[common.PageIdentity]common.LogRecordLocInfo) {
 	iter, err := l.iter(checkpointLocation.Location)
 	assert.Assert(err == nil, "couldn't recover. reason: %+v", err)
 
@@ -466,7 +464,9 @@ func (l *TxnLogger) recoverAnalyze(
 		}
 	}
 
-	return lastRecordLSN, ATT, DPT
+	l.logRecordsCount = uint64(lastRecordLSN)
+	l.curPage = iter.PageID()
+	return ATT, DPT
 }
 
 func (l *TxnLogger) recoverPrepareCLRs(

@@ -80,6 +80,12 @@ func (m *Manager) ReadPageAssumeLocked(
 		if err != nil {
 			return err
 		}
+
+		err = file.Sync()
+		if err != nil {
+			return fmt.Errorf("failed to sync file %s: %w", path, err)
+		}
+
 		pg.SetData(newPage.GetData())
 		return nil
 	} else if err != nil {
@@ -157,6 +163,10 @@ func (m *Manager) WritePageAssumeLocked(
 	_, err = file.WriteAt(data, offset)
 	if err != nil {
 		return fmt.Errorf("failed to write at file %s: %w", path, err)
+	}
+	err = file.Sync()
+	if err != nil {
+		return fmt.Errorf("failed to sync file %s: %w", path, err)
 	}
 
 	return nil
