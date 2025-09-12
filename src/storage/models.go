@@ -279,3 +279,15 @@ func NewVertexSystemFields(
 		DirItemID: DirItemID,
 	}
 }
+
+type EdgeInfo struct {
+	SystemID    EdgeSystemID
+	SrcVertexID VertexSystemID
+	DstVertexID VertexSystemID
+	Data        map[string]any
+}
+
+type VertexInfo struct {
+	SystemID VertexSystemID
+	Data     map[string]any
+}

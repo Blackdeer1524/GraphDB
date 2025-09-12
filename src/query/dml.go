@@ -51,53 +51,52 @@ func (e *Executor) SelectVertex(
 func (e *Executor) InsertVertex(
 	txnID common.TxnID,
 	tableName string,
-	record map[string]any,
+	record storage.VertexInfo,
 	logger common.ITxnLoggerWithContext,
-) (vID storage.VertexSystemID, err error) {
-	records := []map[string]any{record}
-	vIDs, err := e.InsertVertices(txnID, tableName, records, logger)
+) error {
+	records := []storage.VertexInfo{record}
+	err := e.InsertVertices(txnID, tableName, records, logger)
 	if err != nil {
-		return storage.NilVertexID, fmt.Errorf("failed to insert vertex: %w", err)
+		return fmt.Errorf("failed to insert vertex: %w", err)
 	}
-	return vIDs[0], nil
+	return nil
 }
 
 func (e *Executor) InsertVertices(
 	txnID common.TxnID,
 	tableName string,
-	records []map[string]any,
+	records []storage.VertexInfo,
 	logger common.ITxnLoggerWithContext,
-) (vIDs []storage.VertexSystemID, err error) {
+) error {
 	cToken := txns.NewNilCatalogLockToken(txnID)
 	tableMeta, err := e.se.GetVertexTableMeta(tableName, cToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get vertex table meta: %w", err)
+		return fmt.Errorf("failed to get vertex table meta: %w", err)
 	}
 
 	tableIndex, err := e.se.GetVertexTableSystemIndex(txnID, tableMeta.FileID, cToken, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
+		return fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
 	defer tableIndex.Close()
 
 	fileToken := txns.NewNilFileLockToken(cToken, tableMeta.FileID)
 
-	vIDs = make([]storage.VertexSystemID, len(records))
-	for i, record := range records {
-		vertID, err := e.se.InsertVertex(
+	for _, record := range records {
+		err := e.se.InsertVertex(
 			txnID,
-			record,
+			record.SystemID,
+			record.Data,
 			tableMeta.Schema,
 			fileToken,
 			tableIndex,
 			logger,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to insert vertex: %w", err)
+			return fmt.Errorf("failed to insert vertex: %w", err)
 		}
-		vIDs[i] = vertID
 	}
-	return vIDs, nil
+	return nil
 }
 
 func (e *Executor) DeleteVertex() error {
@@ -150,36 +149,30 @@ func (e *Executor) SelectEdge(
 	return edge, nil
 }
 
-type EdgeInfo struct {
-	SrcVertexID storage.VertexSystemID
-	DstVertexID storage.VertexSystemID
-	Data        map[string]any
-}
-
 func (e *Executor) InsertEdge(
 	txnID common.TxnID,
 	edgeTableName string,
-	record EdgeInfo,
+	record storage.EdgeInfo,
 	logger common.ITxnLoggerWithContext,
-) (edgeID storage.EdgeSystemID, err error) {
-	edges := []EdgeInfo{record}
-	edgeIDs, err := e.InsertEdges(txnID, edgeTableName, edges, logger)
+) error {
+	edges := []storage.EdgeInfo{record}
+	err := e.InsertEdges(txnID, edgeTableName, edges, logger)
 	if err != nil {
-		return storage.NilEdgeID, fmt.Errorf("failed to insert edge: %w", err)
+		return fmt.Errorf("failed to insert edge: %w", err)
 	}
-	return edgeIDs[0], nil
+	return nil
 }
 
 func (e *Executor) InsertEdges(
 	txnID common.TxnID,
 	edgeTableName string,
-	data []EdgeInfo,
+	data []storage.EdgeInfo,
 	logger common.ITxnLoggerWithContext,
-) (edgeIDs []storage.EdgeSystemID, err error) {
+) error {
 	cToken := txns.NewNilCatalogLockToken(txnID)
 	edgeTableMeta, err := e.se.GetEdgeTableMeta(edgeTableName, cToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get vertex table meta: %w", err)
+		return fmt.Errorf("failed to get vertex table meta: %w", err)
 	}
 
 	edgeTableIndex, err := e.se.GetEdgeTableSystemIndex(
@@ -189,13 +182,13 @@ func (e *Executor) InsertEdges(
 		logger,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get vertex table internal index: %w", err)
+		return fmt.Errorf("failed to get vertex table internal index: %w", err)
 	}
 	defer edgeTableIndex.Close()
 
 	dirTableMeta, err := e.se.GetDirTableMeta(cToken, edgeTableMeta.SrcVertexFileID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get dir table meta: %w", err)
+		return fmt.Errorf("failed to get dir table meta: %w", err)
 	}
 
 	srcVertDirTableIndex, err := e.se.GetDirTableSystemIndex(
@@ -205,7 +198,7 @@ func (e *Executor) InsertEdges(
 		logger,
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"failed to get src vertex table internal index: %w",
 			err,
 		)
@@ -219,7 +212,7 @@ func (e *Executor) InsertEdges(
 		logger,
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"failed to get src vertex table internal index: %w",
 			err,
 		)
@@ -230,10 +223,10 @@ func (e *Executor) InsertEdges(
 	srcVertDirToken := txns.NewNilFileLockToken(cToken, dirTableMeta.FileID)
 	edgeTableToken := txns.NewNilFileLockToken(cToken, edgeTableMeta.FileID)
 
-	edgeIDs = make([]storage.EdgeSystemID, len(data))
-	for i, record := range data {
-		edgeID, err := e.se.InsertEdge(
+	for _, record := range data {
+		err := e.se.InsertEdge(
 			txnID,
+			record.SystemID,
 			record.SrcVertexID,
 			record.DstVertexID,
 			record.Data,
@@ -247,11 +240,10 @@ func (e *Executor) InsertEdges(
 			logger,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to insert edge: %w", err)
+			return fmt.Errorf("failed to insert edge: %w", err)
 		}
-		edgeIDs[i] = edgeID
 	}
-	return edgeIDs, nil
+	return nil
 }
 
 func (e *Executor) DeleteEdge() error {

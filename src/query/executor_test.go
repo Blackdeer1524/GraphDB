@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -168,13 +170,17 @@ func TestCreateVertexSimpleInsert(t *testing.T) {
 			err = e.CreateVertexType(txnID, tableName, schema, logger)
 			require.NoError(t, err)
 
-			data := map[string]any{
-				"money": int64(100),
+			vInfo := storage.VertexInfo{
+				SystemID: storage.VertexSystemID(uuid.New()),
+				Data: map[string]any{
+					"money": int64(100),
+				},
 			}
-			vIDs, err := e.InsertVertices(txnID, tableName, []map[string]any{data}, logger)
+
+			err = e.InsertVertices(txnID, tableName, []storage.VertexInfo{vInfo}, logger)
 			require.NoError(t, err)
 
-			v, err := e.SelectVertex(txnID, tableName, vIDs[0], logger)
+			v, err := e.SelectVertex(txnID, tableName, vInfo.SystemID, logger)
 			require.NoError(t, err)
 			require.Equal(t, v.Data["money"], int64(100))
 			return nil
@@ -215,18 +221,21 @@ func TestVertexTableInserts(t *testing.T) {
 			N := 1000
 			vertices := make(map[storage.VertexSystemID]int64, N)
 
-			vRecords := make([]map[string]any, N)
+			vRecords := make([]storage.VertexInfo, N)
 			for i := range N {
-				vRecords[i] = map[string]any{
-					"money": int64(i),
+				vRecords[i] = storage.VertexInfo{
+					SystemID: storage.VertexSystemID(uuid.New()),
+					Data: map[string]any{
+						"money": int64(i),
+					},
 				}
 			}
 
-			vIDs, err := e.InsertVertices(txnID, tableName, vRecords, logger)
+			err = e.InsertVertices(txnID, tableName, vRecords, logger)
 			require.NoError(t, err)
 
-			for i, vID := range vIDs {
-				vertices[vID] = int64(i)
+			for i, vID := range vRecords {
+				vertices[vID.SystemID] = int64(i)
 			}
 
 			for vID, val := range vertices {
@@ -310,18 +319,21 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			vRecords := make([]map[string]any, N)
+			vRecords := make([]storage.VertexInfo, N)
 			for i := range N {
-				vRecords[i] = map[string]any{
-					"money": int64(i),
+				vRecords[i] = storage.VertexInfo{
+					SystemID: storage.VertexSystemID(uuid.New()),
+					Data: map[string]any{
+						"money": int64(i),
+					},
 				}
 			}
 
-			vIDs, err := e.InsertVertices(txnID, tableName, vRecords, logger)
+			err = e.InsertVertices(txnID, tableName, vRecords, logger)
 			require.NoError(t, err)
 
-			for i, vID := range vIDs {
-				vertices[vID] = int64(i)
+			for i, vID := range vRecords {
+				vertices[vID.SystemID] = int64(i)
 			}
 
 			for vID, val := range vertices {
@@ -373,17 +385,20 @@ func TestDropVertexTable(t *testing.T) {
 			err = e.CreateVertexType(txnID, tableName, schema, logger)
 			require.NoError(t, err)
 
-			vRecords := make([]map[string]any, N)
+			vRecords := make([]storage.VertexInfo, N)
 			for i := range N {
-				vRecords[i] = map[string]any{
-					"money": int64(i) + 42,
+				vRecords[i] = storage.VertexInfo{
+					SystemID: storage.VertexSystemID(uuid.New()),
+					Data: map[string]any{
+						"money": int64(i) + 42,
+					},
 				}
 			}
-			vIDs, err := e.InsertVertices(txnID, tableName, vRecords, logger)
+			err = e.InsertVertices(txnID, tableName, vRecords, logger)
 			require.NoError(t, err)
 
-			for i, vID := range vIDs {
-				vertices[vID] = int64(i) + 42
+			for i, vID := range vRecords {
+				vertices[vID.SystemID] = int64(i) + 42
 			}
 			return nil
 		},
@@ -441,46 +456,51 @@ func TestCreateEdgeTable(t *testing.T) {
 	edgeTableName := "indepted_to"
 	ticker := atomic.Uint64{}
 
-	var v1 storage.VertexSystemID
-	var v2 storage.VertexSystemID
-	var edgeID storage.EdgeSystemID
+	vertSchema := storage.Schema{
+		{Name: "money", Type: storage.ColumnTypeInt64},
+	}
+	edgeSchema := storage.Schema{
+		{Name: "debt_amount", Type: storage.ColumnTypeInt64},
+	}
+	v1Record := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			"money": int64(100),
+		},
+	}
+	v2Record := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			"money": int64(200),
+		},
+	}
+	edgeRecord := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: v1Record.SystemID,
+		DstVertexID: v2Record.SystemID,
+		Data: map[string]any{
+			"debt_amount": int64(40),
+		},
+	}
+
 	err = Execute(
 		&ticker,
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			schema := storage.Schema{
-				{Name: "money", Type: storage.ColumnTypeInt64},
-			}
-			err = e.CreateVertexType(txnID, vertTableName, schema, logger)
+			err = e.CreateVertexType(txnID, vertTableName, vertSchema, logger)
 			require.NoError(t, err)
 
-			edgeSchema := storage.Schema{
-				{Name: "debt_amount", Type: storage.ColumnTypeInt64},
-			}
 			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
 			require.NoError(t, err)
 
-			v1Record := map[string]any{
-				"money": int64(100),
-			}
-			v1, err = e.InsertVertex(txnID, vertTableName, v1Record, logger)
+			err = e.InsertVertex(txnID, vertTableName, v1Record, logger)
 			require.NoError(t, err)
 
-			v2Record := map[string]any{
-				"money": int64(200),
-			}
-			v2, err = e.InsertVertex(txnID, vertTableName, v2Record, logger)
+			err = e.InsertVertex(txnID, vertTableName, v2Record, logger)
 			require.NoError(t, err)
 
-			edgeRecord := EdgeInfo{
-				SrcVertexID: v1,
-				DstVertexID: v2,
-				Data: map[string]any{
-					"debt_amount": int64(40),
-				},
-			}
-			edgeID, err = e.InsertEdge(txnID, edgeTableName, edgeRecord, logger)
+			err = e.InsertEdge(txnID, edgeTableName, edgeRecord, logger)
 			require.NoError(t, err)
 			return nil
 		},
@@ -492,7 +512,7 @@ func TestCreateEdgeTable(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			edge, err := e.SelectEdge(txnID, edgeTableName, edgeID, logger)
+			edge, err := e.SelectEdge(txnID, edgeTableName, edgeRecord.SystemID, logger)
 			require.NoError(t, err)
 			require.Equal(t, edge.Data["debt_amount"], int64(40))
 			return nil
@@ -508,14 +528,14 @@ func TestCreateEdgeTable(t *testing.T) {
 			res, err := e.GetVertexesOnDepth(
 				txnID,
 				vertTableName,
-				v1,
+				v1Record.SystemID,
 				1,
 				storage.AllowAllVerticesFilter,
 				logger,
 			)
 			require.NoError(t, err)
 			require.Equal(t, len(res), 1)
-			require.Equal(t, res[0].V, v2)
+			require.Equal(t, res[0].V, v2Record.SystemID)
 			return nil
 		},
 	)
@@ -619,18 +639,39 @@ func TestSnowflakeNeighbours(t *testing.T) {
 	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeTableName, edgeFieldName, logger)
 
 	N := 1000
-	var vCenterID storage.VertexSystemID
-	neighbors := make([]storage.VertexSystemID, 0, N)
-	edgeIDs := make([]storage.EdgeSystemID, 0, N)
+	centerData := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			vertFieldName: int64(33),
+		},
+	}
+	neighborRecords := make([]storage.VertexInfo, N)
+	for i := range N {
+		neighborRecords[i] = storage.VertexInfo{
+			SystemID: storage.VertexSystemID(uuid.New()),
+			Data: map[string]any{
+				vertFieldName: int64(i) + 42,
+			},
+		}
+	}
+	edgeRecords := make([]storage.EdgeInfo, N)
+	for i := range N {
+		edgeRecords[i] = storage.EdgeInfo{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: centerData.SystemID,
+			DstVertexID: neighborRecords[i].SystemID,
+			Data: map[string]any{
+				edgeFieldName: int64(i) + 100,
+			},
+		}
+	}
+
 	err = Execute(
 		&ticker,
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			centerData := map[string]any{
-				vertFieldName: int64(33),
-			}
-			vCenterID, err = e.InsertVertex(
+			err = e.InsertVertex(
 				txnID,
 				vertTableName,
 				centerData,
@@ -638,28 +679,10 @@ func TestSnowflakeNeighbours(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			neighborRecords := make([]map[string]any, N)
-			for i := range N {
-				neighborRecords[i] = map[string]any{
-					vertFieldName: int64(i) + 42,
-				}
-			}
-
-			neighbors, err = e.InsertVertices(txnID, vertTableName, neighborRecords, logger)
+			err = e.InsertVertices(txnID, vertTableName, neighborRecords, logger)
 			require.NoError(t, err)
 
-			edgeRecords := make([]EdgeInfo, N)
-			for i := range N {
-				edgeRecords[i] = EdgeInfo{
-					SrcVertexID: vCenterID,
-					DstVertexID: neighbors[i],
-					Data: map[string]any{
-						edgeFieldName: int64(i) + 100,
-					},
-				}
-			}
-
-			edgeIDs, err = e.InsertEdges(txnID, edgeTableName, edgeRecords, logger)
+			err = e.InsertEdges(txnID, edgeTableName, edgeRecords, logger)
 			require.NoError(t, err)
 
 			return nil
@@ -674,7 +697,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 				for i := range N {
-					edge, err := e.SelectEdge(txnID, edgeTableName, edgeIDs[i], logger)
+					edge, err := e.SelectEdge(txnID, edgeTableName, edgeRecords[i].SystemID, logger)
 					require.NoError(t, err)
 					require.Equal(t, edge.Data[edgeFieldName], int64(i)+100)
 				}
@@ -693,7 +716,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 				recordedNeighbors, err := e.GetVertexesOnDepth(
 					txnID,
 					vertTableName,
-					vCenterID,
+					centerData.SystemID,
 					1,
 					storage.AllowAllVerticesFilter,
 					logger,
@@ -701,14 +724,19 @@ func TestSnowflakeNeighbours(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, len(recordedNeighbors), N)
 
-				neighborsIDS := make([]storage.VertexSystemID, 0, N)
+				actualNeighborsIDS := make([]storage.VertexSystemID, 0, N)
 				for _, neighbor := range recordedNeighbors {
-					neighborsIDS = append(neighborsIDS, neighbor.V)
+					actualNeighborsIDS = append(actualNeighborsIDS, neighbor.V)
 				}
 
-				require.ElementsMatch(t, neighborsIDS, neighbors)
+				expectedNeighborIDs := make([]storage.VertexSystemID, 0, N)
+				for _, neighbor := range neighborRecords {
+					expectedNeighborIDs = append(expectedNeighborIDs, neighbor.SystemID)
+				}
 
-				for _, noEdgesNeighbor := range neighborsIDS {
+				require.ElementsMatch(t, expectedNeighborIDs, actualNeighborsIDS)
+
+				for _, noEdgesNeighbor := range actualNeighborsIDS {
 					ns, err := e.GetVertexesOnDepth(
 						txnID,
 						vertTableName,
@@ -735,7 +763,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 				recordedNeighbors, err := e.GetVertexesOnDepth(
 					txnID,
 					vertTableName,
-					vCenterID,
+					centerData.SystemID,
 					2,
 					storage.AllowAllVerticesFilter,
 					logger,
@@ -754,11 +782,11 @@ func TestSnowflakeNeighbours(t *testing.T) {
 			e,
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-				for _, noEdgesNeighbor := range neighbors {
+				for _, noEdgesNeighbor := range neighborRecords {
 					ns, err := e.GetVertexesOnDepth(
 						txnID,
 						vertTableName,
-						noEdgesNeighbor,
+						noEdgesNeighbor.SystemID,
 						1,
 						storage.AllowAllVerticesFilter,
 						logger,
@@ -797,24 +825,27 @@ func BuildGraph(
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			vRecords := make([]map[string]any, 0, len(verticesInfo))
+			vRecords := make([]storage.VertexInfo, 0, len(verticesInfo))
 
 			vIntIDs := make([]int, 0, len(verticesInfo))
 			for vertIntID, val := range verticesInfo {
-				record := map[string]any{
-					verticesFieldName: val,
+				record := storage.VertexInfo{
+					SystemID: storage.VertexSystemID(uuid.New()),
+					Data: map[string]any{
+						verticesFieldName: val,
+					},
 				}
 				vRecords = append(vRecords, record)
 				vIntIDs = append(vIntIDs, vertIntID)
 			}
-			vSystemIDs, err := e.InsertVertices(txnID, vertTableName, vRecords, logger)
+			err = e.InsertVertices(txnID, vertTableName, vRecords, logger)
 			require.NoError(t, err)
 
-			for i, vSystemID := range vSystemIDs {
-				intVertID2systemID[vIntIDs[i]] = vSystemID
+			for i, vSystemID := range vRecords {
+				intVertID2systemID[vIntIDs[i]] = vSystemID.SystemID
 			}
 
-			edgeRecords := make([]EdgeInfo, 0, len(edgesInfo))
+			edgeRecords := make([]storage.EdgeInfo, 0, len(edgesInfo))
 			edgeInsertionOrder := make([]utils.Pair[int, int], 0, len(edgesInfo))
 			for srcIntID, neighbors := range g {
 				srcSystemID, srcExists := intVertID2systemID[srcIntID]
@@ -826,7 +857,8 @@ func BuildGraph(
 					edgeInfo, ok := edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: dstIntID}]
 					require.True(t, ok)
 
-					edgeRecords = append(edgeRecords, EdgeInfo{
+					edgeRecords = append(edgeRecords, storage.EdgeInfo{
+						SystemID:    storage.EdgeSystemID(uuid.New()),
 						SrcVertexID: srcSystemID,
 						DstVertexID: dstSystemID,
 						Data: map[string]any{
@@ -841,13 +873,13 @@ func BuildGraph(
 				}
 			}
 
-			edgeSystemIDs, err := e.InsertEdges(txnID, edgeTableName, edgeRecords, logger)
+			err = e.InsertEdges(txnID, edgeTableName, edgeRecords, logger)
 			require.NoError(t, err)
-			require.Equal(t, len(edgeSystemIDs), len(edgeRecords))
-			require.Equal(t, len(edgeSystemIDs), len(edgeInsertionOrder))
+			require.Equal(t, len(edgeRecords), len(edgeRecords))
+			require.Equal(t, len(edgeRecords), len(edgeInsertionOrder))
 
 			for i, pair := range edgeInsertionOrder {
-				edgesSystemInfo[pair] = edgeSystemIDs[i]
+				edgesSystemInfo[pair] = edgeRecords[i].SystemID
 			}
 			return nil
 		},
@@ -1474,20 +1506,48 @@ func TestNeighboursMultipleTables(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	var firstPersonVID storage.VertexSystemID
-	var secondPersonVID storage.VertexSystemID
-	var workplaceVID storage.VertexSystemID
-	var epmploysEdgeID storage.EdgeSystemID
-	var friendEdgeID storage.EdgeSystemID
+	firstPersonVRecord := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			personFieldName: int64(1),
+		},
+	}
+	secondPersonVRecord := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			personFieldName: int64(2),
+		},
+	}
+	workplaceVRecord := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			workplaceFieldName: int64(3),
+		},
+	}
+
+	employsEdgeRecord := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: firstPersonVRecord.SystemID,
+		DstVertexID: workplaceVRecord.SystemID,
+		Data: map[string]any{
+			employsFieldName: int64(4),
+		},
+	}
+
+	friendEdgeRecord := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: firstPersonVRecord.SystemID,
+		DstVertexID: secondPersonVRecord.SystemID,
+		Data: map[string]any{
+			friendFieldName: int64(5),
+		},
+	}
 	err = Execute(
 		&ticker,
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			firstPersonVRecord := map[string]any{
-				personFieldName: int64(1),
-			}
-			firstPersonVID, err = e.InsertVertex(
+			err = e.InsertVertex(
 				txnID,
 				personVTableName,
 				firstPersonVRecord,
@@ -1495,10 +1555,7 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			secondPersonVRecord := map[string]any{
-				personFieldName: int64(2),
-			}
-			secondPersonVID, err = e.InsertVertex(
+			err = e.InsertVertex(
 				txnID,
 				personVTableName,
 				secondPersonVRecord,
@@ -1506,30 +1563,13 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			workplaceVRecord := map[string]any{
-				workplaceFieldName: int64(3),
-			}
-			workplaceVID, err = e.InsertVertex(txnID, workplaceVTableName, workplaceVRecord, logger)
+			err = e.InsertVertex(txnID, workplaceVTableName, workplaceVRecord, logger)
 			require.NoError(t, err)
 
-			employsEdgeRecord := EdgeInfo{
-				SrcVertexID: firstPersonVID,
-				DstVertexID: workplaceVID,
-				Data: map[string]any{
-					employsFieldName: int64(4),
-				},
-			}
-			epmploysEdgeID, err = e.InsertEdge(txnID, employsETableName, employsEdgeRecord, logger)
+			err = e.InsertEdge(txnID, employsETableName, employsEdgeRecord, logger)
 			require.NoError(t, err)
 
-			friendEdgeRecord := EdgeInfo{
-				SrcVertexID: firstPersonVID,
-				DstVertexID: secondPersonVID,
-				Data: map[string]any{
-					friendFieldName: int64(5),
-				},
-			}
-			friendEdgeID, err = e.InsertEdge(txnID, friendETableName, friendEdgeRecord, logger)
+			err = e.InsertEdge(txnID, friendETableName, friendEdgeRecord, logger)
 			require.NoError(t, err)
 			return nil
 		},
@@ -1541,18 +1581,28 @@ func TestNeighboursMultipleTables(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			employsEdge, err := e.SelectEdge(txnID, employsETableName, epmploysEdgeID, logger)
+			employsEdge, err := e.SelectEdge(
+				txnID,
+				employsETableName,
+				employsEdgeRecord.SystemID,
+				logger,
+			)
 			require.NoError(t, err)
 			require.Equal(t, int64(4), employsEdge.Data[employsFieldName])
 
-			friendEdge, err := e.SelectEdge(txnID, friendETableName, friendEdgeID, logger)
+			friendEdge, err := e.SelectEdge(
+				txnID,
+				friendETableName,
+				friendEdgeRecord.SystemID,
+				logger,
+			)
 			require.NoError(t, err)
 			require.Equal(t, int64(5), friendEdge.Data[friendFieldName])
 
 			neighbors, err := e.GetVertexesOnDepth(
 				txnID,
 				personVTableName,
-				firstPersonVID,
+				firstPersonVRecord.SystemID,
 				1,
 				storage.AllowAllVerticesFilter,
 				logger,
@@ -1562,13 +1612,13 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			require.ElementsMatch(
 				t,
 				[]storage.VertexSystemID{neighbors[1].V, neighbors[0].V},
-				[]storage.VertexSystemID{secondPersonVID, workplaceVID},
+				[]storage.VertexSystemID{secondPersonVRecord.SystemID, workplaceVRecord.SystemID},
 			)
 
 			neighbors, err = e.GetVertexesOnDepth(
 				txnID,
 				workplaceVTableName,
-				workplaceVID,
+				workplaceVRecord.SystemID,
 				1,
 				storage.AllowAllVerticesFilter,
 				logger,
@@ -1576,15 +1626,30 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, len(neighbors), 0)
 
-			firstPersonV, err := e.SelectVertex(txnID, personVTableName, firstPersonVID, logger)
+			firstPersonV, err := e.SelectVertex(
+				txnID,
+				personVTableName,
+				firstPersonVRecord.SystemID,
+				logger,
+			)
 			require.NoError(t, err)
 			require.Equal(t, firstPersonV.Data[personFieldName], int64(1))
 
-			secondPersonV, err := e.SelectVertex(txnID, personVTableName, secondPersonVID, logger)
+			secondPersonV, err := e.SelectVertex(
+				txnID,
+				personVTableName,
+				secondPersonVRecord.SystemID,
+				logger,
+			)
 			require.NoError(t, err)
 			require.Equal(t, secondPersonV.Data[personFieldName], int64(2))
 
-			workplaceV, err := e.SelectVertex(txnID, workplaceVTableName, workplaceVID, logger)
+			workplaceV, err := e.SelectVertex(
+				txnID,
+				workplaceVTableName,
+				workplaceVRecord.SystemID,
+				logger,
+			)
 			require.NoError(t, err)
 			require.Equal(t, workplaceV.Data[workplaceFieldName], int64(3))
 			return nil
@@ -1621,24 +1686,30 @@ func TestSelectVerticesWithValues(t *testing.T) {
 
 	N := 10
 	offset := 42
-	var vIDs []storage.VertexSystemID
+	vRecords := make([]storage.VertexInfo, 0)
+	for i := range N {
+		for j := range N {
+			vRecords = append(vRecords, storage.VertexInfo{
+				SystemID: storage.VertexSystemID(uuid.New()),
+				Data: map[string]any{
+					vertFieldName: int64(i*N + j + offset),
+				},
+			})
+		}
+		vRecords = append(vRecords, storage.VertexInfo{
+			SystemID: storage.VertexSystemID(uuid.New()),
+			Data: map[string]any{
+				vertFieldName: int64(offset - 1),
+			},
+		})
+	}
+
 	err = Execute(
 		&ticker,
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			vRecords := make([]map[string]any, 0)
-			for i := range N {
-				for j := range N {
-					vRecords = append(vRecords, map[string]any{
-						vertFieldName: int64(i*N + j + offset),
-					})
-				}
-				vRecords = append(vRecords, map[string]any{
-					vertFieldName: int64(offset - 1),
-				})
-			}
-			vIDs, err = e.InsertVertices(txnID, vertTableName, vRecords, logger)
+			err = e.InsertVertices(txnID, vertTableName, vRecords, logger)
 			require.NoError(t, err)
 			return nil
 		},
@@ -1651,8 +1722,8 @@ func TestSelectVerticesWithValues(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			for _, vID := range vIDs {
-				v, err := e.SelectVertex(txnID, vertTableName, vID, logger)
+			for _, vID := range vRecords {
+				v, err := e.SelectVertex(txnID, vertTableName, vID.SystemID, logger)
 				require.NoError(t, err)
 				if v.Data[vertFieldName].(int64) == int64(offset-1) {
 					c++
@@ -2289,4 +2360,39 @@ func TestRecoveryRandomized(t *testing.T) {
 			1,
 		)
 	}
+}
+
+func TestPhantomRead(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	e, pool, _, logger, err := setupExecutor(fs, 10, false)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	verticesFieldName := "money"
+	edgeTableName := "indepted_to"
+	edgesFieldName := "debt_amount"
+
+	setupTables(
+		t,
+		e,
+		&ticker,
+		vertTableName,
+		verticesFieldName,
+		edgeTableName,
+		edgesFieldName,
+		logger,
+	)
+
+	wg := sync.WaitGroup{}
+
+	go func() {
+	}()
+
+	go func() {
+
+	}()
+
+	wg.Wait()
 }

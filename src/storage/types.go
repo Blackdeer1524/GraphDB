@@ -402,6 +402,7 @@ type Engine interface {
 	// DML
 	InsertEdge(
 		txnID common.TxnID,
+		edgeSystemID EdgeSystemID,
 		srcVertexID VertexSystemID,
 		dstVertexID VertexSystemID,
 		edgeFields map[string]any,
@@ -413,15 +414,16 @@ type Engine interface {
 		edgesFileToken *txns.FileLockToken,
 		edgeSystemIndex Index,
 		ctxLogger common.ITxnLoggerWithContext,
-	) (EdgeSystemID, error)
+	) error
 	InsertVertex(
 		txnID common.TxnID,
+		vertexSystemID VertexSystemID,
 		data map[string]any,
 		schema Schema,
 		vertexFileToken *txns.FileLockToken,
 		vertexIndex Index,
 		ctxLogger common.ITxnLoggerWithContext,
-	) (VertexSystemID, error)
+	) error
 	SelectEdge(
 		txnID common.TxnID,
 		edgeID EdgeSystemID,
