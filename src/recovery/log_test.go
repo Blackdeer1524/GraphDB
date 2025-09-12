@@ -321,7 +321,7 @@ func TestMassiveRecovery(t *testing.T) {
 	}
 	slot := optional.Some(uint16(0))
 
-	N := 30
+	N := 3000
 	i := 0
 
 	index2pageID := map[int]common.FileLocation{}
@@ -352,7 +352,7 @@ func TestMassiveRecovery(t *testing.T) {
 	left := N - N/10
 	inc := N * 6 / 10
 	right := (left + inc) % N
-	STEP := 1
+	STEP := 4
 	require.Equal(
 		t,
 		inc%STEP,
@@ -972,7 +972,7 @@ func TestLoggerRollback(t *testing.T) {
 // committed at the end.
 func fillPages(
 	t *testing.T,
-	logger *txnLogger,
+	logger *TxnLogger,
 	txnID common.TxnID,
 	length int,
 	fileIDs []common.FileID,

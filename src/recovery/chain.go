@@ -7,7 +7,7 @@ import (
 )
 
 type TxnLogChain struct {
-	logger *txnLogger
+	logger *TxnLogger
 	txnID  common.TxnID
 
 	lastLocations map[common.TxnID]common.LogRecordLocInfo
@@ -15,7 +15,7 @@ type TxnLogChain struct {
 }
 
 func NewTxnLogChain(
-	logger *txnLogger,
+	logger *TxnLogger,
 	TransactionID common.TxnID,
 ) *TxnLogChain {
 	return &TxnLogChain{

@@ -31,7 +31,7 @@ func setupExecutor(
 	fs afero.Fs,
 	poolPageCount uint64,
 	debugMode bool,
-) (*Executor, *bufferpool.DebugBufferPool, *txns.LockManager, common.ITxnLogger, error) {
+) (*Executor, *bufferpool.DebugBufferPool, *txns.LockManager, *recovery.TxnLogger, error) {
 	catalogBasePath := "/tmp/graphdb_test"
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
 	if err != nil {
@@ -2190,6 +2190,14 @@ func TestRecovery(t *testing.T) {
 	{
 		t.Log("recovering a graph...")
 		e, _, _, logger, err := setupExecutor(fs, 10, false)
+
+		builder := &strings.Builder{}
+		logger.Dump(
+			common.FileLocation{PageID: common.CheckpointInfoPageID, SlotNum: 0},
+			builder,
+		)
+		t.Logf("Log file:\n%s", builder.String())
+
 		require.NoError(t, err)
 		t.Log("asserting a graph after recovery...")
 		assertDBGraph(

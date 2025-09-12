@@ -467,12 +467,11 @@ func (m *Manager) reserveFrame() uint64 {
 // WARN: expects **BOTH** buffer pool and diskManager to be locked
 func (m *Manager) FlushLogs() error {
 	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
-	logPageID := startPageID
 
 	var flush = func(pageID common.PageID) error {
 		logPageIdent := common.PageIdentity{
 			FileID: logFileID,
-			PageID: common.PageID(logPageID),
+			PageID: common.PageID(pageID),
 		}
 		if _, ok := m.DPT[logPageIdent]; !ok {
 			return nil
@@ -497,6 +496,7 @@ func (m *Manager) FlushLogs() error {
 		return err
 	}
 
+	logPageID := startPageID
 	for ; logPageID <= endPageID; logPageID++ {
 		if err := flush(logPageID); err != nil {
 			m.logger.UpdateFirstUnflushedPage(logPageID)
