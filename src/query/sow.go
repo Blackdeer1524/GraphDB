@@ -17,6 +17,7 @@ func (e *Executor) traverseNeighborsWithDepth(
 	t common.TxnID,
 	v storage.VertexSystemIDWithDepthAndRID,
 	targetDepth uint32,
+	vertexFilter storage.VertexFilter,
 	seen storage.BitMap,
 	q storage.Queue,
 	cToken *txns.CatalogLockToken,
@@ -31,7 +32,14 @@ func (e *Executor) traverseNeighborsWithDepth(
 	}
 	defer vertIndex.Close()
 
-	it, err := e.se.Neighbours(t, v.V, startFileToken, vertIndex, logger)
+	it, err := e.se.GetNeighborsWithEdgeFilter(
+		t,
+		v.V,
+		startFileToken,
+		vertIndex,
+		storage.AllowAllEdgesFilter,
+		logger,
+	)
 	if err != nil {
 		return err
 	}
@@ -44,14 +52,18 @@ func (e *Executor) traverseNeighborsWithDepth(
 	}()
 
 	for u := range it.Seq() {
-		vIntID, err := u.Destruct()
+		vRID, vert, err := u.Destruct()
 		if err != nil {
 			return err
 		}
 
+		if !vertexFilter(&vert) {
+			continue
+		}
+
 		var ok bool
 
-		vID := storage.VertexID{SystemID: vIntID.V, TableID: vIntID.R.FileID}
+		vID := storage.VertexID{SystemID: vert.ID, TableID: vRID.FileID}
 		ok, err = seen.Get(vID)
 		if err != nil {
 			return fmt.Errorf("failed to get vertex visited status: %w", err)
@@ -75,7 +87,11 @@ func (e *Executor) traverseNeighborsWithDepth(
 
 		if nd <= targetDepth {
 			err = q.Enqueue(
-				storage.VertexSystemIDWithDepthAndRID{V: vIntID.V, D: nd, R: vIntID.R},
+				storage.VertexSystemIDWithDepthAndRID{
+					V: vert.ID,
+					R: vRID,
+					D: nd,
+				},
 			)
 			if err != nil {
 				return fmt.Errorf("failed to enqueue vertex: %w", err)
@@ -90,6 +106,7 @@ func (e *Executor) bfsWithDepth(
 	tx common.TxnID,
 	start storage.VertexSystemIDWithRID,
 	targetDepth uint32,
+	vertexFilter storage.VertexFilter,
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (result []storage.VertexSystemIDWithRID, err error) {
@@ -142,7 +159,16 @@ func (e *Executor) bfsWithDepth(
 			continue
 		}
 
-		err = e.traverseNeighborsWithDepth(tx, v, targetDepth, seen, q, cToken, logger)
+		err = e.traverseNeighborsWithDepth(
+			tx,
+			v,
+			targetDepth,
+			vertexFilter,
+			seen,
+			q,
+			cToken,
+			logger,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to traverse neighbors: %w", err)
 		}
@@ -158,6 +184,7 @@ func (e *Executor) GetVertexesOnDepth(
 	vertTableName string,
 	start storage.VertexSystemID,
 	targetDepth uint32,
+	vertexFilter storage.VertexFilter,
 	logger common.ITxnLoggerWithContext,
 ) (r []storage.VertexSystemIDWithRID, err error) {
 	cToken := txns.NewNilCatalogLockToken(txnID)
@@ -180,7 +207,7 @@ func (e *Executor) GetVertexesOnDepth(
 
 	var res []storage.VertexSystemIDWithRID
 
-	res, err = e.bfsWithDepth(txnID, st, targetDepth, cToken, logger)
+	res, err = e.bfsWithDepth(txnID, st, targetDepth, vertexFilter, cToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bfsWithDepth: %w", err)
 	}

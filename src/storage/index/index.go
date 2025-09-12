@@ -28,7 +28,8 @@ type LinearProbingIndex struct {
 	locker         txns.ILockManager
 	logger         common.ITxnLoggerWithContext
 
-	debug_already_closed bool
+	debugAlreadyClosed bool
+	debugCheckPage     bool
 }
 
 type bucketItemStatus byte
@@ -129,6 +130,7 @@ func NewLinearProbingIndex(
 	pool bufferpool.BufferPool,
 	locker txns.ILockManager,
 	logger common.ITxnLoggerWithContext,
+	debugCheckPage bool,
 ) (*LinearProbingIndex, error) {
 	cToken := txns.NewNilCatalogLockToken(logger.GetTxnID())
 
@@ -146,7 +148,8 @@ func NewLinearProbingIndex(
 		masterPage:     masterPage,
 		pool:           pool,
 
-		debug_already_closed: false,
+		debugAlreadyClosed: false,
+		debugCheckPage:     debugCheckPage,
 	}
 
 	if err := index.setupMasterPage(meta); err != nil {
@@ -855,8 +858,8 @@ func (i *LinearProbingIndex) grow() error {
 }
 
 func (i *LinearProbingIndex) Close() error {
-	assert.Assert(!i.debug_already_closed, "index already closed")
-	i.debug_already_closed = true
+	assert.Assert(!i.debugAlreadyClosed, "index already closed")
+	i.debugAlreadyClosed = true
 
 	masterPageIdent := getMasterPageIdent(i.indexFileToken.GetFileID())
 	i.pool.Unpin(masterPageIdent)
@@ -985,6 +988,10 @@ func (i *LinearProbingIndex) setupMasterPage(indexMeta storage.IndexMeta) error 
 
 		bucketPage.RLock()
 		if bucketPage.NumSlots() == uint16(bucketCapacity) {
+			if !i.debugCheckPage {
+				bucketPage.RUnlock()
+				return nil
+			}
 			foundAbnormal := false
 			for slotIdx := range bucketPage.NumSlots() {
 				if bucketPage.SlotInfo(slotIdx) != page.SlotStatusInserted {

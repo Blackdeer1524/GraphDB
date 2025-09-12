@@ -28,6 +28,7 @@ import (
 
 func setupExecutor(
 	poolPageCount uint64,
+	debugCheckPage bool,
 ) (*Executor, *bufferpool.DebugBufferPool, common.ITxnLogger, error) {
 	catalogBasePath := "/tmp/graphdb_test"
 	fs := afero.NewMemMapFs()
@@ -73,7 +74,7 @@ func setupExecutor(
 		locker *txns.LockManager,
 		logger common.ITxnLoggerWithContext,
 	) (storage.Index, error) {
-		return index.NewLinearProbingIndex(indexMeta, pool, locker, logger)
+		return index.NewLinearProbingIndex(indexMeta, pool, locker, logger, debugCheckPage)
 	}
 
 	se := engine.New(
@@ -127,7 +128,7 @@ func Execute(
 }
 
 func TestCreateVertexType(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -151,7 +152,7 @@ func TestCreateVertexType(t *testing.T) {
 }
 
 func TestCreateVertexSimpleInsert(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -186,7 +187,7 @@ func TestCreateVertexSimpleInsert(t *testing.T) {
 }
 
 func TestVertexTableInserts(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -242,7 +243,7 @@ func TestVertexTableInserts(t *testing.T) {
 }
 
 func TestCreateVertexRollback(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -280,7 +281,7 @@ func TestCreateVertexRollback(t *testing.T) {
 }
 
 func TestVertexTableInsertsRollback(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -349,7 +350,7 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 }
 
 func TestDropVertexTable(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -429,7 +430,7 @@ func TestDropVertexTable(t *testing.T) {
 }
 
 func TestCreateEdgeTable(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -501,7 +502,14 @@ func TestCreateEdgeTable(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			res, err := e.GetVertexesOnDepth(txnID, vertTableName, v1, 1, logger)
+			res, err := e.GetVertexesOnDepth(
+				txnID,
+				vertTableName,
+				v1,
+				1,
+				storage.AllowAllVerticesFilter,
+				logger,
+			)
 			require.NoError(t, err)
 			require.Equal(t, len(res), 1)
 			require.Equal(t, res[0].V, v2)
@@ -551,7 +559,7 @@ func setupTables(
 }
 
 func TestVertexAndEdgeTableDrop(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -594,7 +602,7 @@ func TestVertexAndEdgeTableDrop(t *testing.T) {
 }
 
 func TestSnowflakeNeighbours(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -682,6 +690,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 					vertTableName,
 					vCenterID,
 					1,
+					storage.AllowAllVerticesFilter,
 					logger,
 				)
 				require.NoError(t, err)
@@ -700,6 +709,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 						vertTableName,
 						noEdgesNeighbor,
 						1,
+						storage.AllowAllVerticesFilter,
 						logger,
 					)
 					require.NoError(t, err)
@@ -722,6 +732,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 					vertTableName,
 					vCenterID,
 					2,
+					storage.AllowAllVerticesFilter,
 					logger,
 				)
 				require.NoError(t, err)
@@ -744,6 +755,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 						vertTableName,
 						noEdgesNeighbor,
 						1,
+						storage.AllowAllVerticesFilter,
 						logger,
 					)
 					require.NoError(t, err)
@@ -1006,6 +1018,7 @@ func assertDBGraph(
 							vertTableName,
 							startSystemID,
 							uint32(depth),
+							storage.AllowAllVerticesFilter,
 							logger,
 						)
 						require.NoError(t, err)
@@ -1025,7 +1038,7 @@ func assertDBGraph(
 }
 
 func TestBuildGraph(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1213,7 +1226,7 @@ func generateRandomGraph(n int, connectivity float32, r *rand.Rand, bidirectiona
 }
 
 func TestRandomizedBuildGraph(t *testing.T) {
-	e, pool, logger, err := setupExecutor(100)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1325,7 +1338,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 }
 
 func TestBigRandomGraph(t *testing.T) {
-	e, pool, logger, err := setupExecutor(100)
+	e, pool, logger, err := setupExecutor(1000, false)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1381,7 +1394,7 @@ func TestBigRandomGraph(t *testing.T) {
 }
 
 func TestNeighboursMultipleTables(t *testing.T) {
-	e, pool, logger, err := setupExecutor(100)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1526,6 +1539,7 @@ func TestNeighboursMultipleTables(t *testing.T) {
 				personVTableName,
 				firstPersonVID,
 				1,
+				storage.AllowAllVerticesFilter,
 				logger,
 			)
 			require.NoError(t, err)
@@ -1541,6 +1555,7 @@ func TestNeighboursMultipleTables(t *testing.T) {
 				workplaceVTableName,
 				workplaceVID,
 				1,
+				storage.AllowAllVerticesFilter,
 				logger,
 			)
 			require.NoError(t, err)
@@ -1564,7 +1579,7 @@ func TestNeighboursMultipleTables(t *testing.T) {
 }
 
 func TestSelectVerticesWithValues(t *testing.T) {
-	e, pool, logger, err := setupExecutor(100)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1673,7 +1688,7 @@ func TestSelectVerticesWithValues(t *testing.T) {
 }
 
 func TestGetAllTriangles(t *testing.T) {
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1966,10 +1981,6 @@ func TestGraphCountTriangles(t *testing.T) {
 }
 
 func TestRandomizedGetAllTriangles(t *testing.T) {
-	_, pool, _, err := setupExecutor(10)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
-
 	tests := []struct {
 		vertexCount  int
 		connectivity float32
@@ -1988,7 +1999,7 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 		},
 	}
 
-	e, pool, logger, err := setupExecutor(10)
+	e, pool, logger, err := setupExecutor(10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -2085,3 +2096,19 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 		)
 	}
 }
+
+// func TestCountCommonNeighbors(t *testing.T) {
+// 	e, pool, logger, err := setupExecutor(10)
+// 	require.NoError(t, err)
+// 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+//
+// 	vertTableName := "person"
+// 	verticesFieldName := "money"
+// 	edgeTableName := "indepted_to"
+// 	edgesFieldName := "debt_amount"
+// 	ticker := atomic.Uint64{}
+// 	setupTables(t, e, &ticker, vertTableName, verticesFieldName, edgeTableName, edgesFieldName,
+// logger)
+//
+// 	e.GetVertexesOnDepth()
+// }

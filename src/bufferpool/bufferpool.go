@@ -550,6 +550,8 @@ func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdenti
 		if err := m.FlushLogs(); err != nil {
 			return err
 		}
+		newFlushLSN := m.logger.GetFlushLSN()
+		assert.Assert(newFlushLSN >= flushLSN, "flushLSN is not updated")
 	}
 
 	err := m.diskManager.WritePageAssumeLocked(lockedPg, pIdent)
