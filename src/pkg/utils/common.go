@@ -5,10 +5,13 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"os"
+	"path/filepath"
+	"strconv"
 
 	"github.com/spf13/afero"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
 func Must[T any](v T, err error) T {
@@ -120,4 +123,8 @@ func IsFileExists(fs afero.Fs, path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+func GetFilePath(basePath string, fileID common.FileID) string {
+	return filepath.Join(basePath, strconv.Itoa(int(fileID))+".dat")
 }

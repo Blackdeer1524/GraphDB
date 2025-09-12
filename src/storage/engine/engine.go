@@ -10,11 +10,10 @@ import (
 )
 
 type StorageEngine struct {
-	catalog                storage.SystemCatalog
-	pool                   bufferpool.BufferPool
-	diskMgrInsertToFileMap func(fileID common.FileID, path string)
-	diskMgrGetLastPage     func(fileID common.FileID) (common.PageID, error)
-	diskMgrGetEmptyPage    func(fileID common.FileID) (common.PageID, error)
+	catalog             storage.SystemCatalog
+	pool                bufferpool.BufferPool
+	diskMgrGetLastPage  func(fileID common.FileID) (common.PageID, error)
+	diskMgrGetEmptyPage func(fileID common.FileID) (common.PageID, error)
 
 	locker *txns.LockManager
 	fs     afero.Fs
@@ -67,7 +66,6 @@ var _ storage.Engine = &StorageEngine{}
 func New(
 	sysCat storage.SystemCatalog,
 	pool bufferpool.BufferPool,
-	diskMgrInsertToFileMap func(fileID common.FileID, path string),
 	diskMgrGetLastPage func(fileID common.FileID) (common.PageID, error),
 	diskMgrGetEmptyPage func(fileID common.FileID) (common.PageID, error),
 	locker *txns.LockManager,
@@ -80,13 +78,12 @@ func New(
 	) (storage.Index, error),
 ) *StorageEngine {
 	return &StorageEngine{
-		catalog:                sysCat,
-		diskMgrInsertToFileMap: diskMgrInsertToFileMap,
-		diskMgrGetLastPage:     diskMgrGetLastPage,
-		diskMgrGetEmptyPage:    diskMgrGetEmptyPage,
-		locker:                 locker,
-		fs:                     fs,
-		pool:                   pool,
-		loadIndex:              indexLoader,
+		catalog:             sysCat,
+		diskMgrGetLastPage:  diskMgrGetLastPage,
+		diskMgrGetEmptyPage: diskMgrGetEmptyPage,
+		locker:              locker,
+		fs:                  fs,
+		pool:                pool,
+		loadIndex:           indexLoader,
 	}
 }

@@ -40,16 +40,15 @@ func setup(
 	poolSize uint64,
 	keyLength uint32,
 ) (*bufferpool.DebugBufferPool, common.ITxnLogger, storage.IndexMeta, *txns.LockManager) {
+	basePath := "/tmp/graphdb_test"
 	newPageFunc := func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
 		return page.NewSlottedPage()
 	}
 	fs := afero.NewMemMapFs()
-	diskMgr := disk.New(newPageFunc, fs)
+	diskMgr := disk.New(basePath, newPageFunc, fs)
 
 	logFileID := common.FileID(42)
 	indexFileID := common.FileID(33)
-	diskMgr.InsertToFileMap(logFileID, "/tmp/graphdb_test/log")
-	diskMgr.InsertToFileMap(indexFileID, "/tmp/graphdb_test/index")
 
 	pool := bufferpool.New(
 		poolSize,

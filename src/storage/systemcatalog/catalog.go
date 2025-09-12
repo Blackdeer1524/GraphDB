@@ -19,8 +19,7 @@ import (
 )
 
 const (
-	currentVersionFile = "CURRENT"
-	zeroVersion        = uint64(0)
+	zeroVersion = uint64(0)
 
 	CatalogVersionFileID  = common.FileID(0)
 	catalogVersionPageID  = common.PageID(0)
@@ -135,7 +134,6 @@ type Catalog struct {
 	maxFileID uint64
 
 	bp                 bufferpool.BufferPool
-	diskUpdateFileMap  func(mp map[common.FileID]string)
 	currentVersionPage *page.SlottedPage
 
 	// masterVersion uses for cache if version from file is equal to
@@ -149,11 +147,11 @@ type Catalog struct {
 var _ storage.SystemCatalog = &Catalog{}
 
 func GetSystemCatalogVersionFilePath(basePath string) string {
-	return filepath.Join(basePath, currentVersionFile)
+	return utils.GetFilePath(basePath, CatalogVersionFileID)
 }
 
 func GetLogFilePath(basePath string) string {
-	return filepath.Join(basePath, "log.bin")
+	return utils.GetFilePath(basePath, LogFileID)
 }
 
 func getSystemCatalogFilename(basePath string, v uint64) string {
@@ -260,7 +258,7 @@ func createLogFile(logFilePath string, fs afero.Fs) error {
 }
 
 func CreateLogFileIfDoesntExist(basePath string, fs afero.Fs) error {
-	logFilePath := GetLogFilePath(basePath)
+	logFilePath := utils.GetFilePath(basePath, LogFileID)
 	ok, err := utils.IsFileExists(fs, logFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to check existence of log file: %w", err)
@@ -284,7 +282,6 @@ func New(
 	basePath string,
 	fs afero.Fs,
 	bp bufferpool.BufferPool,
-	diskUpdateFileMap func(mp map[common.FileID]string),
 ) (*Catalog, error) {
 	versionFile := GetSystemCatalogVersionFilePath(basePath)
 
@@ -323,7 +320,6 @@ func New(
 
 	cat := &Catalog{
 		bp:                 bp,
-		diskUpdateFileMap:  diskUpdateFileMap,
 		currentVersionPage: cvp,
 		masterVersion:      versionNum,
 		basePath:           basePath,
@@ -333,7 +329,6 @@ func New(
 
 		mu: sync.RWMutex{},
 	}
-	cat.diskUpdateFileMap(cat.getFileIDToPathMapAssumeLocked())
 	return cat, nil
 }
 
@@ -374,7 +369,6 @@ func (m *Catalog) Load() error {
 
 	m.data = &data
 	m.isDirty = false
-	m.diskUpdateFileMap(m.getFileIDToPathMapAssumeLocked())
 
 	return nil
 }
@@ -835,36 +829,6 @@ func (m *Catalog) CopyData() (Data, error) {
 	defer m.mu.RUnlock()
 
 	return m.data.Copy(), nil
-}
-
-func (m *Catalog) getFileIDToPathMapAssumeLocked() map[common.FileID]string {
-	mp := make(map[common.FileID]string)
-
-	for _, v := range m.data.VertexTables {
-		mp[common.FileID(v.FileID)] = v.PathToFile
-	}
-
-	for _, v := range m.data.EdgeTables {
-		mp[common.FileID(v.FileID)] = v.PathToFile
-	}
-
-	for _, v := range m.data.DirTables {
-		mp[common.FileID(v.FileID)] = v.PathToFile
-	}
-
-	for _, v := range m.data.VertexIndexes {
-		mp[common.FileID(v.FileID)] = v.PathToFile
-	}
-
-	for _, v := range m.data.EdgeIndexes {
-		mp[common.FileID(v.FileID)] = v.PathToFile
-	}
-
-	for _, v := range m.data.DirIndexes {
-		mp[common.FileID(v.FileID)] = v.PathToFile
-	}
-
-	return mp
 }
 
 func calcMaxFileID(data *Data) uint64 {

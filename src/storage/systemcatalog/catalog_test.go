@@ -2,7 +2,6 @@ package systemcatalog
 
 import (
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -24,19 +23,18 @@ func newTestCatalogManager(t *testing.T) (*Catalog, afero.Fs, bufferpool.BufferP
 	require.NoError(t, fs.MkdirAll(basePath, 0o700))
 
 	require.NoError(t, InitSystemCatalog(basePath, fs))
-	versionFilePath := GetSystemCatalogVersionFilePath(basePath)
 	dm := disk.New(
+		basePath,
 		func(_ common.FileID, _ common.PageID) *page.SlottedPage {
 			return page.NewSlottedPage()
 		},
 		fs,
 	)
-	dm.InsertToFileMap(CatalogVersionFileID, versionFilePath)
 
 	replacer := bufferpool.NewLRUReplacer()
 	pool := bufferpool.New(8, replacer, dm)
 
-	m, err := New(basePath, fs, pool, dm.UpdateFileMap)
+	m, err := New(basePath, fs, pool)
 	require.NoError(t, err)
 
 	return m, fs, pool, basePath
@@ -142,11 +140,6 @@ func TestCatalogManager_EmptyCatalog_ReadsAfterLoad(t *testing.T) {
 	_, err = m.GetEdgeTableIndexes("follows")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrEntityNotFound)
-
-	// FileID->path map is empty
-	require.NoError(t, m.Load())
-	mp := m.getFileIDToPathMapAssumeLocked()
-	require.Empty(t, mp)
 }
 
 func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
@@ -155,9 +148,8 @@ func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
 	// prepare metas
 	vtID := m.GetNewFileID()
 	vtMeta := storage.VertexTableMeta{
-		Name:       "users",
-		FileID:     vtID,
-		PathToFile: filepath.Join(basePath, "users.dat"),
+		Name:   "users",
+		FileID: vtID,
 		Schema: storage.Schema{
 			{Name: "id", Type: storage.ColumnTypeUUID},
 			{Name: "name", Type: storage.ColumnTypeUint64},
@@ -168,14 +160,12 @@ func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
 	dtMeta := storage.DirTableMeta{
 		VertexTableID: vtID,
 		FileID:        dtID,
-		PathToFile:    filepath.Join(basePath, "dir_users.dat"),
 	}
 
 	etID := m.GetNewFileID()
 	etMeta := storage.EdgeTableMeta{
 		Name:            "follows",
 		FileID:          etID,
-		PathToFile:      filepath.Join(basePath, "follows.dat"),
 		Schema:          storage.Schema{{Name: "weight", Type: storage.ColumnTypeFloat64}},
 		SrcVertexFileID: vtID,
 		DstVertexFileID: vtID,
@@ -184,7 +174,6 @@ func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
 	viID := m.GetNewFileID()
 	veIdx := storage.IndexMeta{
 		Name:        "user_by_name",
-		PathToFile:  filepath.Join(basePath, "user_by_name.idx"),
 		FileID:      viID,
 		TableName:   vtMeta.Name,
 		Columns:     []string{"name"},
@@ -194,7 +183,6 @@ func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
 	eiID := m.GetNewFileID()
 	edIdx := storage.IndexMeta{
 		Name:        "follows_by_weight",
-		PathToFile:  filepath.Join(basePath, "follows_by_weight.idx"),
 		FileID:      eiID,
 		TableName:   etMeta.Name,
 		Columns:     []string{"weight"},
@@ -204,7 +192,6 @@ func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
 	diID := m.GetNewFileID()
 	dirIdx := storage.IndexMeta{
 		Name:        "dir_by_ID",
-		PathToFile:  filepath.Join(basePath, "dir_by_ID.idx"),
 		FileID:      diID,
 		TableName:   GetDirTableName(vtID),
 		Columns:     []string{"ID"},
@@ -281,36 +268,25 @@ func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, dirIdx, gotDirIdx)
 
-	// fileID to path map contains all entries
-	paths := m.getFileIDToPathMapAssumeLocked()
-	require.Equal(t, vtMeta.PathToFile, paths[vtID])
-	require.Equal(t, etMeta.PathToFile, paths[etID])
-	require.Equal(t, dtMeta.PathToFile, paths[dtID])
-	require.Equal(t, veIdx.PathToFile, paths[viID])
-	require.Equal(t, edIdx.PathToFile, paths[eiID])
-	require.Equal(t, dirIdx.PathToFile, paths[diID])
-
 	// ensure catalog files exist in fs
 	_, err = fs.Stat(filepath.Join(basePath, "system_catalog_1.json"))
 	require.NoError(t, err)
 }
 
 func TestCatalogManager_DropEntities_ReadsAfterLoad(t *testing.T) {
-	m, _, _, basePath := newTestCatalogManager(t)
+	m, _, _, _ := newTestCatalogManager(t)
 
 	// seed with one of each and commit
 	vtID := m.GetNewFileID()
 	vtMeta := storage.VertexTableMeta{
-		Name:       "users",
-		FileID:     vtID,
-		PathToFile: filepath.Join(basePath, "users.dat"),
-		Schema:     storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
+		Name:   "users",
+		FileID: vtID,
+		Schema: storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
 	}
 	etID := m.GetNewFileID()
 	etMeta := storage.EdgeTableMeta{
 		Name:            "follows",
 		FileID:          etID,
-		PathToFile:      filepath.Join(basePath, "follows.dat"),
 		Schema:          storage.Schema{{Name: "weight", Type: storage.ColumnTypeFloat64}},
 		SrcVertexFileID: vtID,
 		DstVertexFileID: vtID,
@@ -319,13 +295,11 @@ func TestCatalogManager_DropEntities_ReadsAfterLoad(t *testing.T) {
 	dtMeta := storage.DirTableMeta{
 		VertexTableID: vtID,
 		FileID:        dtID,
-		PathToFile:    filepath.Join(basePath, "dir_users.dat"),
 	}
 
 	viID := m.GetNewFileID()
 	veIdx := storage.IndexMeta{
 		Name:        "user_by_name",
-		PathToFile:  filepath.Join(basePath, "user_by_name.idx"),
 		FileID:      viID,
 		TableName:   vtMeta.Name,
 		Columns:     []string{"name"},
@@ -334,7 +308,6 @@ func TestCatalogManager_DropEntities_ReadsAfterLoad(t *testing.T) {
 	eiID := m.GetNewFileID()
 	edIdx := storage.IndexMeta{
 		Name:        "follows_by_weight",
-		PathToFile:  filepath.Join(basePath, "follows_by_weight.idx"),
 		FileID:      eiID,
 		TableName:   etMeta.Name,
 		Columns:     []string{"weight"},
@@ -343,7 +316,6 @@ func TestCatalogManager_DropEntities_ReadsAfterLoad(t *testing.T) {
 	diID := m.GetNewFileID()
 	dirIdx := storage.IndexMeta{
 		Name:        "dir_by_ID",
-		PathToFile:  filepath.Join(basePath, "dir_by_ID.idx"),
 		FileID:      diID,
 		TableName:   GetDirTableName(vtID),
 		Columns:     []string{"ID"},
@@ -389,14 +361,13 @@ func TestCatalogManager_DropEntities_ReadsAfterLoad(t *testing.T) {
 }
 
 func TestCatalogManager_SimpleRollback(t *testing.T) {
-	m, _, _, basePath := newTestCatalogManager(t)
+	m, _, _, _ := newTestCatalogManager(t)
 	m.GetBasePath()
 
 	require.NoError(t, m.AddVertexTable(storage.VertexTableMeta{
-		Name:       "users",
-		FileID:     m.GetNewFileID(),
-		PathToFile: filepath.Join(basePath, "users.dat"),
-		Schema:     storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
+		Name:   "users",
+		FileID: m.GetNewFileID(),
+		Schema: storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
 	}))
 
 	require.NoError(t, m.Load())
@@ -407,15 +378,14 @@ func TestCatalogManager_SimpleRollback(t *testing.T) {
 }
 
 func TestCatalogManager_VersionRollback(t *testing.T) {
-	m, _, _, basePath := newTestCatalogManager(t)
+	m, _, _, _ := newTestCatalogManager(t)
 	m.GetBasePath()
 
 	fileID := m.GetNewFileID()
 	require.NoError(t, m.AddVertexTable(storage.VertexTableMeta{
-		Name:       "users",
-		FileID:     fileID,
-		PathToFile: filepath.Join(basePath, strconv.Itoa(int(fileID))),
-		Schema:     storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
+		Name:   "users",
+		FileID: fileID,
+		Schema: storage.Schema{{Name: "id", Type: storage.ColumnTypeUUID}},
 	}))
 
 	logger := newMockCtxLogger(t)

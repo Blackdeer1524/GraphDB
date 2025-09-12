@@ -11,15 +11,16 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage/page"
 )
 
 var ErrNoSuchPage = errors.New("no such page")
 
 type Manager struct {
-	mu           sync.Mutex
-	fileIDToPath map[common.FileID]string
-	newPageFunc  func(fileID common.FileID, pageID common.PageID) *page.SlottedPage
+	basePath    string
+	mu          sync.Mutex
+	newPageFunc func(fileID common.FileID, pageID common.PageID) *page.SlottedPage
 
 	fs afero.Fs
 }
@@ -29,14 +30,15 @@ var (
 )
 
 func New(
+	basePath string,
 	newPageFunc func(fileID common.FileID, pageID common.PageID) *page.SlottedPage,
 	fs afero.Fs,
 ) *Manager {
 	return &Manager{
-		fileIDToPath: map[common.FileID]string{},
-		newPageFunc:  newPageFunc,
-		mu:           sync.Mutex{},
-		fs:           fs,
+		basePath:    basePath,
+		newPageFunc: newPageFunc,
+		mu:          sync.Mutex{},
+		fs:          fs,
 	}
 }
 func (m *Manager) Lock() {
@@ -58,10 +60,7 @@ func (m *Manager) ReadPageAssumeLocked(
 	pg *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
-	path, ok := m.fileIDToPath[pageIdent.FileID]
-	if !ok {
-		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
-	}
+	path := utils.GetFilePath(m.basePath, pageIdent.FileID)
 
 	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
@@ -108,10 +107,7 @@ func (m *Manager) GetPageNoNewAssumeLocked(
 	pg *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
-	path, ok := m.fileIDToPath[pageIdent.FileID]
-	if !ok {
-		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
-	}
+	path := utils.GetFilePath(m.basePath, pageIdent.FileID)
 
 	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
@@ -137,10 +133,7 @@ func (m *Manager) WritePageAssumeLocked(
 	lockedPage *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
-	path, ok := m.fileIDToPath[pageIdent.FileID]
-	if !ok {
-		return fmt.Errorf("fileID %d not found in path map", pageIdent.FileID)
-	}
+	path := utils.GetFilePath(m.basePath, pageIdent.FileID)
 
 	data := lockedPage.GetData()
 	if len(data) == 0 {
@@ -254,43 +247,11 @@ func (m *InMemoryManager) WritePageAssumeLocked(
 	return nil
 }
 
-func (m *Manager) UpdateFileMap(mp map[common.FileID]string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for k, v := range mp {
-		if prevPath, ok := m.fileIDToPath[k]; ok {
-			if prevPath == v {
-				continue
-			}
-			panic(
-				fmt.Sprintf(
-					"fileID %d already exists in path map. Tried to update: %s -> %s",
-					k,
-					prevPath,
-					v,
-				),
-			)
-		}
-		m.fileIDToPath[k] = v
-	}
-}
-
-func (m *Manager) InsertToFileMap(id common.FileID, path string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.fileIDToPath[id] = path
-}
-
 func (m *Manager) GetLastFilePage(fileID common.FileID) (common.PageID, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	path, ok := m.fileIDToPath[fileID]
-	if !ok {
-		return 0, fmt.Errorf("fileID %d not found in path map", fileID)
-	}
+	path := utils.GetFilePath(m.basePath, fileID)
 
 	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR, 0o644)
 	if err != nil {
@@ -315,10 +276,7 @@ func (m *Manager) GetEmptyPage(fileID common.FileID) (common.PageID, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	path, ok := m.fileIDToPath[fileID]
-	if !ok {
-		return 0, fmt.Errorf("fileID %d not found in path map", fileID)
-	}
+	path := utils.GetFilePath(m.basePath, fileID)
 
 	file, err := m.fs.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {

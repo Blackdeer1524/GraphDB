@@ -83,10 +83,9 @@ func (c ColumnType) Size() int {
 type Schema []Column
 
 type VertexTableMeta struct {
-	Name       string        `json:"name"`
-	FileID     common.FileID `json:"file_id"`
-	PathToFile string        `json:"path_to_file"`
-	Schema     Schema        `json:"schema"`
+	Name   string        `json:"name"`
+	FileID common.FileID `json:"file_id"`
+	Schema Schema        `json:"schema"`
 }
 
 func (v *VertexTableMeta) Copy() VertexTableMeta {
@@ -94,17 +93,15 @@ func (v *VertexTableMeta) Copy() VertexTableMeta {
 	copy(schemaCopy, v.Schema)
 
 	return VertexTableMeta{
-		Name:       v.Name,
-		FileID:     v.FileID,
-		PathToFile: v.PathToFile,
-		Schema:     schemaCopy,
+		Name:   v.Name,
+		FileID: v.FileID,
+		Schema: schemaCopy,
 	}
 }
 
 type EdgeTableMeta struct {
 	Name            string        `json:"name"`
 	FileID          common.FileID `json:"file_id"`
-	PathToFile      string        `json:"path_to_file"`
 	Schema          Schema        `json:"schema"`
 	SrcVertexFileID common.FileID `json:"src_vertex_file_id"`
 	DstVertexFileID common.FileID `json:"dst_vertex_file_id"`
@@ -117,7 +114,6 @@ func (v *EdgeTableMeta) Copy() EdgeTableMeta {
 	return EdgeTableMeta{
 		Name:            v.Name,
 		FileID:          v.FileID,
-		PathToFile:      v.PathToFile,
 		Schema:          schemaCopy,
 		SrcVertexFileID: v.SrcVertexFileID,
 		DstVertexFileID: v.DstVertexFileID,
@@ -127,20 +123,17 @@ func (v *EdgeTableMeta) Copy() EdgeTableMeta {
 type DirTableMeta struct {
 	VertexTableID common.FileID `json:"vertex_table_id"`
 	FileID        common.FileID `json:"file_id"`
-	PathToFile    string        `json:"path_to_file"`
 }
 
 func (d *DirTableMeta) Copy() DirTableMeta {
 	return DirTableMeta{
 		VertexTableID: d.VertexTableID,
 		FileID:        d.FileID,
-		PathToFile:    d.PathToFile,
 	}
 }
 
 type IndexMeta struct {
 	Name        string        `json:"name"`
-	PathToFile  string        `json:"path_to_file"`
 	FileID      common.FileID `json:"id"`
 	TableName   string        `json:"table_name"`
 	Columns     []string      `json:"columns"`
@@ -153,7 +146,6 @@ func (i *IndexMeta) Copy() IndexMeta {
 
 	return IndexMeta{
 		Name:        i.Name,
-		PathToFile:  i.PathToFile,
 		FileID:      i.FileID,
 		TableName:   i.TableName,
 		Columns:     columnsCopy,

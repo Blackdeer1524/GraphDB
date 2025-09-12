@@ -43,21 +43,18 @@ func setupExecutor(
 		return nil, nil, nil, nil, err
 	}
 
-	versionFilePath := systemcatalog.GetSystemCatalogVersionFilePath(catalogBasePath)
-	logFilePath := systemcatalog.GetLogFilePath(catalogBasePath)
 	diskMgr := disk.New(
+		catalogBasePath,
 		func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
 			return page.NewSlottedPage()
 		},
 		fs,
 	)
-	diskMgr.InsertToFileMap(systemcatalog.CatalogVersionFileID, versionFilePath)
-	diskMgr.InsertToFileMap(systemcatalog.LogFileID, logFilePath)
 
 	pool := bufferpool.New(poolPageCount, bufferpool.NewLRUReplacer(), diskMgr)
 	debugPool := bufferpool.NewDebugBufferPool(pool)
 
-	sysCat, err := systemcatalog.New(catalogBasePath, fs, debugPool, diskMgr.UpdateFileMap)
+	sysCat, err := systemcatalog.New(catalogBasePath, fs, debugPool)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -80,7 +77,6 @@ func setupExecutor(
 	se := engine.New(
 		sysCat,
 		debugPool,
-		diskMgr.InsertToFileMap,
 		diskMgr.GetLastFilePage,
 		diskMgr.GetEmptyPage,
 		locker,
@@ -2119,99 +2115,178 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 	}
 }
 
-// func TestRecovery(t *testing.T) {
-// 	fs := afero.NewMemMapFs()
-// 	e, pool, _, logger, err := setupExecutor(fs, 10, false)
-// 	require.NoError(t, err)
-// 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
-//
-// 	ticker := atomic.Uint64{}
-// 	vertTableName := "person"
-// 	verticesFieldName := "money"
-// 	edgeTableName := "indepted_to"
-// 	edgesFieldName := "debt_amount"
-//
-// 	graphInfo := GraphInfo{
-// 		g: map[int][]int{
-// 			1: {2},
-// 		},
-// 		edgesInfo: map[utils.Pair[int, int]]int64{
-// 			{First: 1, Second: 2}: 100,
-// 		},
-// 		verticesInfo: map[int]int64{
-// 			1: 100,
-// 			2: 200,
-// 		},
-// 	}
-//
-// 	setupTables(
-// 		t,
-// 		e,
-// 		&ticker,
-// 		vertTableName,
-// 		verticesFieldName,
-// 		edgeTableName,
-// 		edgesFieldName,
-// 		logger,
-// 	)
-//
-// 	intToVertSystemID, edgesSystemInfo := BuildGraph(
-// 		t,
-// 		&ticker,
-// 		vertTableName,
-// 		edgeTableName,
-// 		e,
-// 		logger,
-// 		graphInfo.g,
-// 		edgesFieldName,
-// 		graphInfo.edgesInfo,
-// 		verticesFieldName,
-// 		graphInfo.verticesInfo,
-// 	)
-//
-// 	t.Log("asserting a graph...")
-// 	assertDBGraph(
-// 		t,
-// 		&ticker,
-// 		e,
-// 		logger,
-// 		graphInfo,
-// 		vertTableName,
-// 		verticesFieldName,
-// 		edgeTableName,
-// 		edgesFieldName,
-// 		intToVertSystemID,
-// 		edgesSystemInfo,
-// 		1,
-// 	)
-// 	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
-//
-// 	{
-// 		t.Log("recovering a graph...")
-// 		e, _, _, logger, err := setupExecutor(fs, 10, false)
-//
-// 		builder := &strings.Builder{}
-// 		logger.Dump(
-// 			common.FileLocation{PageID: common.CheckpointInfoPageID + 1, SlotNum: 0},
-// 			builder,
-// 		)
-// 		t.Logf("Log file:\n%s", builder.String())
-//
-// 		require.NoError(t, err)
-// 		t.Log("asserting a graph after recovery...")
-// 		assertDBGraph(
-// 			t,
-// 			&ticker,
-// 			e,
-// 			logger,
-// 			graphInfo,
-// 			vertTableName,
-// 			verticesFieldName,
-// 			edgeTableName,
-// 			edgesFieldName,
-// 			intToVertSystemID,
-// 			edgesSystemInfo,
-// 			1,
-// 		)
-// 	}
-// }
+func TestRecovery(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	e, pool, _, logger, err := setupExecutor(fs, 10, false)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	verticesFieldName := "money"
+	edgeTableName := "indepted_to"
+	edgesFieldName := "debt_amount"
+
+	graphInfo := GraphInfo{
+		g: map[int][]int{
+			1: {2},
+		},
+		edgesInfo: map[utils.Pair[int, int]]int64{
+			{First: 1, Second: 2}: 100,
+		},
+		verticesInfo: map[int]int64{
+			1: 100,
+			2: 200,
+		},
+	}
+
+	setupTables(
+		t,
+		e,
+		&ticker,
+		vertTableName,
+		verticesFieldName,
+		edgeTableName,
+		edgesFieldName,
+		logger,
+	)
+
+	intToVertSystemID, edgesSystemInfo := BuildGraph(
+		t,
+		&ticker,
+		vertTableName,
+		edgeTableName,
+		e,
+		logger,
+		graphInfo.g,
+		edgesFieldName,
+		graphInfo.edgesInfo,
+		verticesFieldName,
+		graphInfo.verticesInfo,
+	)
+
+	t.Log("asserting a graph...")
+	assertDBGraph(
+		t,
+		&ticker,
+		e,
+		logger,
+		graphInfo,
+		vertTableName,
+		verticesFieldName,
+		edgeTableName,
+		edgesFieldName,
+		intToVertSystemID,
+		edgesSystemInfo,
+		1,
+	)
+	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+
+	{
+		t.Log("recovering a graph...")
+		e, _, _, logger, err := setupExecutor(fs, 10, false)
+
+		builder := &strings.Builder{}
+		logger.Dump(
+			common.FileLocation{PageID: common.CheckpointInfoPageID + 1, SlotNum: 0},
+			builder,
+		)
+		t.Logf("Log file:\n%s", builder.String())
+
+		require.NoError(t, err)
+		t.Log("asserting a graph after recovery...")
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			graphInfo,
+			vertTableName,
+			verticesFieldName,
+			edgeTableName,
+			edgesFieldName,
+			intToVertSystemID,
+			edgesSystemInfo,
+			1,
+		)
+	}
+}
+
+func TestRecoveryRandomized(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	e, pool, _, logger, err := setupExecutor(fs, 10, false)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	verticesFieldName := "money"
+	edgeTableName := "indepted_to"
+	edgesFieldName := "debt_amount"
+
+	graphInfo := generateRandomGraph(1000, 0.005, rand.New(rand.NewSource(42)), false)
+
+	setupTables(
+		t,
+		e,
+		&ticker,
+		vertTableName,
+		verticesFieldName,
+		edgeTableName,
+		edgesFieldName,
+		logger,
+	)
+
+	intToVertSystemID, edgesSystemInfo := BuildGraph(
+		t,
+		&ticker,
+		vertTableName,
+		edgeTableName,
+		e,
+		logger,
+		graphInfo.g,
+		edgesFieldName,
+		graphInfo.edgesInfo,
+		verticesFieldName,
+		graphInfo.verticesInfo,
+	)
+
+	t.Log("asserting a graph...")
+	assertDBGraph(
+		t,
+		&ticker,
+		e,
+		logger,
+		graphInfo,
+		vertTableName,
+		verticesFieldName,
+		edgeTableName,
+		edgesFieldName,
+		intToVertSystemID,
+		edgesSystemInfo,
+		1,
+	)
+	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+
+	{
+		t.Log("recovering a graph...")
+		e, _, _, logger, err := setupExecutor(fs, 10, false)
+
+		require.NoError(t, err)
+		t.Log("asserting a graph after recovery...")
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			graphInfo,
+			vertTableName,
+			verticesFieldName,
+			edgeTableName,
+			edgesFieldName,
+			intToVertSystemID,
+			edgesSystemInfo,
+			1,
+		)
+	}
+}

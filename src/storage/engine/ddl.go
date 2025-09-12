@@ -11,6 +11,7 @@ import (
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
 	"github.com/Blackdeer1524/GraphDB/src/txns"
@@ -25,36 +26,27 @@ const (
 )
 
 func getVertexTableFilePath(basePath string, vertTableFileID common.FileID) string {
-	return getTableFilePath(basePath, vertexTableType, strconv.Itoa(int(vertTableFileID)))
+	return utils.GetFilePath(basePath, vertTableFileID)
 }
 
 func getEdgeTableFilePath(basePath string, edgeTableFileID common.FileID) string {
-	return getTableFilePath(basePath, edgeTableType, strconv.Itoa(int(edgeTableFileID)))
+	return utils.GetFilePath(basePath, edgeTableFileID)
 }
 
-func getDirectoryTableFilePath(basePath string, vertexTableFileID common.FileID) string {
-	dirTableName := systemcatalog.GetDirTableName(vertexTableFileID)
-	return getTableFilePath(basePath, directoryTableType, dirTableName)
+func getDirTableFilePath(basePath string, dirTableFileID common.FileID) string {
+	return utils.GetFilePath(basePath, dirTableFileID)
 }
 
 func getVertexTableIndexFilePath(basePath string, indexFileID common.FileID) string {
-	return getIndexFilePath(basePath, vertexTableType, strconv.Itoa(int(indexFileID)))
+	return utils.GetFilePath(basePath, indexFileID)
 }
 
 func getEdgeTableIndexFilePath(basePath string, indexFileID common.FileID) string {
-	return getIndexFilePath(basePath, edgeTableType, strconv.Itoa(int(indexFileID)))
+	return utils.GetFilePath(basePath, indexFileID)
 }
 
 func getDirTableIndexFilePath(basePath string, indexFileID common.FileID) string {
-	return getIndexFilePath(basePath, directoryTableType, strconv.Itoa(int(indexFileID)))
-}
-
-func getTableFilePath(basePath string, tableType tableType, n string) string {
-	return filepath.Join(basePath, "tables", string(tableType), n+".tbl")
-}
-
-func getIndexFilePath(basePath string, indexType tableType, n string) string {
-	return filepath.Join(basePath, "indexes", string(indexType), n+".idx")
+	return utils.GetFilePath(basePath, indexFileID)
 }
 
 func getTableSystemIndexName(tableID common.FileID) string {
@@ -120,10 +112,9 @@ func (s *StorageEngine) CreateVertexTable(
 
 	// update info in metadata
 	tblCreateReq := storage.VertexTableMeta{
-		Name:       tableName,
-		PathToFile: tableFilePath,
-		FileID:     tableFileID,
-		Schema:     schema,
+		Name:   tableName,
+		FileID: tableFileID,
+		Schema: schema,
 	}
 
 	err = s.catalog.AddVertexTable(tblCreateReq)
@@ -135,8 +126,6 @@ func (s *StorageEngine) CreateVertexTable(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-
-	s.diskMgrInsertToFileMap(common.FileID(tableFileID), tableFilePath)
 
 	err = s.createSystemVertexTableIndex(txnID, tableName, tableFileID, cToken, logger)
 	if err != nil {
@@ -166,9 +155,9 @@ func (s *StorageEngine) createDirTable(
 		return fmt.Errorf("unable to load catalog: %w", err)
 	}
 
-	basePath := s.catalog.GetBasePath()
-	tableFilePath := getDirectoryTableFilePath(basePath, vertexTableFileID)
 	dirTableFileID := s.catalog.GetNewFileID()
+	basePath := s.catalog.GetBasePath()
+	tableFilePath := getDirTableFilePath(basePath, dirTableFileID)
 
 	// Existence of the file is not the proof of existence of the table
 	// (we don't remove file on drop),
@@ -190,7 +179,6 @@ func (s *StorageEngine) createDirTable(
 	tblCreateReq := storage.DirTableMeta{
 		VertexTableID: vertexTableFileID,
 		FileID:        dirTableFileID,
-		PathToFile:    tableFilePath,
 	}
 
 	err = s.catalog.AddDirTable(tblCreateReq)
@@ -202,8 +190,6 @@ func (s *StorageEngine) createDirTable(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-
-	s.diskMgrInsertToFileMap(common.FileID(dirTableFileID), tableFilePath)
 
 	err = s.createSystemDirTableIndex(txnID, vertexTableFileID, dirTableFileID, cToken, logger)
 	if err != nil {
@@ -253,7 +239,6 @@ func (s *StorageEngine) CreateEdgeTable(
 
 	// update info in metadata
 	tblCreateReq := storage.EdgeTableMeta{
-		PathToFile:      tableFilePath,
 		FileID:          tableFileID,
 		Schema:          schema,
 		Name:            tableName,
@@ -270,8 +255,6 @@ func (s *StorageEngine) CreateEdgeTable(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-
-	s.diskMgrInsertToFileMap(common.FileID(tableFileID), tableFilePath)
 
 	err = s.createSystemEdgeTableIndex(txnID, tableName, tableFileID, cToken, logger)
 	if err != nil {
@@ -454,7 +437,6 @@ func (s *StorageEngine) CreateVertexTableIndex(
 
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
-		PathToFile:  indexFilePath,
 		FileID:      indexFileID,
 		TableName:   tableName,
 		Columns:     columns,
@@ -469,7 +451,6 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	s.diskMgrInsertToFileMap(common.FileID(indexFileID), indexFilePath)
 
 	err = s.buildVertexIndex(txnID, vertexTableMeta.FileID, idxCreateReq, cToken, logger)
 	if err != nil {
@@ -555,7 +536,6 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
-		PathToFile:  indexFilePath,
 		FileID:      indexFileID,
 		TableName:   tableName,
 		Columns:     columns,
@@ -570,7 +550,6 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	s.diskMgrInsertToFileMap(common.FileID(indexFileID), indexFilePath)
 
 	err = s.buildEdgeIndex(txnID, edgeTableMeta.FileID, idxCreateReq, cToken, logger)
 	if err != nil {
@@ -837,7 +816,6 @@ func (s *StorageEngine) createDirTableIndex(
 
 	idxCreateReq := storage.IndexMeta{
 		Name:        indexName,
-		PathToFile:  indexFilePath,
 		FileID:      indexFileID,
 		TableName:   systemcatalog.GetDirTableName(vertexTableFileID),
 		Columns:     columns,
@@ -852,7 +830,6 @@ func (s *StorageEngine) createDirTableIndex(
 	if err != nil {
 		return fmt.Errorf("unable to save catalog: %w", err)
 	}
-	s.diskMgrInsertToFileMap(common.FileID(indexFileID), indexFilePath)
 
 	err = s.buildDirIndex(txnID, dirTableMeta.FileID, idxCreateReq, cToken, logger)
 	if err != nil {
