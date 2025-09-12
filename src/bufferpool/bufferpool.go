@@ -576,7 +576,9 @@ func (m *Manager) FlushAllPages() error {
 	flushLSN := m.logger.GetFlushLSN()
 
 	var err error
-	for pgIdent := range m.DPT {
+
+	dptCopy := maps.Clone(m.DPT)
+	for pgIdent := range dptCopy {
 		frameInfo, ok := m.pageTable[pgIdent]
 		assert.Assert(ok, "dirty page %+v not found", pgIdent)
 
@@ -587,10 +589,9 @@ func (m *Manager) FlushAllPages() error {
 		assert.Assert(frame.PageLSN() <= flushLSN, "didn't flush logs for page %+v", pgIdent)
 
 		err = errors.Join(err, m.diskManager.WritePageAssumeLocked(frame, pgIdent))
+		delete(m.DPT, pgIdent)
 		frame.Unlock()
 	}
-
-	clear(m.DPT)
 	return err
 }
 

@@ -6,9 +6,7 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unsafe"
 
-	"github.com/google/uuid"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,6 +37,7 @@ func TestMarshalAndUnmarshalBucketItem(t *testing.T) {
 
 func setup(
 	t testing.TB,
+	poolSize uint64,
 	keyLength uint32,
 ) (*bufferpool.DebugBufferPool, common.ITxnLogger, storage.IndexMeta, *txns.LockManager) {
 	newPageFunc := func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
@@ -53,7 +52,7 @@ func setup(
 	diskMgr.InsertToFileMap(indexFileID, "/tmp/graphdb_test/index")
 
 	pool := bufferpool.New(
-		10,
+		poolSize,
 		bufferpool.NewLRUReplacer(),
 		diskMgr,
 	)
@@ -74,9 +73,9 @@ func setup(
 }
 
 func TestNoLeakageAfterCreation(t *testing.T) {
-	pool, logger, indexMeta, locker := setup(t, 4)
+	pool, logger, indexMeta, locker := setup(t, 10, 4)
 	ctxLogger := logger.WithContext(common.TxnID(1))
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 
 	index.Close()
@@ -84,10 +83,10 @@ func TestNoLeakageAfterCreation(t *testing.T) {
 }
 
 func TestIndexInsert(t *testing.T) {
-	pool, logger, indexMeta, locker := setup(t, 4)
+	pool, logger, indexMeta, locker := setup(t, 10, 4)
 	ctxLogger := logger.WithContext(common.TxnID(1))
 	require.NoError(t, ctxLogger.AppendBegin())
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
@@ -112,10 +111,10 @@ func TestIndexInsert(t *testing.T) {
 }
 
 func TestIndexWithRebuild(t *testing.T) {
-	pool, logger, indexMeta, locker := setup(t, 8)
+	pool, logger, indexMeta, locker := setup(t, 10, 8)
 	ctxLogger := logger.WithContext(common.TxnID(1))
 	require.NoError(t, ctxLogger.AppendBegin())
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
@@ -157,7 +156,7 @@ func TestIndexWithRebuild(t *testing.T) {
 
 func TestIndexRollback(t *testing.T) {
 	N := 2000
-	pool, logger, indexMeta, locker := setup(t, 8)
+	pool, logger, indexMeta, locker := setup(t, 10, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 	func() {
 		ctxLogger := logger.WithContext(common.TxnID(1))
@@ -165,7 +164,7 @@ func TestIndexRollback(t *testing.T) {
 		defer func() { assert.True(t, locker.AreAllQueuesEmpty()) }()
 		defer locker.Unlock(common.TxnID(1))
 
-		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 		require.NoError(t, err)
 		defer index.Close()
 
@@ -201,7 +200,7 @@ func TestIndexRollback(t *testing.T) {
 			}
 		}()
 		defer locker.Unlock(common.TxnID(2))
-		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 		require.NoError(t, err)
 
 		defer index.Close()
@@ -255,7 +254,7 @@ func TestIndexRollback(t *testing.T) {
 			}
 		}()
 		defer locker.Unlock(common.TxnID(3))
-		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 		require.NoError(t, err)
 		defer index.Close()
 
@@ -300,7 +299,7 @@ func TestIndexRollback(t *testing.T) {
 
 // TestConcurrentInserts tests concurrent insert operations
 func TestConcurrentInserts(t *testing.T) {
-	pool, logger, indexMeta, locker := setup(t, 8)
+	pool, logger, indexMeta, locker := setup(t, 10, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	const numGoroutines = 100
@@ -323,7 +322,7 @@ func TestConcurrentInserts(t *testing.T) {
 			defer locker.Unlock(txnID)
 
 			require.NoError(t, ctxLogger.AppendBegin())
-			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 			if errors.Is(err, txns.ErrDeadlockPrevention) {
 				require.NoError(t, ctxLogger.AppendAbort())
 				ctxLogger.Rollback()
@@ -374,7 +373,7 @@ func TestConcurrentInserts(t *testing.T) {
 
 	// Create a final index to verify all inserts were successful
 	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 	defer index.Close()
 
@@ -389,13 +388,13 @@ func TestConcurrentInserts(t *testing.T) {
 
 // TestConcurrentGets tests concurrent get operations
 func TestConcurrentGets(t *testing.T) {
-	pool, logger, indexMeta, locker := setup(t, 8)
+	pool, logger, indexMeta, locker := setup(t, 10, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	// Pre-populate the index with a single index instance
 	ctxLogger := logger.WithContext(common.TxnID(1))
 	require.NoError(t, ctxLogger.AppendBegin())
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 	defer locker.Unlock(common.TxnID(1))
 	defer index.Close()
@@ -434,7 +433,7 @@ func TestConcurrentGets(t *testing.T) {
 			ctxLogger := logger.WithContext(txnID)
 			require.NoError(t, ctxLogger.AppendBegin())
 
-			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 			if errors.Is(err, txns.ErrDeadlockPrevention) {
 				require.NoError(t, ctxLogger.AppendAbort())
 				ctxLogger.Rollback()
@@ -474,7 +473,7 @@ func TestConcurrentGets(t *testing.T) {
 
 // TestConcurrentDeletes tests concurrent delete operations
 func TestConcurrentDeletes(t *testing.T) {
-	pool, logger, indexMeta, locker := setup(t, 8)
+	pool, logger, indexMeta, locker := setup(t, 10, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	const numKeys = 1000
@@ -484,7 +483,7 @@ func TestConcurrentDeletes(t *testing.T) {
 		defer locker.Unlock(common.TxnID(1))
 
 		require.NoError(t, ctxLogger.AppendBegin())
-		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+		index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 		require.NoError(t, err)
 		defer index.Close()
 
@@ -522,7 +521,7 @@ func TestConcurrentDeletes(t *testing.T) {
 
 			require.NoError(t, ctxLogger.AppendBegin())
 
-			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 			if errors.Is(err, txns.ErrDeadlockPrevention) {
 				require.NoError(t, ctxLogger.AppendAbort())
 				ctxLogger.Rollback()
@@ -571,7 +570,7 @@ func TestConcurrentDeletes(t *testing.T) {
 
 	// Create a final index to verify deleted keys are no longer accessible
 	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 2))
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 	defer locker.Unlock(common.TxnID(numGoroutines + 2))
 	defer index.Close()
@@ -586,7 +585,7 @@ func TestConcurrentDeletes(t *testing.T) {
 
 // TestConcurrentMixedOperations tests mixed concurrent operations
 func TestConcurrentMixedOperations(t *testing.T) {
-	pool, logger, indexMeta, locker := setup(t, 8)
+	pool, logger, indexMeta, locker := setup(t, 10, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	const numGoroutines = 10
@@ -611,7 +610,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 			ctxLogger := logger.WithContext(txnID)
 			require.NoError(t, ctxLogger.AppendBegin())
 
-			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 			if errors.Is(err, txns.ErrDeadlockPrevention) {
 				require.NoError(t, ctxLogger.AppendAbort())
 				ctxLogger.Rollback()
@@ -710,7 +709,7 @@ func TestConcurrentMixedOperations(t *testing.T) {
 
 	// Create a final index to verify remaining keys are still accessible
 	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 	defer locker.Unlock(common.TxnID(numGoroutines + 1))
 	defer index.Close()
@@ -730,7 +729,7 @@ func TestConcurrentStressTest(t *testing.T) {
 		t.Skip("Skipping stress test in short mode")
 	}
 
-	pool, logger, indexMeta, locker := setup(t, 8)
+	pool, logger, indexMeta, locker := setup(t, 10, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	const numGoroutines = 50
@@ -753,7 +752,7 @@ func TestConcurrentStressTest(t *testing.T) {
 			ctxLogger := logger.WithContext(txnID)
 			require.NoError(t, ctxLogger.AppendBegin())
 
-			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 			if errors.Is(err, txns.ErrDeadlockPrevention) {
 				require.NoError(t, ctxLogger.AppendAbort())
 				ctxLogger.Rollback()
@@ -844,7 +843,7 @@ func TestConcurrentStressTest(t *testing.T) {
 
 	// Create a final index to verify remaining keys are still accessible
 	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 	defer locker.Unlock(common.TxnID(numGoroutines + 1))
 	defer index.Close()
@@ -860,7 +859,7 @@ func TestConcurrentStressTest(t *testing.T) {
 
 // TestConcurrentIndexGrowth tests concurrent operations during index growth
 func TestConcurrentIndexGrowth(t *testing.T) {
-	pool, logger, indexMeta, locker := setup(t, 8)
+	pool, logger, indexMeta, locker := setup(t, 10, 8)
 	defer func() { assert.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	const numGoroutines = 50
@@ -883,7 +882,7 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 			defer locker.Unlock(txnID)
 
 			ctxLogger := logger.WithContext(txnID)
-			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 			if errors.Is(err, txns.ErrDeadlockPrevention) {
 				require.NoError(t, ctxLogger.AppendAbort())
 				ctxLogger.Rollback()
@@ -935,7 +934,7 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 
 	// Create a final index to verify all inserts were successful
 	ctxLogger := logger.WithContext(common.TxnID(numGoroutines + 1))
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(t, err)
 	defer locker.Unlock(common.TxnID(numGoroutines + 1))
 	defer index.Close()
@@ -950,16 +949,14 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 }
 
 func BenchmarkIndexInsert(b *testing.B) {
-	require.Equal(b, int(unsafe.Sizeof(uuid.UUID{})), 16)
-
-	pool, logger, indexMeta, locker := setup(b, 8)
+	pool, logger, indexMeta, locker := setup(b, 1000, 8)
 	defer func() { assert.NoError(b, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	ctxLogger := logger.WithContext(common.TxnID(1))
 	defer locker.Unlock(common.TxnID(1))
 
 	require.NoError(b, ctxLogger.AppendBegin())
-	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true)
+	index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 	require.NoError(b, err)
 	defer index.Close()
 
