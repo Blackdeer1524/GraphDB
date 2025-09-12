@@ -475,7 +475,6 @@ type SystemCatalog interface {
 	CurrentVersion() uint64
 	GetBasePath() string
 	GetNewFileID() common.FileID
-	GetFileIDToPathMap() map[common.FileID]string
 
 	Load() error
 	CommitChanges(logger common.ITxnLoggerWithContext) (err error)

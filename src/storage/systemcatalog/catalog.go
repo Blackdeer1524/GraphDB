@@ -135,6 +135,7 @@ type Catalog struct {
 	maxFileID uint64
 
 	bp                 bufferpool.BufferPool
+	diskUpdateFileMap  func(mp map[common.FileID]string)
 	currentVersionPage *page.SlottedPage
 
 	// masterVersion uses for cache if version from file is equal to
@@ -279,7 +280,12 @@ func CreateLogFileIfDoesntExist(basePath string, fs afero.Fs) error {
 // New creates new system catalog manager. It reads current version from current version file
 // and reads system catalog file with this version. Also, it allocates page for current version.
 // Page is used for concurrency control.
-func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Catalog, error) {
+func New(
+	basePath string,
+	fs afero.Fs,
+	bp bufferpool.BufferPool,
+	diskUpdateFileMap func(mp map[common.FileID]string),
+) (*Catalog, error) {
 	versionFile := GetSystemCatalogVersionFilePath(basePath)
 
 	ok, err := utils.IsFileExists(fs, versionFile)
@@ -315,8 +321,9 @@ func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Catalog, erro
 		return nil, fmt.Errorf("failed to unmarshal system catalog file: %w", err)
 	}
 
-	return &Catalog{
+	cat := &Catalog{
 		bp:                 bp,
+		diskUpdateFileMap:  diskUpdateFileMap,
 		currentVersionPage: cvp,
 		masterVersion:      versionNum,
 		basePath:           basePath,
@@ -325,7 +332,9 @@ func New(basePath string, fs afero.Fs, bp bufferpool.BufferPool) (*Catalog, erro
 		maxFileID:          calcMaxFileID(&data),
 
 		mu: sync.RWMutex{},
-	}, nil
+	}
+	cat.diskUpdateFileMap(cat.getFileIDToPathMapAssumeLocked())
+	return cat, nil
 }
 
 func (m *Catalog) Load() error {
@@ -365,6 +374,7 @@ func (m *Catalog) Load() error {
 
 	m.data = &data
 	m.isDirty = false
+	m.diskUpdateFileMap(m.getFileIDToPathMapAssumeLocked())
 
 	return nil
 }
@@ -827,10 +837,7 @@ func (m *Catalog) CopyData() (Data, error) {
 	return m.data.Copy(), nil
 }
 
-func (m *Catalog) GetFileIDToPathMap() map[common.FileID]string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+func (m *Catalog) getFileIDToPathMapAssumeLocked() map[common.FileID]string {
 	mp := make(map[common.FileID]string)
 
 	for _, v := range m.data.VertexTables {

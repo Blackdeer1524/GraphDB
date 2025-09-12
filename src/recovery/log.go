@@ -69,7 +69,7 @@ type TxnLogger struct {
 	seqMu           sync.Mutex
 	logRecordsCount uint64
 
-	// ================
+	// ===============
 	flushLSN       common.LSN
 	firstDirtyPage common.PageID
 	curPage        common.PageID
@@ -286,20 +286,23 @@ func (l *TxnLogger) Recover() {
 		return
 	}
 
-	ATT, DPT := l.recoverAnalyze(checkpointLocation)
-	earliestLogLocation := l.recoverPrepareCLRs(ATT, DPT)
+	ATT, _, earliestLogLocation := l.recoverAnalyze(checkpointLocation)
+	l.recoverPrepareCLRs(ATT)
 	l.recoverRedo(earliestLogLocation)
 }
 
 func (l *TxnLogger) recoverAnalyze(
 	checkpointLocation common.LogRecordLocInfo,
-) (ActiveTransactionsTable, map[common.PageIdentity]common.LogRecordLocInfo) {
+) (ActiveTransactionsTable, map[common.PageIdentity]common.LogRecordLocInfo, common.FileLocation) {
 	iter, err := l.iter(checkpointLocation.Location)
 	assert.Assert(err == nil, "couldn't recover. reason: %+v", err)
 
 	lastRecordLSN := common.LSN(0)
 	ATT := NewActiveTransactionsTable()
 	DPT := map[common.PageIdentity]common.LogRecordLocInfo{}
+
+	earliestLogLocation := checkpointLocation
+	earliestLogLocation.Lsn = common.LSN(math.MaxUint64)
 
 	for {
 		tag, untypedRecord, err := iter.ReadRecord()
@@ -333,9 +336,11 @@ func (l *TxnLogger) recoverAnalyze(
 			)
 
 			pageID := record.modifiedRecordID.PageIdentity()
-			_, alreadyExists := DPT[pageID]
-			if !alreadyExists {
+			if _, alreadyExists := DPT[pageID]; !alreadyExists {
 				DPT[pageID] = recordLocation
+				if earliestLogLocation.Lsn > recordLocation.Lsn {
+					earliestLogLocation = recordLocation
+				}
 			}
 		case TypeUpdate:
 			record := assert.Cast[UpdateLogRecord](untypedRecord)
@@ -352,9 +357,11 @@ func (l *TxnLogger) recoverAnalyze(
 			)
 
 			pageID := record.modifiedRecordID.PageIdentity()
-			_, alreadyExists := DPT[pageID]
-			if !alreadyExists {
+			if _, alreadyExists := DPT[pageID]; !alreadyExists {
 				DPT[pageID] = recordLocation
+				if earliestLogLocation.Lsn > recordLocation.Lsn {
+					earliestLogLocation = recordLocation
+				}
 			}
 		case TypeDelete:
 			record := assert.Cast[DeleteLogRecord](untypedRecord)
@@ -371,9 +378,11 @@ func (l *TxnLogger) recoverAnalyze(
 			)
 
 			pageID := record.modifiedRecordID.PageIdentity()
-			_, alreadyExists := DPT[pageID]
-			if !alreadyExists {
+			if _, alreadyExists := DPT[pageID]; !alreadyExists {
 				DPT[pageID] = recordLocation
+				if earliestLogLocation.Lsn > recordLocation.Lsn {
+					earliestLogLocation = recordLocation
+				}
 			}
 		case TypeCommit:
 			record := assert.Cast[CommitLogRecord](untypedRecord)
@@ -430,8 +439,12 @@ func (l *TxnLogger) recoverAnalyze(
 			// It doesn’t matter if the changes were caused
 			// by a transaction that is running, committed, or aborted.
 			for pageInfo, firstLogInfo := range record.dirtyPageTable {
-				if _, alreadyExists := DPT[pageInfo]; !alreadyExists {
+				storedLogInfo, alreadyExists := DPT[pageInfo]
+				if !alreadyExists || storedLogInfo.Lsn > firstLogInfo.Lsn {
 					DPT[pageInfo] = firstLogInfo
+					if earliestLogLocation.Lsn > firstLogInfo.Lsn {
+						earliestLogLocation = firstLogInfo
+					}
 				}
 			}
 		case TypeCompensation:
@@ -447,6 +460,14 @@ func (l *TxnLogger) recoverAnalyze(
 				tag,
 				NewATTEntry(TxnStatusUndo, recordLocation),
 			)
+
+			pageID := record.modifiedRecordID.PageIdentity()
+			if _, alreadyExists := DPT[pageID]; !alreadyExists {
+				DPT[pageID] = recordLocation
+				if earliestLogLocation.Lsn > recordLocation.Lsn {
+					earliestLogLocation = recordLocation
+				}
+			}
 		default:
 			assert.Assert(
 				tag < TypeUnknown,
@@ -466,18 +487,10 @@ func (l *TxnLogger) recoverAnalyze(
 
 	l.logRecordsCount = uint64(lastRecordLSN)
 	l.curPage = iter.PageID()
-	return ATT, DPT
+	return ATT, DPT, earliestLogLocation.Location
 }
 
-func (l *TxnLogger) recoverPrepareCLRs(
-	ATT ActiveTransactionsTable,
-	DPT map[common.PageIdentity]common.LogRecordLocInfo,
-) common.FileLocation {
-	earliestLogLocation := l.masterPage.GetCheckpointLocation()
-	if earliestLogLocation.Lsn == common.NilLSN {
-		earliestLogLocation.Lsn = common.LSN(math.MaxUint64)
-	}
-
+func (l *TxnLogger) recoverPrepareCLRs(ATT ActiveTransactionsTable) {
 	for _, entry := range ATT.table {
 		if entry.status != TxnStatusUndo {
 			continue
@@ -494,9 +507,6 @@ func (l *TxnLogger) recoverPrepareCLRs(
 			case TypeBegin:
 				record := assert.Cast[BeginLogRecord](record)
 
-				if earliestLogLocation.Lsn > record.lsn {
-					earliestLogLocation = recordLocation
-				}
 				assert.Assert(clrsFound == 0, "CLRs aren't balanced out")
 
 				_, err := l.AppendTxnEnd(record.txnID, entry.logLocationInfo)
@@ -505,7 +515,6 @@ func (l *TxnLogger) recoverPrepareCLRs(
 			case TypeInsert:
 				record := assert.Cast[InsertLogRecord](record)
 
-				DPT[record.modifiedRecordID.PageIdentity()] = recordLocation
 				recordLocation = record.parentLogLocation
 				if clrsFound > 0 {
 					clrsFound--
@@ -516,7 +525,6 @@ func (l *TxnLogger) recoverPrepareCLRs(
 			case TypeUpdate:
 				record := assert.Cast[UpdateLogRecord](record)
 
-				DPT[record.modifiedRecordID.PageIdentity()] = recordLocation
 				recordLocation = record.parentLogLocation
 				if clrsFound > 0 {
 					clrsFound--
@@ -527,7 +535,6 @@ func (l *TxnLogger) recoverPrepareCLRs(
 			case TypeDelete:
 				record := assert.Cast[DeleteLogRecord](record)
 
-				DPT[record.modifiedRecordID.PageIdentity()] = recordLocation
 				recordLocation = record.parentLogLocation
 				if clrsFound > 0 {
 					clrsFound--
@@ -562,8 +569,6 @@ func (l *TxnLogger) recoverPrepareCLRs(
 			}
 		}
 	}
-
-	return earliestLogLocation.Location
 }
 
 func (l *TxnLogger) recoverRedo(earliestLog common.FileLocation) {
@@ -598,6 +603,7 @@ func (l *TxnLogger) recoverRedo(earliestLog common.FileLocation) {
 							slotOpt := lockedPage.UnsafeInsertNoLogs(record.value)
 							assert.Assert(slotOpt.IsSome())
 							assert.Assert(slotOpt.Unwrap() == record.modifiedRecordID.SlotNum)
+							lockedPage.SetPageLSN(record.lsn)
 							return common.NewNilLogRecordLocation(), nil
 						},
 					))
@@ -612,6 +618,7 @@ func (l *TxnLogger) recoverRedo(earliestLog common.FileLocation) {
 								page.SlotStatusInserted,
 							)
 							lockedPage.UnsafeUpdateNoLogs(record.modifiedRecordID.SlotNum, record.value)
+							lockedPage.SetPageLSN(record.lsn)
 							return common.NewNilLogRecordLocation(), nil
 						},
 					))
@@ -634,6 +641,7 @@ func (l *TxnLogger) recoverRedo(earliestLog common.FileLocation) {
 							record.modifiedRecordID.SlotNum,
 							record.afterValue,
 						)
+						lockedPage.SetPageLSN(record.lsn)
 						return common.NewNilLogRecordLocation(), nil
 					},
 				))
@@ -655,6 +663,7 @@ func (l *TxnLogger) recoverRedo(earliestLog common.FileLocation) {
 							record.modifiedRecordID.SlotNum,
 							page.SlotStatusDeleted,
 						)
+						lockedPage.SetPageLSN(record.lsn)
 						return common.NewNilLogRecordLocation(), nil
 					},
 				))
@@ -982,6 +991,7 @@ func (l *TxnLogger) activateCLR(record *CompensationLogRecord) error {
 			case CLRtypeDelete:
 				lockedPage.UndoDelete(record.modifiedRecordID.SlotNum)
 			}
+			lockedPage.SetPageLSN(record.lsn)
 			return common.NewNilLogRecordLocation(), nil
 		},
 	)

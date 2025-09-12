@@ -260,6 +260,9 @@ func (m *Manager) UpdateFileMap(mp map[common.FileID]string) {
 
 	for k, v := range mp {
 		if prevPath, ok := m.fileIDToPath[k]; ok {
+			if prevPath == v {
+				continue
+			}
 			panic(
 				fmt.Sprintf(
 					"fileID %d already exists in path map. Tried to update: %s -> %s",

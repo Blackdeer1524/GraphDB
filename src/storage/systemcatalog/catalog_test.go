@@ -36,7 +36,7 @@ func newTestCatalogManager(t *testing.T) (*Catalog, afero.Fs, bufferpool.BufferP
 	replacer := bufferpool.NewLRUReplacer()
 	pool := bufferpool.New(8, replacer, dm)
 
-	m, err := New(basePath, fs, pool)
+	m, err := New(basePath, fs, pool, dm.UpdateFileMap)
 	require.NoError(t, err)
 
 	return m, fs, pool, basePath
@@ -145,7 +145,7 @@ func TestCatalogManager_EmptyCatalog_ReadsAfterLoad(t *testing.T) {
 
 	// FileID->path map is empty
 	require.NoError(t, m.Load())
-	mp := m.GetFileIDToPathMap()
+	mp := m.getFileIDToPathMapAssumeLocked()
 	require.Empty(t, mp)
 }
 
@@ -282,7 +282,7 @@ func TestCatalogManager_AddEntitiesAndRead_AfterLoad(t *testing.T) {
 	require.Equal(t, dirIdx, gotDirIdx)
 
 	// fileID to path map contains all entries
-	paths := m.GetFileIDToPathMap()
+	paths := m.getFileIDToPathMapAssumeLocked()
 	require.Equal(t, vtMeta.PathToFile, paths[vtID])
 	require.Equal(t, etMeta.PathToFile, paths[etID])
 	require.Equal(t, dtMeta.PathToFile, paths[dtID])
