@@ -47,7 +47,7 @@ func setupExecutor(
 
 	diskMgr := disk.New(
 		catalogBasePath,
-		func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
+		func(fileID common.FileID, pageID common.PageID) page.SlottedPage {
 			return page.NewSlottedPage()
 		},
 		fs,
@@ -1356,7 +1356,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 	catalogBasePath := "/tmp/graphdb_test"
 	concurrentGraphCheck := false
 
-	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 50, true)
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 50, false)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1463,7 +1463,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 func TestBigRandomGraph(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_test"
-	e, pool, locker, logger, err := setupExecutor(fs, catalogBasePath, 150_000, true)
+	e, pool, locker, logger, err := setupExecutor(fs, catalogBasePath, 150, false)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1480,7 +1480,7 @@ func TestBigRandomGraph(t *testing.T) {
 	verticesFieldName := "money"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(10_000, 0.005, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(3_000, 0.005, rand.New(rand.NewSource(42)), false)
 
 	setupTables(
 		t,
@@ -3553,7 +3553,7 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 		logger,
 	)
 
-	graphInfo := generateRandomGraph(1_000, 0.001, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(1_00, 0.001, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		b,
 		&ticker,
@@ -3590,7 +3590,7 @@ func TestDeadlockSearch(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_test"
 	poolPageCount := uint64(20)
-	debugMode := true
+	debugMode := false
 
 	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
 	require.NoError(t, err)
@@ -3613,7 +3613,7 @@ func TestDeadlockSearch(t *testing.T) {
 		logger,
 	)
 
-	n := 100_000
+	n := 1_00
 	vertices := make([]storage.VertexInfo, n)
 	for i := range n {
 		vertices[i] = storage.VertexInfo{

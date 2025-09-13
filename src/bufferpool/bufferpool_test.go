@@ -31,7 +31,7 @@ func TestGetPage_Cached(t *testing.T) {
 	require.True(t, slotOpt.IsSome())
 
 	frameID := uint64(0)
-	manager.frames[frameID] = *p
+	manager.frames[frameID] = p
 	manager.pageTable[pageIdent] = frameInfo{
 		frameID:  frameID,
 		pinCount: 0,
@@ -43,7 +43,7 @@ func TestGetPage_Cached(t *testing.T) {
 	result, err := manager.GetPage(pageIdent)
 
 	assert.NoError(t, err)
-	assert.Equal(t, p, result)
+	assert.Equal(t, p, *result)
 
 	// не должно быть считывания с диска
 	mockDisk.AssertNotCalled(t, "ReadPage", pageIdent)
@@ -81,7 +81,7 @@ func TestGetPage_LoadFromDisk(t *testing.T) {
 	result, err := manager.GetPage(pageIdent)
 
 	assert.NoError(t, err)
-	assert.Equal(t, expectedPage, result)
+	assert.Equal(t, expectedPage, *result)
 
 	assert.Equal(t, frameInfo{
 		frameID:  manager.poolSize - 1,
@@ -91,7 +91,7 @@ func TestGetPage_LoadFromDisk(t *testing.T) {
 	_, ok := manager.DPT[pageIdent]
 	assert.False(t, ok)
 
-	assert.Equal(t, *expectedPage, manager.frames[manager.poolSize-1])
+	assert.Equal(t, expectedPage, manager.frames[manager.poolSize-1])
 
 	mockDisk.AssertExpectations(t)
 	mockReplacer.AssertExpectations(t)
@@ -120,7 +120,7 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 		frameID:  frameID,
 		pinCount: 1,
 	}
-	manager.frames[frameID] = *existingPage
+	manager.frames[frameID] = existingPage
 	manager.emptyFrames = []uint64{1}
 
 	newFileID := uint64(2)
@@ -145,7 +145,7 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 
 	result, err := manager.GetPage(pIdent)
 	assert.NoError(t, err)
-	assert.Equal(t, newPage, result)
+	assert.Equal(t, newPage, *result)
 
 	assert.Equal(t, frameInfo{
 		frameID:  1,
@@ -155,8 +155,8 @@ func TestGetPage_LoadFromDisk_WithExistingPage(t *testing.T) {
 	_, ok := manager.DPT[pIdent]
 	assert.False(t, ok)
 
-	assert.Equal(t, *newPage, manager.frames[1])
-	assert.Equal(t, *existingPage, manager.frames[0])
+	assert.Equal(t, newPage, manager.frames[1])
+	assert.Equal(t, existingPage, manager.frames[0])
 
 	mockDisk.AssertExpectations(t)
 	mockReplacer.AssertExpectations(t)
@@ -191,7 +191,7 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 			SlotNum: 0,
 		},
 	}
-	manager.frames[frameID] = *existingPage
+	manager.frames[frameID] = existingPage
 	manager.emptyFrames = []uint64{}
 
 	newPage := page.NewSlottedPage()
@@ -224,12 +224,12 @@ func TestGetPage_LoadFromDisk_WithVictimReplacement(t *testing.T) {
 	result, err := manager.GetPage(newPageIdent)
 
 	assert.NoError(t, err)
-	assert.Equal(t, newPage, result)
+	assert.Equal(t, newPage, *result)
 
 	_, exists := manager.pageTable[existingPageIdent]
 	assert.False(t, exists, "old page not removed from pageTable")
 
-	assert.Equal(t, *newPage, manager.frames[frameID])
+	assert.Equal(t, newPage, manager.frames[frameID])
 	assert.Equal(t, frameInfo{
 		frameID:  frameID,
 		pinCount: 1,

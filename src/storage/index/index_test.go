@@ -41,7 +41,7 @@ func setup(
 	keyLength uint32,
 ) (*bufferpool.DebugBufferPool, common.ITxnLogger, storage.IndexMeta, *txns.LockManager) {
 	basePath := "/tmp/graphdb_test"
-	newPageFunc := func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
+	newPageFunc := func(fileID common.FileID, pageID common.PageID) page.SlottedPage {
 		return page.NewSlottedPage()
 	}
 	fs := afero.NewMemMapFs()

@@ -498,7 +498,7 @@ func (m *Manager) FlushLogs() error {
 }
 
 // WARN: expects **BOTH** buffer pool and diskManager to be locked
-func (m *Manager) flushLogsAssumeLocked() error {
+func (m *Manager) flushLogsAssumeLocked() (err error) {
 	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
 	log.Printf(
 		"flushLogsAssumeLocked: starting flush for logFileID=%d, startPageID=%d, endPageID=%d, lastLSN=%d",

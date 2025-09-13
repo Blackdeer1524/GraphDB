@@ -28,9 +28,7 @@ func PageCapacity(recordLen int) int {
 	return int(test)
 }
 
-type SlottedPage struct {
-	data [PageSize]byte
-}
+type SlottedPage [PageSize]byte
 
 var (
 	_ common.Page = &SlottedPage{}
@@ -88,7 +86,7 @@ func (h *header) getSlots() []slotPointer {
 }
 
 func (p *SlottedPage) getHeader() *header {
-	return (*header)(unsafe.Pointer(&p.data[0]))
+	return (*header)(unsafe.Pointer(&p[0]))
 }
 
 func (p *SlottedPage) NumSlots() uint16 {
@@ -96,10 +94,8 @@ func (p *SlottedPage) NumSlots() uint16 {
 	return header.slotsCount
 }
 
-func NewSlottedPage() *SlottedPage {
-	p := &SlottedPage{
-		data: [PageSize]byte{},
-	}
+func NewSlottedPage() SlottedPage {
+	p := SlottedPage{}
 	p.setupHeader()
 	return p
 }
@@ -111,9 +107,7 @@ func (p *SlottedPage) setupHeader() {
 }
 
 func (p *SlottedPage) UnsafeClear() {
-	for i := range PageSize {
-		p.data[i] = 0
-	}
+	clear(p[:])
 	p.setupHeader()
 }
 
@@ -129,7 +123,7 @@ func (p *SlottedPage) Clear() {
 	h.slots = slotPointer(0)
 
 	for i := h.freeStart; i < h.freeEnd; i++ {
-		p.data[i] = 0
+		p[i] = 0
 	}
 }
 
@@ -164,7 +158,7 @@ func (p *SlottedPage) insertPrepare(data []byte) optional.Optional[uint16] {
 		header.freeEnd = pos
 	}()
 
-	ptrToLen := (*uint16)(unsafe.Pointer(&p.data[pos]))
+	ptrToLen := (*uint16)(unsafe.Pointer(&p[pos]))
 	*ptrToLen = uint16(len(data))
 	ptr := newSlotPtr(SlotStatusPrepareInsert, pos)
 
@@ -255,9 +249,9 @@ func (p *SlottedPage) UndoInsert(slotID uint16) {
 
 func (p *SlottedPage) getBytesBySlotPtr(ptr slotPointer) []byte {
 	offset := ptr.RecordOffset()
-	sliceLen := *(*uint16)(unsafe.Pointer(&p.data[offset]))
+	sliceLen := *(*uint16)(unsafe.Pointer(&p[offset]))
 	data := unsafe.Slice(
-		&p.data[offset+uint16(unsafe.Sizeof(uint16(0)))],
+		&p[offset+uint16(unsafe.Sizeof(uint16(0)))],
 		sliceLen,
 	)
 	return data
@@ -392,11 +386,11 @@ func (p *SlottedPage) RUnlock() {
 }
 
 func (p *SlottedPage) GetData() []byte {
-	return p.data[:]
+	return p[:]
 }
 
 func (p *SlottedPage) SetData(data []byte) {
-	copy(p.data[:], data)
+	copy(p[:], data)
 }
 
 func (p *SlottedPage) UnsafeOverrideSlotStatus(

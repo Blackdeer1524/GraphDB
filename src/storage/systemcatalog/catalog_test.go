@@ -25,7 +25,7 @@ func newTestCatalogManager(t *testing.T) (*Catalog, afero.Fs, bufferpool.BufferP
 	require.NoError(t, InitSystemCatalog(basePath, fs))
 	dm := disk.New(
 		basePath,
-		func(_ common.FileID, _ common.PageID) *page.SlottedPage {
+		func(_ common.FileID, _ common.PageID) page.SlottedPage {
 			return page.NewSlottedPage()
 		},
 		fs,
