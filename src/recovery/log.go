@@ -252,7 +252,7 @@ func (l *TxnLogger) GetFlushInfo() (common.FileID, common.PageID, common.PageID,
 
 func (l *TxnLogger) GetFlushLSN() common.LSN {
 	// no parrallel flushing is possible, so no need for locks
-	return common.LSN(atomic.LoadUint64(&l.logRecordsCount))
+	return common.LSN(atomic.LoadUint64((*uint64)(&l.flushLSN)))
 }
 
 func (l *TxnLogger) UpdateFirstUnflushedPage(pageID common.PageID) {

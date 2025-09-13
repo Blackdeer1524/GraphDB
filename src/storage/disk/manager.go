@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -137,8 +138,11 @@ func (m *Manager) WritePageAssumeLocked(
 
 	data := lockedPage.GetData()
 	if len(data) == 0 {
+		log.Printf("page data is empty for page %v", pageIdent)
 		return errors.New("page data is empty")
 	}
+
+	log.Printf("writing page %v to file %s", pageIdent, path)
 
 	file, err := m.fs.OpenFile(
 		filepath.Clean(path),
@@ -146,22 +150,27 @@ func (m *Manager) WritePageAssumeLocked(
 		0600,
 	)
 	if err != nil {
+		log.Printf("failed to open file %s: %v", path, err)
 		return fmt.Errorf("failed to open file %s: %w", path, err)
 	}
 	defer file.Close()
 
 	//nolint:gosec
 	offset := int64(pageIdent.PageID * page.PageSize)
+	log.Printf("writing %d bytes at offset %d for page %v", len(data), offset, pageIdent)
 
 	_, err = file.WriteAt(data, offset)
 	if err != nil {
+		log.Printf("failed to write to file %s: %v", path, err)
 		return fmt.Errorf("failed to write at file %s: %w", path, err)
 	}
 	err = file.Sync()
 	if err != nil {
+		log.Printf("failed to sync file %s: %v", path, err)
 		return fmt.Errorf("failed to sync file %s: %w", path, err)
 	}
 
+	log.Printf("successfully wrote page %v to file %s", pageIdent, path)
 	return nil
 }
 
