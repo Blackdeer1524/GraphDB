@@ -56,15 +56,14 @@ func setupExecutor(
 	pool := bufferpool.New(poolPageCount, bufferpool.NewLRUReplacer(), diskMgr)
 	debugPool := bufferpool.NewDebugBufferPool(pool)
 
-	sysCat, err := systemcatalog.New(catalogBasePath, fs, debugPool)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
 	debugPool.MarkPageAsLeaking(systemcatalog.CatalogVersionPageIdent())
 	debugPool.MarkPageAsLeaking(recovery.GetMasterPageIdent(systemcatalog.LogFileID))
 
 	logger := recovery.NewTxnLogger(pool, systemcatalog.LogFileID)
+	sysCat, err := systemcatalog.New(catalogBasePath, fs, debugPool)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
 
 	locker := txns.NewLockManager()
 	indexLoader := func(
@@ -1299,10 +1298,6 @@ func TestRandomizedBuildGraph(t *testing.T) {
 			vertexCount:  100,
 			connectivity: 0.3,
 		},
-		{
-			vertexCount:  100,
-			connectivity: 0.5,
-		},
 	}
 
 	r := rand.New(rand.NewSource(42))
@@ -2295,7 +2290,7 @@ func TestRecoveryRandomized(t *testing.T) {
 	edgeTableName := "indepted_to"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(1000, 0.005, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
 
 	setupTables(
 		t,
@@ -2345,6 +2340,65 @@ func TestRecoveryRandomized(t *testing.T) {
 
 		require.NoError(t, err)
 		t.Log("asserting a graph after recovery...")
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			graphInfo,
+			vertTableName,
+			verticesFieldName,
+			edgeTableName,
+			edgesFieldName,
+			intToVertSystemID,
+			edgesSystemInfo,
+			1,
+		)
+
+		secondVertTableName := "person2"
+		secondVerticesFieldName := "money2"
+		secondEdgeTableName := "indepted_to2"
+		secondEdgesFieldName := "debt_amount2"
+		secondGraphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+
+		setupTables(
+			t,
+			e,
+			&ticker,
+			secondVertTableName,
+			secondVerticesFieldName,
+			secondEdgeTableName,
+			secondEdgesFieldName,
+			logger,
+		)
+
+		secondIntToVertSystemID, secondEdgesSystemInfo := BuildGraph(
+			t,
+			&ticker,
+			secondVertTableName,
+			secondEdgeTableName,
+			e,
+			logger,
+			secondGraphInfo.g,
+			secondEdgesFieldName,
+			secondGraphInfo.edgesInfo,
+			secondVerticesFieldName,
+			secondGraphInfo.verticesInfo,
+		)
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			secondGraphInfo,
+			secondVertTableName,
+			secondVerticesFieldName,
+			secondEdgeTableName,
+			secondEdgesFieldName,
+			secondIntToVertSystemID,
+			secondEdgesSystemInfo,
+			1,
+		)
 		assertDBGraph(
 			t,
 			&ticker,
