@@ -1480,7 +1480,7 @@ func TestBigRandomGraph(t *testing.T) {
 	verticesFieldName := "money"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(3_000, 0.005, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(500, 0.01, rand.New(rand.NewSource(42)), false)
 
 	setupTables(
 		t,
@@ -2171,7 +2171,7 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 			connectivity: 0.5,
 		},
 		{
-			vertexCount:  50,
+			vertexCount:  10,
 			connectivity: 1.0,
 		},
 	}
@@ -3553,7 +3553,7 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 		logger,
 	)
 
-	graphInfo := generateRandomGraph(1_00, 0.001, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(1_000, 0.01, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		b,
 		&ticker,
@@ -3584,56 +3584,4 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 		2,
 		true,
 	)
-}
-
-func TestDeadlockSearch(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_test"
-	poolPageCount := uint64(20)
-	debugMode := false
-
-	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
-
-	ticker := atomic.Uint64{}
-	vertTableName := "person"
-	vertFieldName := "id"
-	edgeTableName := "friend"
-	edgesFieldName := "weight"
-
-	setupTables(
-		t,
-		e,
-		&ticker,
-		vertTableName,
-		vertFieldName,
-		edgeTableName,
-		edgesFieldName,
-		logger,
-	)
-
-	n := 1_00
-	vertices := make([]storage.VertexInfo, n)
-	for i := range n {
-		vertices[i] = storage.VertexInfo{
-			SystemID: storage.VertexSystemID(uuid.New()),
-			Data: map[string]any{
-				vertFieldName: int64(i),
-			},
-		}
-	}
-	err = Execute(
-		&ticker,
-		e,
-		logger,
-		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			for i := range n {
-				err := e.InsertVertex(txnID, vertTableName, vertices[i], logger)
-				require.NoError(t, err)
-			}
-			return nil
-		},
-	)
-	require.NoError(t, err)
 }

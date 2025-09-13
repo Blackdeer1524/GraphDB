@@ -3,7 +3,6 @@ package bufferpool
 import (
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"sync"
 
@@ -500,13 +499,6 @@ func (m *Manager) FlushLogs() error {
 // WARN: expects **BOTH** buffer pool and diskManager to be locked
 func (m *Manager) flushLogsAssumeLocked() (err error) {
 	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
-	log.Printf(
-		"flushLogsAssumeLocked: starting flush for logFileID=%d, startPageID=%d, endPageID=%d, lastLSN=%d",
-		logFileID,
-		startPageID,
-		endPageID,
-		lastLSN,
-	)
 
 	var flush = func(pageID common.PageID) error {
 		logPageIdent := common.PageIdentity{
@@ -514,7 +506,6 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 			PageID: common.PageID(pageID),
 		}
 		if _, ok := m.DPT[logPageIdent]; !ok {
-			log.Printf("flushLogsAssumeLocked: page %+v not in DPT, skipping", logPageIdent)
 			return nil
 		}
 
@@ -522,11 +513,6 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 		assert.Assert(ok, "dirty log page %+v not found", logPageIdent)
 
 		logPage := &m.frames[logPageInfo.frameID]
-		log.Printf(
-			"flushLogsAssumeLocked: flushing log page %+v from frame %d",
-			logPageIdent,
-			logPageInfo.frameID,
-		)
 		err := func() error {
 			logPage.Lock()
 			defer logPage.Unlock()
@@ -537,10 +523,6 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 			}
 
 			delete(m.DPT, logPageIdent)
-			log.Printf(
-				"flushLogsAssumeLocked: successfully flushed and removed page %+v from DPT",
-				logPageIdent,
-			)
 			return nil
 		}()
 		return err
@@ -549,31 +531,18 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 	logPageID := startPageID
 	for ; logPageID <= endPageID; logPageID++ {
 		if err := flush(logPageID); err != nil {
-			log.Printf(
-				"flushLogsAssumeLocked: error flushing page %d, updating first unflushed page and returning error: %v",
-				logPageID,
-				err,
-			)
 			m.logger.UpdateFirstUnflushedPage(logPageID)
 			return err
 		}
 	}
 
-	log.Printf(
-		"flushLogsAssumeLocked: all log pages flushed, updating first unflushed page to %d and flush LSN to %d",
-		endPageID,
-		lastLSN,
-	)
 	m.logger.UpdateFirstUnflushedPage(endPageID)
 	m.logger.UpdateFlushLSN(lastLSN)
 
-	log.Printf("flushLogsAssumeLocked: flushing checkpoint info page")
 	if err := flush(common.CheckpointInfoPageID); err != nil {
-		log.Printf("flushLogsAssumeLocked: error flushing checkpoint info page: %v", err)
 		return err
 	}
 
-	log.Printf("flushLogsAssumeLocked: completed successfully")
 	return nil
 }
 
@@ -601,9 +570,7 @@ func (m *Manager) flushPageAssumeDiskLocked(
 }
 
 func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdentity) error {
-	log.Printf("flushPage: flushing page %+v", pIdent)
 	if _, ok := m.DPT[pIdent]; !ok {
-		log.Printf("flushPage: page %+v not in DPT, skipping", pIdent)
 		return nil
 	}
 
@@ -611,7 +578,6 @@ func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdenti
 	defer m.diskManager.Unlock()
 
 	flushLSN := m.logger.GetFlushLSN()
-	log.Printf("flushPage: current flush LSN: %d, pageLSN: %d", flushLSN, lockedPg.PageLSN())
 	if lockedPg.PageLSN() > flushLSN {
 		if err := m.flushLogsAssumeLocked(); err != nil {
 			return err
@@ -627,7 +593,6 @@ func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdenti
 		)
 	}
 
-	log.Printf("flushPage: writing page %+v to disk", pIdent)
 	err := m.diskManager.WritePageAssumeLocked(lockedPg, pIdent)
 	if err != nil {
 		return err
@@ -637,8 +602,6 @@ func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdenti
 }
 
 func (m *Manager) FlushAllPages() error {
-	log.Printf("FlushAllPages: Starting flush of all pages")
-
 	err := func() error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -646,18 +609,14 @@ func (m *Manager) FlushAllPages() error {
 		m.diskManager.Lock()
 		defer m.diskManager.Unlock()
 
-		log.Printf("FlushAllPages: Flushing logs before page flush")
 		if err := m.flushLogsAssumeLocked(); err != nil {
-			log.Printf("FlushAllPages: Error flushing logs: %v", err)
 			return err
 		}
 
 		flushLSN := m.logger.GetFlushLSN()
-		log.Printf("FlushAllPages: Current flush LSN: %v", flushLSN)
 
 		var err error
 		dptCopy := maps.Clone(m.DPT)
-		log.Printf("FlushAllPages: Flushing %d dirty pages", len(dptCopy))
 
 		for pgIdent := range dptCopy {
 			frameInfo, ok := m.pageTable[pgIdent]
@@ -665,12 +624,10 @@ func (m *Manager) FlushAllPages() error {
 
 			frame := &m.frames[frameInfo.frameID]
 			if !frame.TryLock() {
-				log.Printf("FlushAllPages: Skipping page %+v (could not acquire lock)", pgIdent)
 				continue
 			}
 			assert.Assert(frame.PageLSN() <= flushLSN, "didn't flush logs for page %+v", pgIdent)
 
-			log.Printf("FlushAllPages: Writing page %+v to disk", pgIdent)
 			err = errors.Join(err, m.diskManager.WritePageAssumeLocked(frame, pgIdent))
 			delete(m.DPT, pgIdent)
 			frame.Unlock()
@@ -678,17 +635,13 @@ func (m *Manager) FlushAllPages() error {
 		return nil
 	}()
 	if err != nil {
-		log.Printf("FlushAllPages: Error during page flush: %v", err)
 		return err
 	}
 
-	log.Printf("FlushAllPages: Appending checkpoint begin")
 	checkpointBeginLocation, err := m.logger.AppendCheckpointBegin()
 	if err != nil {
-		log.Printf("FlushAllPages: Error appending checkpoint begin: %v", err)
 		return err
 	}
-	log.Printf("FlushAllPages: Checkpoint begin location: %v", checkpointBeginLocation)
 
 	err = func() error {
 		m.mu.Lock()
@@ -697,22 +650,14 @@ func (m *Manager) FlushAllPages() error {
 		m.diskManager.Lock()
 		defer m.diskManager.Unlock()
 
-		log.Printf("FlushAllPages: Flushing logs after checkpoint begin")
 		return m.flushLogsAssumeLocked()
 	}()
 	if err != nil {
-		log.Printf("FlushAllPages: Error flushing logs after checkpoint begin: %v", err)
 		return err
 	}
 
 	dpt, att := m.GetDPTandATT()
-	log.Printf(
-		"FlushAllPages: Appending checkpoint end with DPT size: %d, ATT size: %d",
-		len(dpt),
-		len(att),
-	)
 	if err := m.logger.AppendCheckpointEnd(checkpointBeginLocation, att, dpt); err != nil {
-		log.Printf("FlushAllPages: Error appending checkpoint end: %v", err)
 		return err
 	}
 
@@ -723,15 +668,8 @@ func (m *Manager) FlushAllPages() error {
 		m.diskManager.Lock()
 		defer m.diskManager.Unlock()
 
-		log.Printf("FlushAllPages: Final log flush")
 		return m.flushLogsAssumeLocked()
 	}()
-
-	if err != nil {
-		log.Printf("FlushAllPages: Error in final log flush: %v", err)
-	} else {
-		log.Printf("FlushAllPages: Successfully completed flush of all pages")
-	}
 
 	return err
 }
