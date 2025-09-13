@@ -31,10 +31,10 @@ import (
 
 func setupExecutor(
 	fs afero.Fs,
+	catalogBasePath string,
 	poolPageCount uint64,
 	debugMode bool,
 ) (*Executor, *bufferpool.DebugBufferPool, *txns.LockManager, *recovery.TxnLogger, error) {
-	catalogBasePath := "/tmp/graphdb_test"
 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -127,7 +127,8 @@ func Execute(
 
 func TestCreateVertexType(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -152,7 +153,8 @@ func TestCreateVertexType(t *testing.T) {
 
 func TestCreateVertexSimpleInsert(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -192,7 +194,8 @@ func TestCreateVertexSimpleInsert(t *testing.T) {
 
 func TestVertexTableInserts(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -252,7 +255,8 @@ func TestVertexTableInserts(t *testing.T) {
 
 func TestCreateVertexRollback(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -291,7 +295,8 @@ func TestCreateVertexRollback(t *testing.T) {
 
 func TestVertexTableInsertsRollback(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -364,7 +369,8 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 
 func TestDropVertexTable(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -448,7 +454,8 @@ func TestDropVertexTable(t *testing.T) {
 
 func TestCreateEdgeTable(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -583,7 +590,8 @@ func setupTables(
 
 func TestVertexAndEdgeTableDrop(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -627,7 +635,8 @@ func TestVertexAndEdgeTableDrop(t *testing.T) {
 
 func TestSnowflakeNeighbours(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -801,7 +810,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 	})
 }
 
-func BuildGraph(
+func instantiateGraph(
 	t *testing.T,
 	ticker *atomic.Uint64,
 	vertTableName string,
@@ -977,106 +986,101 @@ func assertDBGraph(
 	edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID,
 	maxDepthAssertion int,
 ) {
-	t.Run("AssertVerticesInserted", func(t *testing.T) {
-		err := Execute(
-			ticker,
-			e,
-			logger,
-			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-				for vertIntID, vertSystemID := range intToVertSystemID {
-					vert, err := e.SelectVertex(txnID, vertTableName, vertSystemID, logger)
+	err := Execute(
+		ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			for vertIntID, vertSystemID := range intToVertSystemID {
+				vert, err := e.SelectVertex(txnID, vertTableName, vertSystemID, logger)
+				require.NoError(t, err)
+				require.Equal(
+					t,
+					vert.Data[verticesFieldName],
+					graphInfo.verticesInfo[vertIntID],
+				)
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			for srcIntID, neighbors := range graphInfo.g {
+				for _, nIntID := range neighbors {
+					edgeSystemID, ok := edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
+					require.True(t, ok)
+
+					edge, err := e.SelectEdge(
+						txnID,
+						edgeTableName,
+						edgeSystemID,
+						logger,
+					)
 					require.NoError(t, err)
 					require.Equal(
 						t,
-						vert.Data[verticesFieldName],
-						graphInfo.verticesInfo[vertIntID],
+						edge.Data[edgesFieldName],
+						graphInfo.edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}],
 					)
 				}
-				return nil
-			},
-		)
-		require.NoError(t, err)
-	})
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
 
-	t.Run("AssertEdgesInserted", func(t *testing.T) {
-		err := Execute(
-			ticker,
-			e,
-			logger,
-			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-				for srcIntID, neighbors := range graphInfo.g {
-					for _, nIntID := range neighbors {
-						edgeSystemID, ok := edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
+	err = Execute(
+		ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			for depth := 1; depth <= maxDepthAssertion; depth++ {
+				for startIntID, depthNeighbours := range getVerticesOnDepth(graphInfo.g, depth) {
+					startSystemID := intToVertSystemID[startIntID]
+					expectedNeighborIDS := make(
+						[]storage.VertexSystemID,
+						0,
+						len(depthNeighbours),
+					)
+
+					for _, nIntID := range depthNeighbours {
+						nSystemID, ok := intToVertSystemID[nIntID]
 						require.True(t, ok)
 
-						edge, err := e.SelectEdge(
-							txnID,
-							edgeTableName,
-							edgeSystemID,
-							logger,
-						)
-						require.NoError(t, err)
-						require.Equal(
-							t,
-							edge.Data[edgesFieldName],
-							graphInfo.edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}],
-						)
+						expectedNeighborIDS = append(expectedNeighborIDS, nSystemID)
 					}
-				}
-				return nil
-			},
-		)
-		require.NoError(t, err)
-	})
+					neighboursIDWithRID, err := e.GetVertexesOnDepth(
+						txnID,
+						vertTableName,
+						startSystemID,
+						uint32(depth),
+						storage.AllowAllVerticesFilter,
+						logger,
+					)
+					require.NoError(t, err)
 
-	t.Run("AssertVerticesOnDepth", func(t *testing.T) {
-		err := Execute(
-			ticker,
-			e,
-			logger,
-			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-				for depth := 1; depth <= maxDepthAssertion; depth++ {
-					for startIntID, depthNeighbours := range getVerticesOnDepth(graphInfo.g, depth) {
-						startSystemID := intToVertSystemID[startIntID]
-						expectedNeighborIDS := make(
-							[]storage.VertexSystemID,
-							0,
-							len(depthNeighbours),
-						)
-
-						for _, nIntID := range depthNeighbours {
-							nSystemID, ok := intToVertSystemID[nIntID]
-							require.True(t, ok)
-
-							expectedNeighborIDS = append(expectedNeighborIDS, nSystemID)
-						}
-						neighboursIDWithRID, err := e.GetVertexesOnDepth(
-							txnID,
-							vertTableName,
-							startSystemID,
-							uint32(depth),
-							storage.AllowAllVerticesFilter,
-							logger,
-						)
-						require.NoError(t, err)
-
-						actualNeighbours := make([]storage.VertexSystemID, 0)
-						for _, storedNeighbour := range neighboursIDWithRID {
-							actualNeighbours = append(actualNeighbours, storedNeighbour.V)
-						}
-						require.ElementsMatch(t, expectedNeighborIDS, actualNeighbours)
+					actualNeighbours := make([]storage.VertexSystemID, 0)
+					for _, storedNeighbour := range neighboursIDWithRID {
+						actualNeighbours = append(actualNeighbours, storedNeighbour.V)
 					}
+					require.ElementsMatch(t, expectedNeighborIDS, actualNeighbours)
 				}
-				return nil
-			},
-		)
-		require.NoError(t, err)
-	})
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
 }
 
 func TestBuildGraph(t *testing.T) {
+	catalogBasePath := "/tmp/graphdb_test"
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1167,7 +1171,7 @@ func TestBuildGraph(t *testing.T) {
 				logger,
 			)
 
-			intToVertSystemID, edgesSystemInfo := BuildGraph(
+			intToVertSystemID, edgesSystemInfo := instantiateGraph(
 				t,
 				&ticker,
 				vertTableName,
@@ -1265,7 +1269,8 @@ func generateRandomGraph(n int, connectivity float32, r *rand.Rand, bidirectiona
 
 func TestRandomizedBuildGraph(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1320,7 +1325,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 						logger,
 					)
 
-					intToVertSystemID, edgesSystemInfo := BuildGraph(
+					intToVertSystemID, edgesSystemInfo := instantiateGraph(
 						t,
 						&ticker,
 						vertTableName,
@@ -1374,7 +1379,8 @@ func TestRandomizedBuildGraph(t *testing.T) {
 
 func TestBigRandomGraph(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, locker, logger, err := setupExecutor(fs, 5000, false)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, locker, logger, err := setupExecutor(fs, catalogBasePath, 5000, false)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1404,7 +1410,7 @@ func TestBigRandomGraph(t *testing.T) {
 		logger,
 	)
 
-	intToVertSystemID, edgesSystemInfo := BuildGraph(
+	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		t,
 		&ticker,
 		vertTableName,
@@ -1437,7 +1443,8 @@ func TestBigRandomGraph(t *testing.T) {
 
 func TestNeighboursMultipleTables(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1656,7 +1663,8 @@ func TestNeighboursMultipleTables(t *testing.T) {
 
 func TestSelectVerticesWithValues(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1772,7 +1780,8 @@ func TestSelectVerticesWithValues(t *testing.T) {
 
 func TestGetAllTriangles(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1865,7 +1874,7 @@ func TestGetAllTriangles(t *testing.T) {
 			edgeFieldName,
 			logger,
 		)
-		BuildGraph(
+		instantiateGraph(
 			t,
 			&ticker,
 			vertTableName,
@@ -2084,7 +2093,8 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 	}
 
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, true)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -2117,7 +2127,7 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 				)
 				expectedTriangles := graphCountTriangles(graphInfo.g)
 
-				intToVertSystemID, edgesSystemInfo := BuildGraph(
+				intToVertSystemID, edgesSystemInfo := instantiateGraph(
 					t,
 					&ticker,
 					vertTableName,
@@ -2184,7 +2194,8 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 
 func TestPhantomRead(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, false)
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -2262,9 +2273,7 @@ func TestPhantomRead(t *testing.T) {
 
 func TestRecovery(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, false)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	catalogBasePath := "/tmp/graphdb_test"
 
 	ticker := atomic.Uint64{}
 	vertTableName := "person"
@@ -2285,51 +2294,59 @@ func TestRecovery(t *testing.T) {
 		},
 	}
 
-	setupTables(
-		t,
-		e,
-		&ticker,
-		vertTableName,
-		verticesFieldName,
-		edgeTableName,
-		edgesFieldName,
-		logger,
-	)
+	var intToVertSystemID map[int]storage.VertexSystemID
+	var edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID
+	func() {
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	intToVertSystemID, edgesSystemInfo := BuildGraph(
-		t,
-		&ticker,
-		vertTableName,
-		edgeTableName,
-		e,
-		logger,
-		graphInfo.g,
-		edgesFieldName,
-		graphInfo.edgesInfo,
-		verticesFieldName,
-		graphInfo.verticesInfo,
-	)
+		setupTables(
+			t,
+			e,
+			&ticker,
+			vertTableName,
+			verticesFieldName,
+			edgeTableName,
+			edgesFieldName,
+			logger,
+		)
 
-	t.Log("asserting a graph...")
-	assertDBGraph(
-		t,
-		&ticker,
-		e,
-		logger,
-		graphInfo,
-		vertTableName,
-		verticesFieldName,
-		edgeTableName,
-		edgesFieldName,
-		intToVertSystemID,
-		edgesSystemInfo,
-		1,
-	)
-	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+		intToVertSystemID, edgesSystemInfo = instantiateGraph(
+			t,
+			&ticker,
+			vertTableName,
+			edgeTableName,
+			e,
+			logger,
+			graphInfo.g,
+			edgesFieldName,
+			graphInfo.edgesInfo,
+			verticesFieldName,
+			graphInfo.verticesInfo,
+		)
 
-	{
+		t.Log("asserting a graph...")
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			graphInfo,
+			vertTableName,
+			verticesFieldName,
+			edgeTableName,
+			edgesFieldName,
+			intToVertSystemID,
+			edgesSystemInfo,
+			1,
+		)
+		require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	}()
+
+	func() {
 		t.Log("recovering a graph...")
-		e, _, _, logger, err := setupExecutor(fs, 10, false)
+		e, _, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
 
 		builder := &strings.Builder{}
 		logger.Dump(
@@ -2354,14 +2371,12 @@ func TestRecovery(t *testing.T) {
 			edgesSystemInfo,
 			1,
 		)
-	}
+	}()
 }
 
 func TestRecoveryRandomized(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, false)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	catalogBasePath := "/tmp/graphdb_test"
 
 	ticker := atomic.Uint64{}
 	vertTableName := "person"
@@ -2371,51 +2386,59 @@ func TestRecoveryRandomized(t *testing.T) {
 
 	graphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
 
-	setupTables(
-		t,
-		e,
-		&ticker,
-		vertTableName,
-		verticesFieldName,
-		edgeTableName,
-		edgesFieldName,
-		logger,
-	)
+	var intToVertSystemID map[int]storage.VertexSystemID
+	var edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID
+	func() {
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	intToVertSystemID, edgesSystemInfo := BuildGraph(
-		t,
-		&ticker,
-		vertTableName,
-		edgeTableName,
-		e,
-		logger,
-		graphInfo.g,
-		edgesFieldName,
-		graphInfo.edgesInfo,
-		verticesFieldName,
-		graphInfo.verticesInfo,
-	)
+		setupTables(
+			t,
+			e,
+			&ticker,
+			vertTableName,
+			verticesFieldName,
+			edgeTableName,
+			edgesFieldName,
+			logger,
+		)
 
-	t.Log("asserting a graph...")
-	assertDBGraph(
-		t,
-		&ticker,
-		e,
-		logger,
-		graphInfo,
-		vertTableName,
-		verticesFieldName,
-		edgeTableName,
-		edgesFieldName,
-		intToVertSystemID,
-		edgesSystemInfo,
-		1,
-	)
-	require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+		intToVertSystemID, edgesSystemInfo = instantiateGraph(
+			t,
+			&ticker,
+			vertTableName,
+			edgeTableName,
+			e,
+			logger,
+			graphInfo.g,
+			edgesFieldName,
+			graphInfo.edgesInfo,
+			verticesFieldName,
+			graphInfo.verticesInfo,
+		)
 
-	{
+		t.Log("asserting a graph...")
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			graphInfo,
+			vertTableName,
+			verticesFieldName,
+			edgeTableName,
+			edgesFieldName,
+			intToVertSystemID,
+			edgesSystemInfo,
+			1,
+		)
+		require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	}()
+
+	func() {
 		t.Log("recovering a graph...")
-		e, _, _, logger, err := setupExecutor(fs, 10, false)
+		e, _, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
 
 		require.NoError(t, err)
 		t.Log("asserting a graph after recovery...")
@@ -2451,7 +2474,7 @@ func TestRecoveryRandomized(t *testing.T) {
 			logger,
 		)
 
-		secondIntToVertSystemID, secondEdgesSystemInfo := BuildGraph(
+		secondIntToVertSystemID, secondEdgesSystemInfo := instantiateGraph(
 			t,
 			&ticker,
 			secondVertTableName,
@@ -2492,39 +2515,172 @@ func TestRecoveryRandomized(t *testing.T) {
 			edgesSystemInfo,
 			1,
 		)
-	}
+	}()
 }
 
 func TestRecoveryCheckpoint(t *testing.T) {
+	catalogBasePath := "/tmp/graphdb_test"
 	fs := afero.NewMemMapFs()
-	e, pool, _, logger, err := setupExecutor(fs, 10, false)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
 	ticker := atomic.Uint64{}
 	vertTableName := "person"
-	verticesFieldName := "money"
+	vertFieldName := "money"
 	edgeTableName := "indepted_to"
-	edgesFieldName := "debt_amount"
+	edgeFieldName := "debt_amount"
 
-	setupTables(
-		t,
-		e,
-		&ticker,
-		vertTableName,
-		verticesFieldName,
-		edgeTableName,
-		edgesFieldName,
-		logger,
-	)
+	graphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+	var intToVertSystemID map[int]storage.VertexSystemID
+	var edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID
 
-	require.NoError(t, pool.FlushAllPages())
+	func() {
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+		setupTables(
+			t,
+			e,
+			&ticker,
+			vertTableName,
+			vertFieldName,
+			edgeTableName,
+			edgeFieldName,
+			logger,
+		)
+		intToVertSystemID, edgesSystemInfo = instantiateGraph(
+			t,
+			&ticker,
+			vertTableName,
+			edgeTableName,
+			e,
+			logger,
+			graphInfo.g,
+			edgeFieldName,
+			graphInfo.edgesInfo,
+			vertFieldName,
+			graphInfo.verticesInfo,
+		)
 
-	{
-		_, _, _, _, err := setupExecutor(fs, 10, false)
+		require.NoError(t, pool.FlushAllPages())
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			graphInfo,
+			vertTableName,
+			vertFieldName,
+			edgeTableName,
+			edgeFieldName,
+			intToVertSystemID,
+			edgesSystemInfo,
+			1,
+		)
+	}()
+
+	secondVertTableName := "person2"
+	secondVerticesFieldName := "money2"
+	secondEdgeTableName := "indepted_to2"
+	secondEdgesFieldName := "debt_amount2"
+
+	secondGraphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+
+	var secondIntToVertSystemID map[int]storage.VertexSystemID
+	var secondEdgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID
+	func() {
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
 		require.NoError(t, err)
 		require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
-	}
+
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			graphInfo,
+			vertTableName,
+			vertFieldName,
+			edgeTableName,
+			edgeFieldName,
+			intToVertSystemID,
+			edgesSystemInfo,
+			1,
+		)
+
+		setupTables(
+			t,
+			e,
+			&ticker,
+			secondVertTableName,
+			secondVerticesFieldName,
+			secondEdgeTableName,
+			secondEdgesFieldName,
+			logger,
+		)
+
+		secondIntToVertSystemID, secondEdgesSystemInfo = instantiateGraph(
+			t,
+			&ticker,
+			secondVertTableName,
+			secondEdgeTableName,
+			e,
+			logger,
+			secondGraphInfo.g,
+			secondEdgesFieldName,
+			secondGraphInfo.edgesInfo,
+			secondVerticesFieldName,
+			secondGraphInfo.verticesInfo,
+		)
+
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			secondGraphInfo,
+			secondVertTableName,
+			secondVerticesFieldName,
+			secondEdgeTableName,
+			secondEdgesFieldName,
+			secondIntToVertSystemID,
+			secondEdgesSystemInfo,
+			1,
+		)
+	}()
+
+	func() {
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
+		require.NoError(t, err)
+		require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			graphInfo,
+			vertTableName,
+			vertFieldName,
+			edgeTableName,
+			edgeFieldName,
+			intToVertSystemID,
+			edgesSystemInfo,
+			1,
+		)
+		assertDBGraph(
+			t,
+			&ticker,
+			e,
+			logger,
+			secondGraphInfo,
+			secondVertTableName,
+			secondVerticesFieldName,
+			secondEdgeTableName,
+			secondEdgesFieldName,
+			secondIntToVertSystemID,
+			secondEdgesSystemInfo,
+			1,
+		)
+	}()
 }
 
 // func TestBankTransactions(t *testing.T) {
