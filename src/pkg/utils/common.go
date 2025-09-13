@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/spf13/afero"
 
@@ -127,4 +128,28 @@ func IsFileExists(fs afero.Fs, path string) (bool, error) {
 
 func GetFilePath(basePath string, fileID common.FileID) string {
 	return filepath.Join(basePath, strconv.Itoa(int(fileID))+".dat")
+}
+
+type Barrier struct {
+	size      int
+	waitCount int
+	cond      *sync.Cond
+}
+
+func NewBarrier(size int) *Barrier {
+	return &Barrier{size: size, cond: sync.NewCond(&sync.Mutex{})}
+}
+
+func (b *Barrier) Wait() {
+	b.cond.L.Lock()
+	b.waitCount++
+	if b.waitCount == b.size {
+		b.waitCount = 0
+		b.cond.Broadcast()
+	} else {
+		for b.waitCount < b.size {
+			b.cond.Wait()
+		}
+	}
+	b.cond.L.Unlock()
 }

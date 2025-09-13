@@ -109,7 +109,7 @@ func Execute(
 		if err != nil {
 			myassert.NoError(ctxLogger.AppendAbort())
 			ctxLogger.Rollback()
-			if err == ErrRollback {
+			if err == ErrRollback || errors.Is(err, txns.ErrDeadlockPrevention) {
 				err = nil
 				return
 			}
@@ -2682,7 +2682,7 @@ func TestRecoveryCheckpoint(t *testing.T) {
 	}()
 }
 
-func TestFailureRecovery(t *testing.T) {
+func TestSimpleUnfinishedTxnRecovery(t *testing.T) {
 	catalogBasePath := "/tmp/graphdb_test"
 	fs := afero.NewMemMapFs()
 
@@ -2719,7 +2719,7 @@ func TestFailureRecovery(t *testing.T) {
 	}
 
 	func() {
-		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 23, false)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -2754,19 +2754,10 @@ func TestFailureRecovery(t *testing.T) {
 			err := e.InsertVertex(failedTxnID, vertTableName, failedVertices[i], ctxLogger)
 			require.NoError(t, err)
 		}
-
-		t.Logf("123")
-		// masterpageident := recovery.GetMasterPageIdent(logger.GetLogfileID())
-		// b, err := logger.Dump(common.FileLocation{
-		// 	PageID:  masterpageident.PageID + 1,
-		// 	SlotNum: 0,
-		// })
-		// require.NoError(t, err)
-		// t.Logf("Logs dump:\n%s", b)
 	}()
 
 	func() {
-		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 11, false)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 		err = Execute(
@@ -2795,73 +2786,503 @@ func TestFailureRecovery(t *testing.T) {
 	}()
 }
 
-// func TestBankTransactions(t *testing.T) {
-// 	fs := afero.NewMemMapFs()
-// 	e, pool, _, logger, err := setupExecutor(fs, 10, false)
-// 	require.NoError(t, err)
-// 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
-//
-// 	ticker := atomic.Uint64{}
-// 	vertTableName := "person"
-// 	verticesFieldName := "money"
-// 	edgeTableName := "indepted_to"
-// 	edgesFieldName := "debt_amount"
-//
-// 	setupTables(
-// 		t,
-// 		e,
-// 		&ticker,
-// 		vertTableName,
-// 		verticesFieldName,
-// 		edgeTableName,
-// 		edgesFieldName,
-// 		logger,
-// 	)
-//
-// 	const (
-// 		nAccounts    = 1_000
-// 		nTxns        = 10_000
-// 		initBalance  = int64(200)
-// 		totalBalance = initBalance * int64(nAccounts)
-// 	)
-// 	accounts := make([]storage.VertexInfo, 0, nAccounts)
-//
-// 	for i := 0; i < nAccounts; i++ {
-// 		accounts = append(accounts, storage.VertexInfo{
-// 			SystemID: storage.VertexSystemID(uuid.New()),
-// 			Data: map[string]any{
-// 				verticesFieldName: initBalance,
-// 			},
-// 		})
-// 	}
-//
-// 	err = Execute(
-// 		&ticker,
-// 		e,
-// 		logger,
-// 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-// 			err = e.InsertVertices(txnID, vertTableName, accounts, logger)
-// 			require.NoError(t, err)
-// 			return nil
-// 		},
-// 	)
-// 	require.NoError(t, err)
-//
-// 	wg := sync.WaitGroup{}
-// 	for range nTxns {
-// 		wg.Add(1)
-// 		go func() {
-// 			defer wg.Done()
-// 			err = Execute(
-// 				&ticker,
-// 				e,
-// 				logger,
-// 				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-// 					return nil
-// 				},
-// 			)
-// 			require.NoError(t, err)
-// 		}()
-// 	}
-// 	wg.Wait()
-// }
+// TestGetVertexesOnDepthConcurrent tests that GetVertexesOnDepth can be called concurrently
+// from multiple goroutines safely since it's a read-only operation.
+func TestGetVertexesOnDepthConcurrent(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_concurrent_test"
+	poolPageCount := uint64(100)
+	debugMode := false
+
+	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	// Setup test data
+	vertTableName := "person"
+	edgeTableName := "friend"
+	vertSchema := storage.Schema{
+		{Name: "id", Type: storage.ColumnTypeInt64},
+	}
+	edgeSchema := storage.Schema{
+		{Name: "weight", Type: storage.ColumnTypeInt64},
+	}
+
+	var ticker atomic.Uint64
+
+	// Create a simple graph: A -> B -> C, A -> D
+	// This creates vertices at different depths from A
+	vertices := []storage.VertexInfo{
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(1)}}, // A
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(2)}}, // B
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(3)}}, // C
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(4)}}, // D
+	}
+
+	edges := []storage.EdgeInfo{
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[0].SystemID,
+			DstVertexID: vertices[1].SystemID,
+			Data:        map[string]any{"weight": int64(1)},
+		}, // A -> B
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[1].SystemID,
+			DstVertexID: vertices[2].SystemID,
+			Data:        map[string]any{"weight": int64(2)},
+		}, // B -> C
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[0].SystemID,
+			DstVertexID: vertices[3].SystemID,
+			Data:        map[string]any{"weight": int64(3)},
+		}, // A -> D
+	}
+
+	// Setup the graph
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			err = e.CreateVertexType(txnID, vertTableName, vertSchema, logger)
+			require.NoError(t, err)
+
+			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
+			require.NoError(t, err)
+
+			for _, vertex := range vertices {
+				err = e.InsertVertex(txnID, vertTableName, vertex, logger)
+				require.NoError(t, err)
+			}
+
+			for _, edge := range edges {
+				err = e.InsertEdge(txnID, edgeTableName, edge, logger)
+				require.NoError(t, err)
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Test concurrent reads
+	const numGoroutines = 10
+	const numIterations = 5
+
+	var wg sync.WaitGroup
+	results := make([][]storage.VertexSystemIDWithRID, numGoroutines*numIterations)
+	errors := make([]error, numGoroutines*numIterations)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			for j := 0; j < numIterations; j++ {
+				index := goroutineID*numIterations + j
+
+				err := Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						// Test depth 1 from vertex A (should return B and D)
+						result, err := e.GetVertexesOnDepth(
+							txnID,
+							vertTableName,
+							vertices[0].SystemID, // A
+							1,
+							storage.AllowAllVerticesFilter,
+							logger,
+						)
+						if err != nil {
+							errors[index] = err
+							return err
+						}
+
+						results[index] = result
+						return nil
+					},
+				)
+				if err != nil {
+					errors[index] = err
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all operations succeeded
+	for i, err := range errors {
+		require.NoError(t, err, "Goroutine %d failed", i)
+	}
+
+	// Verify all results are consistent
+	expectedVertices := []storage.VertexSystemID{
+		vertices[1].SystemID,
+		vertices[3].SystemID,
+	} // B and D
+	for i, result := range results {
+		require.NotNil(t, result, "Result %d is nil", i)
+		require.Len(t, result, 2, "Result %d should have 2 vertices", i)
+
+		actualVertices := make([]storage.VertexSystemID, len(result))
+		for j, v := range result {
+			actualVertices[j] = v.V
+		}
+		require.ElementsMatch(
+			t,
+			expectedVertices,
+			actualVertices,
+			"Result %d vertices don't match expected",
+			i,
+		)
+	}
+}
+
+// TestGetVertexesOnDepthConcurrentWithDifferentDepths tests concurrent queries with different depth
+// parameters
+func TestGetVertexesOnDepthConcurrentWithDifferentDepths(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_concurrent_depths_test"
+	poolPageCount := uint64(100)
+	debugMode := false
+
+	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	// Setup test data - create a deeper graph: A -> B -> C -> D
+	vertTableName := "person"
+	edgeTableName := "friend"
+	vertSchema := storage.Schema{
+		{Name: "id", Type: storage.ColumnTypeInt64},
+	}
+	edgeSchema := storage.Schema{
+		{Name: "weight", Type: storage.ColumnTypeInt64},
+	}
+
+	var ticker atomic.Uint64
+
+	vertices := []storage.VertexInfo{
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(1)}}, // A
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(2)}}, // B
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(3)}}, // C
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(4)}}, // D
+	}
+
+	edges := []storage.EdgeInfo{
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[0].SystemID,
+			DstVertexID: vertices[1].SystemID,
+			Data:        map[string]any{"weight": int64(1)},
+		}, // A -> B
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[1].SystemID,
+			DstVertexID: vertices[2].SystemID,
+			Data:        map[string]any{"weight": int64(2)},
+		}, // B -> C
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[2].SystemID,
+			DstVertexID: vertices[3].SystemID,
+			Data:        map[string]any{"weight": int64(3)},
+		}, // C -> D
+	}
+
+	// Setup the graph
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			err = e.CreateVertexType(txnID, vertTableName, vertSchema, logger)
+			require.NoError(t, err)
+
+			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
+			require.NoError(t, err)
+
+			for _, vertex := range vertices {
+				err = e.InsertVertex(txnID, vertTableName, vertex, logger)
+				require.NoError(t, err)
+			}
+
+			for _, edge := range edges {
+				err = e.InsertEdge(txnID, edgeTableName, edge, logger)
+				require.NoError(t, err)
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Test concurrent reads with different depths
+	const numGoroutines = 8
+	depths := []uint32{1, 2, 3}
+	expectedResults := [][]storage.VertexSystemID{
+		{vertices[1].SystemID}, // depth 1: B
+		{vertices[2].SystemID}, // depth 2: C
+		{vertices[3].SystemID}, // depth 3: D
+	}
+
+	var wg sync.WaitGroup
+	results := make([][]storage.VertexSystemIDWithRID, numGoroutines*len(depths))
+	errors := make([]error, numGoroutines*len(depths))
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			for j, depth := range depths {
+				index := goroutineID*len(depths) + j
+
+				err := Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						result, err := e.GetVertexesOnDepth(
+							txnID,
+							vertTableName,
+							vertices[0].SystemID, // A
+							depth,
+							storage.AllowAllVerticesFilter,
+							logger,
+						)
+						if err != nil {
+							errors[index] = err
+							return err
+						}
+
+						results[index] = result
+						return nil
+					},
+				)
+				if err != nil {
+					errors[index] = err
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all operations succeeded
+	for i, err := range errors {
+		require.NoError(t, err, "Goroutine %d failed", i)
+	}
+
+	// Verify results are consistent for each depth
+	for i := 0; i < numGoroutines; i++ {
+		for j, depth := range depths {
+			index := i*len(depths) + j
+			result := results[index]
+			expected := expectedResults[j]
+
+			require.NotNil(t, result, "Result for depth %d, goroutine %d is nil", depth, i)
+			require.Len(
+				t,
+				result,
+				len(expected),
+				"Result for depth %d, goroutine %d should have %d vertices",
+				depth,
+				i,
+				len(expected),
+			)
+
+			actualVertices := make([]storage.VertexSystemID, len(result))
+			for k, v := range result {
+				actualVertices[k] = v.V
+			}
+			require.ElementsMatch(
+				t,
+				expected,
+				actualVertices,
+				"Result for depth %d, goroutine %d vertices don't match expected",
+				depth,
+				i,
+			)
+		}
+	}
+}
+
+// TestGetVertexesOnDepthConcurrentWithDifferentStartVertices tests concurrent queries with
+// different starting vertices
+func TestGetVertexesOnDepthConcurrentWithDifferentStartVertices(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_concurrent_starts_test"
+	poolPageCount := uint64(100)
+	debugMode := false
+
+	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	// Setup test data - create a graph with multiple starting points
+	vertTableName := "person"
+	edgeTableName := "friend"
+	vertSchema := storage.Schema{
+		{Name: "id", Type: storage.ColumnTypeInt64},
+	}
+	edgeSchema := storage.Schema{
+		{Name: "weight", Type: storage.ColumnTypeInt64},
+	}
+
+	var ticker atomic.Uint64
+
+	// Create graph: A -> B -> C, D -> E, F (isolated)
+	vertices := []storage.VertexInfo{
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(1)}}, // A
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(2)}}, // B
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(3)}}, // C
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(4)}}, // D
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(5)}}, // E
+		{SystemID: storage.VertexSystemID(uuid.New()), Data: map[string]any{"id": int64(6)}}, // F
+	}
+
+	edges := []storage.EdgeInfo{
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[0].SystemID,
+			DstVertexID: vertices[1].SystemID,
+			Data:        map[string]any{"weight": int64(1)},
+		}, // A -> B
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[1].SystemID,
+			DstVertexID: vertices[2].SystemID,
+			Data:        map[string]any{"weight": int64(2)},
+		}, // B -> C
+		{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: vertices[3].SystemID,
+			DstVertexID: vertices[4].SystemID,
+			Data:        map[string]any{"weight": int64(3)},
+		}, // D -> E
+	}
+
+	// Setup the graph
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			err = e.CreateVertexType(txnID, vertTableName, vertSchema, logger)
+			require.NoError(t, err)
+
+			err = e.CreateEdgeType(txnID, edgeTableName, edgeSchema, "person", "person", logger)
+			require.NoError(t, err)
+
+			for _, vertex := range vertices {
+				err = e.InsertVertex(txnID, vertTableName, vertex, logger)
+				require.NoError(t, err)
+			}
+
+			for _, edge := range edges {
+				err = e.InsertEdge(txnID, edgeTableName, edge, logger)
+				require.NoError(t, err)
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	// Test concurrent reads from different starting vertices
+	const numGoroutines = 6
+	startVertices := []storage.VertexSystemID{
+		vertices[0].SystemID,
+		vertices[3].SystemID,
+		vertices[5].SystemID,
+	} // A, D, F
+	expectedResults := [][]storage.VertexSystemID{
+		{vertices[1].SystemID}, // A -> B at depth 1
+		{vertices[4].SystemID}, // D -> E at depth 1
+		{},                     // F has no neighbors
+	}
+
+	var wg sync.WaitGroup
+	results := make([][]storage.VertexSystemIDWithRID, numGoroutines*len(startVertices))
+	errors := make([]error, numGoroutines*len(startVertices))
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			for j, startVertex := range startVertices {
+				index := goroutineID*len(startVertices) + j
+
+				err := Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						result, err := e.GetVertexesOnDepth(
+							txnID,
+							vertTableName,
+							startVertex,
+							1, // depth 1
+							storage.AllowAllVerticesFilter,
+							logger,
+						)
+						if err != nil {
+							errors[index] = err
+							return err
+						}
+
+						results[index] = result
+						return nil
+					},
+				)
+				if err != nil {
+					errors[index] = err
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all operations succeeded
+	for i, err := range errors {
+		require.NoError(t, err, "Goroutine %d failed", i)
+	}
+
+	// Verify results are consistent for each starting vertex
+	for i := 0; i < numGoroutines; i++ {
+		for j := range startVertices {
+			index := i*len(startVertices) + j
+			result := results[index]
+			expected := expectedResults[j]
+
+			require.NotNil(t, result, "Result for start vertex %d, goroutine %d is nil", j, i)
+			require.Len(
+				t,
+				result,
+				len(expected),
+				"Result for start vertex %d, goroutine %d should have %d vertices",
+				j,
+				i,
+				len(expected),
+			)
+
+			actualVertices := make([]storage.VertexSystemID, len(result))
+			for k, v := range result {
+				actualVertices[k] = v.V
+			}
+			require.ElementsMatch(
+				t,
+				expected,
+				actualVertices,
+				"Result for start vertex %d, goroutine %d vertices don't match expected",
+				j,
+				i,
+			)
+		}
+	}
+}
