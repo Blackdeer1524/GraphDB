@@ -217,19 +217,20 @@ func logRecordToString(tag LogRecordTypeTag, untypedRecord any) string {
 	}
 }
 
-func (l *TxnLogger) Dump(start common.FileLocation, b *strings.Builder) {
+func (l *TxnLogger) Dump(start common.FileLocation) (string, error) {
+	b := &strings.Builder{}
 	iter, err := l.iter(start)
 	if err != nil {
-		return
+		return "", err
 	}
 
 	for {
 		tag, record, err := iter.ReadRecord()
 		if err != nil {
-			return
+			return "", err
 		}
 		loc := iter.Location()
-		fmt.Fprintf(b, "[%d@%d]: ", loc.PageID, loc.SlotNum)
+		fmt.Fprintf(b, "[page:%d, slot:%d]: ", loc.PageID, loc.SlotNum)
 		b.WriteString(logRecordToString(tag, record))
 		b.WriteString("\n")
 		success, err := iter.MoveForward()
@@ -237,6 +238,7 @@ func (l *TxnLogger) Dump(start common.FileLocation, b *strings.Builder) {
 			break
 		}
 	}
+	return b.String(), nil
 }
 
 func (l *TxnLogger) GetFlushInfo() (common.FileID, common.PageID, common.PageID, common.LSN) {

@@ -6,7 +6,6 @@ import (
 	"maps"
 	"math"
 	"math/rand"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -102,9 +101,9 @@ func TestValidRecovery(t *testing.T) {
 
 	defer func() {
 		if recover() != nil {
-			b := &strings.Builder{}
-			logger.Dump(loggerStart.Location, b)
-			println(b.String())
+			b, err := logger.Dump(loggerStart.Location)
+			require.NoError(t, err)
+			t.Logf("log dump: %s", b)
 		}
 		assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 	}()
@@ -815,9 +814,9 @@ func TestLoggerRollback(t *testing.T) {
 				r := recover()
 				if r != nil {
 					t.Logf("recovered from panic: %v", r)
-					b := &strings.Builder{}
-					logger.Dump(logStartLocation, b)
-					println(b.String())
+					b, err := logger.Dump(logStartLocation)
+					require.NoError(t, err)
+					t.Logf("log dump: %s", b)
 					panic(r)
 				}
 			}()

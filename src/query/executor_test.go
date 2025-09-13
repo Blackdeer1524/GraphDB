@@ -2348,12 +2348,11 @@ func TestRecovery(t *testing.T) {
 		t.Log("recovering a graph...")
 		e, _, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
 
-		builder := &strings.Builder{}
-		logger.Dump(
+		b, err := logger.Dump(
 			common.FileLocation{PageID: common.CheckpointInfoPageID + 1, SlotNum: 0},
-			builder,
 		)
-		t.Logf("Log file:\n%s", builder.String())
+		require.NoError(t, err)
+		t.Logf("Log file:\n%s", b)
 
 		require.NoError(t, err)
 		t.Log("asserting a graph after recovery...")
@@ -2680,6 +2679,119 @@ func TestRecoveryCheckpoint(t *testing.T) {
 			secondEdgesSystemInfo,
 			1,
 		)
+	}()
+}
+
+func TestFailureRecovery(t *testing.T) {
+	catalogBasePath := "/tmp/graphdb_test"
+	fs := afero.NewMemMapFs()
+
+	const (
+		nSuccess = 100
+		nFailed  = 100
+	)
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	vertFieldName := "money"
+	schema := storage.Schema{
+		{Name: vertFieldName, Type: storage.ColumnTypeInt64},
+	}
+
+	vertices := make([]storage.VertexInfo, nSuccess)
+	for i := range nSuccess {
+		vertices[i] = storage.VertexInfo{
+			SystemID: storage.VertexSystemID(uuid.New()),
+			Data: map[string]any{
+				vertFieldName: int64(i),
+			},
+		}
+	}
+
+	failedVertices := make([]storage.VertexInfo, nFailed)
+	for i := range nFailed {
+		failedVertices[i] = storage.VertexInfo{
+			SystemID: storage.VertexSystemID(uuid.New()),
+			Data: map[string]any{
+				vertFieldName: int64(i + nSuccess),
+			},
+		}
+	}
+
+	func() {
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				err = e.CreateVertexType(txnID, vertTableName, schema, logger)
+				require.NoError(t, err)
+				return nil
+			},
+		)
+		require.NoError(t, err)
+
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				err = e.InsertVertices(txnID, vertTableName, vertices, logger)
+				require.NoError(t, err)
+				return nil
+			},
+		)
+		require.NoError(t, err)
+
+		failedTxnID := common.TxnID(ticker.Add(1))
+		ctxLogger := logger.WithContext(failedTxnID)
+		require.NoError(t, ctxLogger.AppendBegin())
+		for i := range nFailed {
+			err := e.InsertVertex(failedTxnID, vertTableName, failedVertices[i], ctxLogger)
+			require.NoError(t, err)
+		}
+
+		t.Logf("123")
+		// masterpageident := recovery.GetMasterPageIdent(logger.GetLogfileID())
+		// b, err := logger.Dump(common.FileLocation{
+		// 	PageID:  masterpageident.PageID + 1,
+		// 	SlotNum: 0,
+		// })
+		// require.NoError(t, err)
+		// t.Logf("Logs dump:\n%s", b)
+	}()
+
+	func() {
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				for i := range nSuccess {
+					vert, err := e.SelectVertex(txnID, vertTableName, vertices[i].SystemID, logger)
+					require.NoError(t, err)
+					require.Equal(t, vert.Data[vertFieldName], vertices[i].Data[vertFieldName])
+				}
+				for i := range nFailed {
+					_, err := e.SelectVertex(
+						txnID,
+						vertTableName,
+						failedVertices[i].SystemID,
+						logger,
+					)
+					require.ErrorIs(t, err, storage.ErrKeyNotFound)
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
 	}()
 }
 

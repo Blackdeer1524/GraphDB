@@ -57,16 +57,20 @@ func (iter *LogRecordsIter) MoveForward() (res bool, err error) {
 	iter.pool.Unpin(curPageID)
 	iter.currentPage = nil
 
-	newPage, err := iter.pool.GetPageNoCreate(
-		common.PageIdentity{
-			FileID: iter.logfileID,
-			PageID: iter.curLoc.PageID + 1,
-		})
-
+	nextPageIdent := common.PageIdentity{
+		FileID: iter.logfileID,
+		PageID: iter.curLoc.PageID + 1,
+	}
+	newPage, err := iter.pool.GetPageNoCreate(nextPageIdent)
 	if errors.Is(err, disk.ErrNoSuchPage) {
 		return false, nil
 	} else if err != nil {
 		return false, err
+	}
+
+	if newPage.NumSlots() == 0 {
+		iter.pool.Unpin(nextPageIdent)
+		return false, nil
 	}
 
 	iter.curLoc.PageID++
