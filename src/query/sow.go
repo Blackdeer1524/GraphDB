@@ -177,9 +177,9 @@ func (e *Executor) bfsWithDepth(
 	return result, nil
 }
 
-// GetVertexesOnDepth is the first query from SOW. It returns all vertexes on a given depth.
+// GetVerticesOnDepth is the first query from SOW. It returns all vertexes on a given depth.
 // We will use BFS on graph because DFS cannot calculate right depth on graphs (except trees).
-func (e *Executor) GetVertexesOnDepth(
+func (e *Executor) GetVerticesOnDepth(
 	txnID common.TxnID,
 	vertTableName string,
 	start storage.VertexSystemID,

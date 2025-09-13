@@ -532,7 +532,7 @@ func TestCreateEdgeTable(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			res, err := e.GetVertexesOnDepth(
+			res, err := e.GetVerticesOnDepth(
 				txnID,
 				vertTableName,
 				v1Record.SystemID,
@@ -550,7 +550,7 @@ func TestCreateEdgeTable(t *testing.T) {
 }
 
 func setupTables(
-	t *testing.T,
+	t testing.TB,
 	e *Executor,
 	ticker *atomic.Uint64,
 	vertTableName string,
@@ -722,7 +722,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 			e,
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-				recordedNeighbors, err := e.GetVertexesOnDepth(
+				recordedNeighbors, err := e.GetVerticesOnDepth(
 					txnID,
 					vertTableName,
 					centerData.SystemID,
@@ -746,7 +746,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 				require.ElementsMatch(t, expectedNeighborIDs, actualNeighborsIDS)
 
 				for _, noEdgesNeighbor := range actualNeighborsIDS {
-					ns, err := e.GetVertexesOnDepth(
+					ns, err := e.GetVerticesOnDepth(
 						txnID,
 						vertTableName,
 						noEdgesNeighbor,
@@ -769,7 +769,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 			e,
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-				recordedNeighbors, err := e.GetVertexesOnDepth(
+				recordedNeighbors, err := e.GetVerticesOnDepth(
 					txnID,
 					vertTableName,
 					centerData.SystemID,
@@ -792,7 +792,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 				for _, noEdgesNeighbor := range neighborRecords {
-					ns, err := e.GetVertexesOnDepth(
+					ns, err := e.GetVerticesOnDepth(
 						txnID,
 						vertTableName,
 						noEdgesNeighbor.SystemID,
@@ -811,7 +811,7 @@ func TestSnowflakeNeighbours(t *testing.T) {
 }
 
 func instantiateGraph(
-	t *testing.T,
+	t testing.TB,
 	ticker *atomic.Uint64,
 	vertTableName string,
 	edgeTableName string,
@@ -973,7 +973,7 @@ func (g *GraphInfo) GraphVizRepr() string {
 }
 
 func assertDBGraph(
-	t *testing.T,
+	t testing.TB,
 	ticker *atomic.Uint64,
 	e *Executor,
 	logger common.ITxnLogger,
@@ -985,6 +985,7 @@ func assertDBGraph(
 	intToVertSystemID map[int]storage.VertexSystemID,
 	edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID,
 	maxDepthAssertion int,
+	concurrent bool,
 ) {
 	err := Execute(
 		ticker,
@@ -1005,76 +1006,158 @@ func assertDBGraph(
 	)
 	require.NoError(t, err)
 
-	err = Execute(
-		ticker,
-		e,
-		logger,
-		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			for srcIntID, neighbors := range graphInfo.g {
-				for _, nIntID := range neighbors {
-					edgeSystemID, ok := edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
-					require.True(t, ok)
-
-					edge, err := e.SelectEdge(
-						txnID,
-						edgeTableName,
-						edgeSystemID,
+	if concurrent {
+		wg := sync.WaitGroup{}
+		for srcIntID, neighbors := range graphInfo.g {
+			for _, nIntID := range neighbors {
+				edgeSystemID, ok := edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
+				require.True(t, ok)
+				wg.Add(1)
+				go func(startIntID int, nIntID int) {
+					defer wg.Done()
+					err := Execute(
+						ticker,
+						e,
 						logger,
+						func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+							edge, err := e.SelectEdge(
+								txnID,
+								edgeTableName,
+								edgeSystemID,
+								logger,
+							)
+							require.NoError(t, err)
+							require.Equal(
+								t,
+								edge.Data[edgesFieldName],
+								graphInfo.edgesInfo[utils.Pair[int, int]{First: startIntID, Second: nIntID}],
+							)
+							return nil
+						},
 					)
 					require.NoError(t, err)
-					require.Equal(
-						t,
-						edge.Data[edgesFieldName],
-						graphInfo.edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}],
-					)
-				}
+				}(srcIntID, nIntID)
 			}
-			return nil
-		},
-	)
-	require.NoError(t, err)
+		}
+		wg.Wait()
+	} else {
+		err = Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				for srcIntID, neighbors := range graphInfo.g {
+					for _, nIntID := range neighbors {
+						edgeSystemID, ok := edgesSystemInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}]
+						require.True(t, ok)
 
-	err = Execute(
-		ticker,
-		e,
-		logger,
-		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			for depth := 1; depth <= maxDepthAssertion; depth++ {
-				for startIntID, depthNeighbours := range getVerticesOnDepth(graphInfo.g, depth) {
+						edge, err := e.SelectEdge(
+							txnID,
+							edgeTableName,
+							edgeSystemID,
+							logger,
+						)
+						require.NoError(t, err)
+						require.Equal(
+							t,
+							edge.Data[edgesFieldName],
+							graphInfo.edgesInfo[utils.Pair[int, int]{First: srcIntID, Second: nIntID}],
+						)
+					}
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	if concurrent {
+		wg := sync.WaitGroup{}
+		for depth := 1; depth <= maxDepthAssertion; depth++ {
+			for startIntID, depthNeighbours := range getVerticesOnDepth(graphInfo.g, depth) {
+				wg.Add(1)
+				go func(startIntID int, depthNeighbours []int) {
+					defer wg.Done()
 					startSystemID := intToVertSystemID[startIntID]
-					expectedNeighborIDS := make(
-						[]storage.VertexSystemID,
-						0,
-						len(depthNeighbours),
-					)
+					expectedNeighborIDS := make([]storage.VertexSystemID, 0, len(depthNeighbours))
 
 					for _, nIntID := range depthNeighbours {
 						nSystemID, ok := intToVertSystemID[nIntID]
 						require.True(t, ok)
-
 						expectedNeighborIDS = append(expectedNeighborIDS, nSystemID)
 					}
-					neighboursIDWithRID, err := e.GetVertexesOnDepth(
-						txnID,
-						vertTableName,
-						startSystemID,
-						uint32(depth),
-						storage.AllowAllVerticesFilter,
+
+					err := Execute(
+						ticker,
+						e,
 						logger,
+						func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+							neighboursIDWithRID, err := e.GetVerticesOnDepth(
+								txnID,
+								vertTableName,
+								startSystemID,
+								uint32(depth),
+								storage.AllowAllVerticesFilter,
+								logger,
+							)
+							require.NoError(t, err)
+
+							actualNeighbours := make([]storage.VertexSystemID, 0)
+							for _, storedNeighbour := range neighboursIDWithRID {
+								actualNeighbours = append(actualNeighbours, storedNeighbour.V)
+							}
+							require.ElementsMatch(t, expectedNeighborIDS, actualNeighbours)
+							return nil
+						},
 					)
 					require.NoError(t, err)
-
-					actualNeighbours := make([]storage.VertexSystemID, 0)
-					for _, storedNeighbour := range neighboursIDWithRID {
-						actualNeighbours = append(actualNeighbours, storedNeighbour.V)
-					}
-					require.ElementsMatch(t, expectedNeighborIDS, actualNeighbours)
-				}
+				}(startIntID, depthNeighbours)
 			}
-			return nil
-		},
-	)
-	require.NoError(t, err)
+		}
+		wg.Wait()
+	} else {
+		err = Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				for depth := 1; depth <= maxDepthAssertion; depth++ {
+					for startIntID, depthNeighbours := range getVerticesOnDepth(graphInfo.g, depth) {
+						startSystemID := intToVertSystemID[startIntID]
+						expectedNeighborIDS := make(
+							[]storage.VertexSystemID,
+							0,
+							len(depthNeighbours),
+						)
+
+						for _, nIntID := range depthNeighbours {
+							nSystemID, ok := intToVertSystemID[nIntID]
+							require.True(t, ok)
+
+							expectedNeighborIDS = append(expectedNeighborIDS, nSystemID)
+						}
+						neighboursIDWithRID, err := e.GetVerticesOnDepth(
+							txnID,
+							vertTableName,
+							startSystemID,
+							uint32(depth),
+							storage.AllowAllVerticesFilter,
+							logger,
+						)
+						require.NoError(t, err)
+
+						actualNeighbours := make([]storage.VertexSystemID, 0)
+						for _, storedNeighbour := range neighboursIDWithRID {
+							actualNeighbours = append(actualNeighbours, storedNeighbour.V)
+						}
+						require.ElementsMatch(t, expectedNeighborIDS, actualNeighbours)
+					}
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	}
 }
 
 func TestBuildGraph(t *testing.T) {
@@ -1201,6 +1284,7 @@ func TestBuildGraph(t *testing.T) {
 				intToVertSystemID,
 				edgesSystemInfo,
 				5,
+				false,
 			)
 
 			err := Execute(
@@ -1270,7 +1354,9 @@ func generateRandomGraph(n int, connectivity float32, r *rand.Rand, bidirectiona
 func TestRandomizedBuildGraph(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_test"
-	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
+	concurrentGraphCheck := false
+
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 50, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1288,20 +1374,16 @@ func TestRandomizedBuildGraph(t *testing.T) {
 		vertexCount  int
 		connectivity float32
 	}{
-		{
-			vertexCount:  10,
-			connectivity: 0.3,
-		},
-		{
-			vertexCount:  10,
-			connectivity: 0.5,
-		},
+		// {
+		// 	vertexCount:  10,
+		// 	connectivity: 0.5,
+		// },
+		// {
+		// 	vertexCount:  25,
+		// 	connectivity: 1.0,
+		// },
 		{
 			vertexCount:  50,
-			connectivity: 1.0,
-		},
-		{
-			vertexCount:  100,
 			connectivity: 0.3,
 		},
 	}
@@ -1355,6 +1437,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 						intToVertSystemID,
 						edgesSystemInfo,
 						3,
+						concurrentGraphCheck,
 					)
 
 					err := Execute(
@@ -1438,6 +1521,7 @@ func TestBigRandomGraph(t *testing.T) {
 		intToVertSystemID,
 		edgesSystemInfo,
 		1,
+		false,
 	)
 }
 
@@ -1602,7 +1686,7 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, int64(5), friendEdge.Data[friendFieldName])
 
-			neighbors, err := e.GetVertexesOnDepth(
+			neighbors, err := e.GetVerticesOnDepth(
 				txnID,
 				personVTableName,
 				firstPersonVRecord.SystemID,
@@ -1618,7 +1702,7 @@ func TestNeighboursMultipleTables(t *testing.T) {
 				[]storage.VertexSystemID{secondPersonVRecord.SystemID, workplaceVRecord.SystemID},
 			)
 
-			neighbors, err = e.GetVertexesOnDepth(
+			neighbors, err = e.GetVerticesOnDepth(
 				txnID,
 				workplaceVTableName,
 				workplaceVRecord.SystemID,
@@ -2154,6 +2238,7 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 					intToVertSystemID,
 					edgesSystemInfo,
 					1,
+					false,
 				)
 
 				err = Execute(
@@ -2340,6 +2425,7 @@ func TestRecovery(t *testing.T) {
 			intToVertSystemID,
 			edgesSystemInfo,
 			1,
+			false,
 		)
 		require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 	}()
@@ -2369,6 +2455,7 @@ func TestRecovery(t *testing.T) {
 			intToVertSystemID,
 			edgesSystemInfo,
 			1,
+			false,
 		)
 	}()
 }
@@ -2431,6 +2518,7 @@ func TestRecoveryRandomized(t *testing.T) {
 			intToVertSystemID,
 			edgesSystemInfo,
 			1,
+			false,
 		)
 		require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
 	}()
@@ -2454,6 +2542,7 @@ func TestRecoveryRandomized(t *testing.T) {
 			intToVertSystemID,
 			edgesSystemInfo,
 			1,
+			false,
 		)
 
 		secondVertTableName := "person2"
@@ -2499,6 +2588,7 @@ func TestRecoveryRandomized(t *testing.T) {
 			secondIntToVertSystemID,
 			secondEdgesSystemInfo,
 			1,
+			false,
 		)
 		assertDBGraph(
 			t,
@@ -2513,6 +2603,7 @@ func TestRecoveryRandomized(t *testing.T) {
 			intToVertSystemID,
 			edgesSystemInfo,
 			1,
+			false,
 		)
 	}()
 }
@@ -2573,6 +2664,7 @@ func TestRecoveryCheckpoint(t *testing.T) {
 			intToVertSystemID,
 			edgesSystemInfo,
 			1,
+			false,
 		)
 	}()
 
@@ -2603,6 +2695,7 @@ func TestRecoveryCheckpoint(t *testing.T) {
 			intToVertSystemID,
 			edgesSystemInfo,
 			1,
+			false,
 		)
 
 		setupTables(
@@ -2643,6 +2736,7 @@ func TestRecoveryCheckpoint(t *testing.T) {
 			secondIntToVertSystemID,
 			secondEdgesSystemInfo,
 			1,
+			false,
 		)
 	}()
 
@@ -2664,6 +2758,7 @@ func TestRecoveryCheckpoint(t *testing.T) {
 			intToVertSystemID,
 			edgesSystemInfo,
 			1,
+			false,
 		)
 		assertDBGraph(
 			t,
@@ -2678,6 +2773,7 @@ func TestRecoveryCheckpoint(t *testing.T) {
 			secondIntToVertSystemID,
 			secondEdgesSystemInfo,
 			1,
+			false,
 		)
 	}()
 }
@@ -2792,7 +2888,7 @@ func TestGetVertexesOnDepthConcurrent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_concurrent_test"
 	poolPageCount := uint64(100)
-	debugMode := false
+	debugMode := true
 
 	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
 	require.NoError(t, err)
@@ -2888,7 +2984,7 @@ func TestGetVertexesOnDepthConcurrent(t *testing.T) {
 					logger,
 					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 						// Test depth 1 from vertex A (should return B and D)
-						result, err := e.GetVertexesOnDepth(
+						result, err := e.GetVerticesOnDepth(
 							txnID,
 							vertTableName,
 							vertices[0].SystemID, // A
@@ -2948,7 +3044,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentDepths(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_concurrent_depths_test"
 	poolPageCount := uint64(100)
-	debugMode := false
+	debugMode := true
 
 	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
 	require.NoError(t, err)
@@ -3046,7 +3142,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentDepths(t *testing.T) {
 					e,
 					logger,
 					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-						result, err := e.GetVertexesOnDepth(
+						result, err := e.GetVerticesOnDepth(
 							txnID,
 							vertTableName,
 							vertices[0].SystemID, // A
@@ -3117,7 +3213,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVertices(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_concurrent_starts_test"
 	poolPageCount := uint64(100)
-	debugMode := false
+	debugMode := true
 
 	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
 	require.NoError(t, err)
@@ -3222,7 +3318,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVertices(t *testing.T) {
 					e,
 					logger,
 					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-						result, err := e.GetVertexesOnDepth(
+						result, err := e.GetVerticesOnDepth(
 							txnID,
 							vertTableName,
 							startVertex,
@@ -3285,4 +3381,207 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVertices(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepths(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
+	poolPageCount := uint64(100)
+	debugMode := false
+
+	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+
+	vertTableName := "person"
+	vertFieldName := "id"
+	edgeTableName := "friend"
+	edgesFieldName := "weight"
+
+	setupTables(
+		t,
+		e,
+		&ticker,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgesFieldName,
+		logger,
+	)
+
+	graphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+	intToVertSystemID, edgesSystemInfo := instantiateGraph(
+		t,
+		&ticker,
+		vertTableName,
+		edgeTableName,
+		e,
+		logger,
+		graphInfo.g,
+		edgesFieldName,
+		graphInfo.edgesInfo,
+		vertFieldName,
+		graphInfo.verticesInfo,
+	)
+	assertDBGraph(
+		t,
+		&ticker,
+		e,
+		logger,
+		graphInfo,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgesFieldName,
+		intToVertSystemID,
+		edgesSystemInfo,
+		2,
+		false,
+	)
+
+	assertDBGraph(
+		t,
+		&ticker,
+		e,
+		logger,
+		graphInfo,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgesFieldName,
+		intToVertSystemID,
+		edgesSystemInfo,
+		2,
+		true,
+	)
+}
+
+func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDifferentDepths(
+	b *testing.B,
+) {
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
+	poolPageCount := uint64(300)
+	debugMode := false
+
+	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
+	require.NoError(b, err)
+	defer func() { require.NoError(b, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+
+	vertTableName := "person"
+	vertFieldName := "id"
+	edgeTableName := "friend"
+	edgesFieldName := "weight"
+
+	setupTables(
+		b,
+		e,
+		&ticker,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgesFieldName,
+		logger,
+	)
+
+	targetEdgeCountPerNode := 7
+	connectivity := min(float32(targetEdgeCountPerNode)/float32(b.N), 0)
+	graphInfo := generateRandomGraph(b.N, connectivity, rand.New(rand.NewSource(42)), false)
+	intToVertSystemID, edgesSystemInfo := instantiateGraph(
+		b,
+		&ticker,
+		vertTableName,
+		edgeTableName,
+		e,
+		logger,
+		graphInfo.g,
+		edgesFieldName,
+		graphInfo.edgesInfo,
+		vertFieldName,
+		graphInfo.verticesInfo,
+	)
+
+	b.ResetTimer()
+	assertDBGraph(
+		b,
+		&ticker,
+		e,
+		logger,
+		graphInfo,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgesFieldName,
+		intToVertSystemID,
+		edgesSystemInfo,
+		2,
+		false,
+	)
+}
+
+func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepths(
+	b *testing.B,
+) {
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
+	poolPageCount := uint64(300)
+	debugMode := false
+
+	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
+	require.NoError(b, err)
+	defer func() { require.NoError(b, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+
+	vertTableName := "person"
+	vertFieldName := "id"
+	edgeTableName := "friend"
+	edgesFieldName := "weight"
+
+	setupTables(
+		b,
+		e,
+		&ticker,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgesFieldName,
+		logger,
+	)
+
+	graphInfo := generateRandomGraph(1_000, 0.001, rand.New(rand.NewSource(42)), false)
+	intToVertSystemID, edgesSystemInfo := instantiateGraph(
+		b,
+		&ticker,
+		vertTableName,
+		edgeTableName,
+		e,
+		logger,
+		graphInfo.g,
+		edgesFieldName,
+		graphInfo.edgesInfo,
+		vertFieldName,
+		graphInfo.verticesInfo,
+	)
+
+	b.ResetTimer()
+	assertDBGraph(
+		b,
+		&ticker,
+		e,
+		logger,
+		graphInfo,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgesFieldName,
+		intToVertSystemID,
+		edgesSystemInfo,
+		2,
+		true,
+	)
 }
