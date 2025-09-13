@@ -13,7 +13,7 @@ func (s *StorageEngine) GetVertexTableMeta(
 	cToken *txns.CatalogLockToken,
 ) (storage.VertexTableMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade catalog lock")
+		err := fmt.Errorf("failed to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.VertexTableMeta{}, err
 	}
 
@@ -30,7 +30,7 @@ func (s *StorageEngine) GetEdgeTableMeta(
 	cToken *txns.CatalogLockToken,
 ) (storage.EdgeTableMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade catalog lock")
+		err := fmt.Errorf("failed to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.EdgeTableMeta{}, err
 	}
 
@@ -47,7 +47,7 @@ func (s *StorageEngine) GetDirTableMeta(
 	vertexTableFileID common.FileID,
 ) (storage.DirTableMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade catalog lock")
+		err := fmt.Errorf("failed to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.DirTableMeta{}, err
 	}
 
@@ -64,7 +64,7 @@ func (s *StorageEngine) GetVertexTableIndexMeta(
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade catalog lock")
+		err := fmt.Errorf("failed to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.IndexMeta{}, err
 	}
 
@@ -81,7 +81,7 @@ func (s *StorageEngine) GetVertexTableSystemIndexMeta(
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade catalog lock")
+		err := fmt.Errorf("failed to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.IndexMeta{}, err
 	}
 
@@ -98,7 +98,7 @@ func (s *StorageEngine) GetEdgeIndexMeta(
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade catalog lock")
+		err := fmt.Errorf("failed to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.IndexMeta{}, err
 	}
 
@@ -115,7 +115,7 @@ func (s *StorageEngine) GetEdgeTableSystemIndexMeta(
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade catalog lock")
+		err := fmt.Errorf("failed to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.IndexMeta{}, err
 	}
 
@@ -132,7 +132,7 @@ func (s *StorageEngine) GetDirTableSystemIndexMeta(
 	cToken *txns.CatalogLockToken,
 ) (storage.IndexMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade catalog lock")
+		err := fmt.Errorf("failed to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.IndexMeta{}, err
 	}
 
@@ -150,7 +150,7 @@ func (s *StorageEngine) GetEdgeTableMetaByFileID(
 	cToken *txns.CatalogLockToken,
 ) (storage.EdgeTableMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockIntentionShared) {
-		err := fmt.Errorf("couldn't upgrade catalog lock")
+		err := fmt.Errorf("couldn't upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.EdgeTableMeta{}, err
 	}
 
@@ -176,7 +176,7 @@ func (s *StorageEngine) GetVertexTableMetaByFileID(
 	cToken *txns.CatalogLockToken,
 ) (storage.VertexTableMeta, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockIntentionShared) {
-		err := fmt.Errorf("couldn't upgrade catalog lock")
+		err := fmt.Errorf("couldn't upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 		return storage.VertexTableMeta{}, err
 	}
 

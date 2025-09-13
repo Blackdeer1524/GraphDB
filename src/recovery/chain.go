@@ -61,13 +61,14 @@ func (c *TxnLogChain) Insert(
 	}
 
 	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AppendInsert(
+		func() (common.TxnID, common.LogRecordLocInfo, error) {
+			loc, err := c.logger.AppendInsert(
 				c.txnID,
 				c.lastLocations[c.txnID],
 				recordID,
 				value,
 			)
+			return common.NilTxnID, loc, err
 		},
 	)
 
@@ -88,14 +89,15 @@ func (c *TxnLogChain) Update(
 	}
 
 	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AppendUpdate(
+		func() (common.TxnID, common.LogRecordLocInfo, error) {
+			loc, err := c.logger.AppendUpdate(
 				c.txnID,
 				c.lastLocations[c.txnID],
 				recordID,
 				beforeValue,
 				afterValue,
 			)
+			return common.NilTxnID, loc, err
 		},
 	)
 
@@ -115,12 +117,13 @@ func (c *TxnLogChain) Delete(
 	}
 
 	c.lastLocations[c.txnID], c.err = c.logger.pool.WithMarkDirtyLogPage(
-		func() (common.LogRecordLocInfo, error) {
-			return c.logger.AppendDelete(
+		func() (common.TxnID, common.LogRecordLocInfo, error) {
+			loc, err := c.logger.AppendDelete(
 				c.txnID,
 				c.lastLocations[c.txnID],
 				recordID,
 			)
+			return common.NilTxnID, loc, err
 		},
 	)
 
@@ -176,12 +179,13 @@ func (c *TxnLogChain) CheckpointBegin() *TxnLogChain {
 		return c
 	}
 
-	c.err = c.logger.AppendCheckpointBegin()
+	c.lastLocations[c.txnID], c.err = c.logger.AppendCheckpointBegin()
 
 	return c
 }
 
 func (c *TxnLogChain) CheckpointEnd(
+	checkpointBeginLocation common.LogRecordLocInfo,
 	ATT map[common.TxnID]common.LogRecordLocInfo,
 	DPT map[common.PageIdentity]common.LogRecordLocInfo,
 ) *TxnLogChain {
@@ -189,7 +193,7 @@ func (c *TxnLogChain) CheckpointEnd(
 		return c
 	}
 
-	c.err = c.logger.AppendCheckpointEnd(ATT, DPT)
+	c.err = c.logger.AppendCheckpointEnd(checkpointBeginLocation, ATT, DPT)
 	return c
 }
 

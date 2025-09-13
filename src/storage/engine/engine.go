@@ -24,44 +24,10 @@ type StorageEngine struct {
 		locker *txns.LockManager,
 		logger common.ITxnLoggerWithContext,
 	) (storage.Index, error)
+	debugAsserts bool
 }
 
 var _ storage.Engine = &StorageEngine{}
-
-// func New(
-// 	catalogBasePath string,
-// 	pool bufferpool.BufferPool,
-// 	locker *txns.LockManager,
-// 	fs afero.Fs,
-// 	indexLoader func(indexMeta storage.IndexMeta, locker *txns.LockManager, logger
-// common.ITxnLoggerWithContext) (storage.Index, error),
-// ) (*StorageEngine, error) {
-// 	err := systemcatalog.InitSystemCatalog(catalogBasePath, fs)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to : %w", err)
-// 	}
-//
-// 	versionFileName := systemcatalog.GetSystemCatalogVersionFileName(catalogBasePath)
-// 	fileIDToFilePath := map[common.FileID]string{
-// 		systemcatalog.CatalogVersionFileID: versionFileName,
-// 	}
-//
-// 	diskMgr := disk.New(
-// 		fileIDToFilePath,
-// 		func(fileID common.FileID, pageID common.PageID) *page.SlottedPage {
-// 			return page.NewSlottedPage()
-// 		},
-// 		fs,
-// 	)
-//
-// 	sysCat, err := systemcatalog.New(catalogBasePath, fs, pool)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to create systemcatalog: %w", err)
-// 	}
-//
-// 	diskMgr.UpdateFileMap(sysCat.GetFileIDToPathMap())
-// 	return newInjectedEngine(sysCat, pool, diskMgr.InsertToFileMap, locker, fs, indexLoader), nil
-// }
 
 func New(
 	sysCat storage.SystemCatalog,
@@ -76,6 +42,7 @@ func New(
 		locker *txns.LockManager,
 		logger common.ITxnLoggerWithContext,
 	) (storage.Index, error),
+	debugAsserts bool,
 ) *StorageEngine {
 	return &StorageEngine{
 		catalog:             sysCat,
@@ -85,5 +52,6 @@ func New(
 		fs:                  fs,
 		pool:                pool,
 		loadIndex:           indexLoader,
+		debugAsserts:        debugAsserts,
 	}
 }

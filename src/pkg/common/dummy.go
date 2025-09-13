@@ -2,6 +2,22 @@ package common
 
 type dummyLogger struct{}
 
+func (d *dummyLogger) GetLogfileID() FileID {
+	return NilFileID
+}
+
+func (d *dummyLogger) AppendCheckpointBegin() (LogRecordLocInfo, error) {
+	return NewNilLogRecordLocation(), nil
+}
+
+func (d *dummyLogger) AppendCheckpointEnd(
+	checkpointBeginLocation LogRecordLocInfo,
+	att map[TxnID]LogRecordLocInfo,
+	dpt map[PageIdentity]LogRecordLocInfo,
+) error {
+	return nil
+}
+
 var _ ITxnLogger = &dummyLogger{}
 
 func DummyLogger() *dummyLogger {

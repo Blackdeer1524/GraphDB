@@ -55,7 +55,8 @@ func newEdgesIter(
 	assert.Assert(!startEdgeID.IsNil(), "start edge ID shouldn't be nil")
 
 	if !se.locker.UpgradeFileLock(edgeFileToken, txns.GranularLockShared) {
-		return nil, fmt.Errorf("failed to upgrade file lock")
+		err := fmt.Errorf("failed to upgrade file lock: %w", txns.ErrDeadlockPrevention)
+		return nil, err
 	}
 
 	iter := &edgesIter{
@@ -164,7 +165,8 @@ func newDirItemsIter(
 ) (*dirItemsIter, error) {
 	assert.Assert(!startDirItemID.IsNil(), "start directory item ID shouldn't be nil")
 	if !se.locker.UpgradeFileLock(dirFileToken, txns.GranularLockShared) {
-		return nil, fmt.Errorf("failed to upgrade file lock")
+		err := fmt.Errorf("failed to upgrade file lock: %w", txns.ErrDeadlockPrevention)
+		return nil, err
 	}
 
 	iter := &dirItemsIter{
@@ -265,7 +267,7 @@ func iterWithErrorTriple[T, K any](err error) func(yield func(utils.Triple[T, K,
 
 func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Edge, error]] {
 	if !i.se.locker.UpgradeFileLock(i.vertTableToken, txns.GranularLockShared) {
-		err := fmt.Errorf("failed to upgrade file lock")
+		err := fmt.Errorf("failed to upgrade file lock: %w", txns.ErrDeadlockPrevention)
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
 	txnID := i.vertTableToken.GetTxnID()
@@ -276,7 +278,8 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 	}
 	pToken := i.se.locker.LockPage(i.vertTableToken, vertRID.R.PageID, txns.PageLockShared)
 	if pToken == nil {
-		return iterWithErrorTriple[common.RecordID, storage.Edge](fmt.Errorf("failed to lock page"))
+		err := fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
+		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
 
 	pg, err := i.se.pool.GetPageNoCreate(vertRID.R.PageIdentity())
@@ -509,6 +512,8 @@ type neighbourVertexIter struct {
 	edgeFilter         storage.EdgeFilter
 	locker             *txns.LockManager
 	logger             common.ITxnLoggerWithContext
+
+	debugAsserts bool
 }
 
 var _ storage.VerticesIter = &neighbourVertexIter{}
@@ -522,6 +527,7 @@ func newNeighbourVertexIter(
 	edgeFilter storage.EdgeFilter,
 	locker *txns.LockManager,
 	logger common.ITxnLoggerWithContext,
+	debugAsserts bool,
 ) *neighbourVertexIter {
 	iter := &neighbourVertexIter{
 		se:                 se,
@@ -532,6 +538,7 @@ func newNeighbourVertexIter(
 		vertexFilter:       vertexFilter,
 		edgeFilter:         edgeFilter,
 		locker:             locker,
+		debugAsserts:       debugAsserts,
 	}
 	return iter
 }
@@ -564,20 +571,23 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 					txns.GranularLockShared,
 				)
 				if dstVertexFileToken == nil {
-					yieldErrorTripple(fmt.Errorf("failed to lock file"), yield)
+					err := fmt.Errorf("failed to lock file: %w", txns.ErrDeadlockPrevention)
+					yieldErrorTripple(err, yield)
 					return
 				}
 			}
 
-			pToken := i.locker.LockPage(
-				dstVertexFileToken,
-				vertexIDWithRID.R.PageID,
-				txns.PageLockShared,
-			)
-			assert.Assert(
-				pToken != nil,
-				"should have locked the page (the file is locked in the shared mode)",
-			)
+			if i.debugAsserts {
+				pToken := i.locker.LockPage(
+					dstVertexFileToken,
+					vertexIDWithRID.R.PageID,
+					txns.PageLockShared,
+				)
+				assert.Assert(
+					pToken != nil,
+					"should have locked the page (the file is locked in the shared mode)",
+				)
+			}
 
 			vertexPageIdent := vertexIDWithRID.R.PageIdentity()
 			pg, err := i.se.pool.GetPageNoCreate(vertexPageIdent)
@@ -639,6 +649,8 @@ type vertexTableScanIter struct {
 	tableToken   *txns.FileLockToken
 	tableSchema  storage.Schema
 	locker       *txns.LockManager
+
+	debugAsserts bool
 }
 
 var _ storage.VerticesIter = &vertexTableScanIter{}
@@ -650,6 +662,8 @@ func newVertexTableScanIter(
 	vertTableToken *txns.FileLockToken,
 	vartTableSchema storage.Schema,
 	locker *txns.LockManager,
+
+	debugAsserts bool,
 ) *vertexTableScanIter {
 	return &vertexTableScanIter{
 		se:           se,
@@ -658,13 +672,16 @@ func newVertexTableScanIter(
 		tableToken:   vertTableToken,
 		tableSchema:  vartTableSchema,
 		locker:       locker,
+
+		debugAsserts: debugAsserts,
 	}
 }
 
 func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Vertex, error]] {
 	return func(yield func(utils.Triple[common.RecordID, storage.Vertex, error]) bool) {
 		if !iter.locker.UpgradeFileLock(iter.tableToken, txns.GranularLockShared) {
-			yieldErrorTripple(fmt.Errorf("failed to upgrade file lock"), yield)
+			err := fmt.Errorf("failed to upgrade file lock: %w", txns.ErrDeadlockPrevention)
+			yieldErrorTripple(err, yield)
 			return
 		}
 
@@ -675,15 +692,17 @@ func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, st
 				PageID: common.PageID(pageID),
 			}
 
-			pToken := iter.locker.LockPage(
-				iter.tableToken,
-				common.PageID(pageID),
-				txns.PageLockShared,
-			)
-			assert.Assert(
-				pToken != nil,
-				"should have locked the page (the table is locked in the shared mode)",
-			)
+			if iter.debugAsserts {
+				pToken := iter.locker.LockPage(
+					iter.tableToken,
+					common.PageID(pageID),
+					txns.PageLockShared,
+				)
+				assert.Assert(
+					pToken != nil,
+					"should have locked the page (the table is locked in the shared mode)",
+				)
+			}
 
 			pg, err := iter.pool.GetPageNoCreate(pageIdent)
 			if err != nil {
@@ -759,6 +778,8 @@ type edgeTableScanIter struct {
 	tableToken  *txns.FileLockToken
 	tableSchema storage.Schema
 	locker      *txns.LockManager
+
+	debugAsserts bool
 }
 
 var _ storage.EdgesIter = &edgeTableScanIter{}
@@ -770,6 +791,8 @@ func newEdgeTableScanIter(
 	edgeTableToken *txns.FileLockToken,
 	edgeTableSchema storage.Schema,
 	locker *txns.LockManager,
+
+	debugAsserts bool,
 ) *edgeTableScanIter {
 	return &edgeTableScanIter{
 		se:          se,
@@ -778,13 +801,16 @@ func newEdgeTableScanIter(
 		tableToken:  edgeTableToken,
 		tableSchema: edgeTableSchema,
 		locker:      locker,
+
+		debugAsserts: debugAsserts,
 	}
 }
 
 func (iter *edgeTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.Edge, error]] {
 	return func(yield func(utils.Triple[common.RecordID, storage.Edge, error]) bool) {
 		if !iter.locker.UpgradeFileLock(iter.tableToken, txns.GranularLockShared) {
-			yieldErrorTripple(fmt.Errorf("failed to upgrade file lock"), yield)
+			err := fmt.Errorf("failed to upgrade file lock: %w", txns.ErrDeadlockPrevention)
+			yieldErrorTripple(err, yield)
 			return
 		}
 
@@ -795,15 +821,17 @@ func (iter *edgeTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, stor
 				PageID: common.PageID(pageID),
 			}
 
-			pToken := iter.locker.LockPage(
-				iter.tableToken,
-				common.PageID(pageID),
-				txns.PageLockShared,
-			)
-			assert.Assert(
-				pToken != nil,
-				"should have locked the page (the table is locked in the shared mode)",
-			)
+			if iter.debugAsserts {
+				pToken := iter.locker.LockPage(
+					iter.tableToken,
+					common.PageID(pageID),
+					txns.PageLockShared,
+				)
+				assert.Assert(
+					pToken != nil,
+					"should have locked the page (the table is locked in the shared mode)",
+				)
+			}
 
 			pg, err := iter.pool.GetPageNoCreate(pageIdent)
 			if err != nil {
@@ -876,6 +904,8 @@ type dirItemsScanIter struct {
 	pool          bufferpool.BufferPool
 	dirTableToken *txns.FileLockToken
 	locker        *txns.LockManager
+
+	debugAsserts bool
 }
 
 var _ storage.DirItemsIter = &dirItemsScanIter{}
@@ -885,19 +915,22 @@ func newDirItemsScanIter(
 	pool bufferpool.BufferPool,
 	dirTableToken *txns.FileLockToken,
 	locker *txns.LockManager,
+	debugAsserts bool,
 ) *dirItemsScanIter {
 	return &dirItemsScanIter{
 		se:            se,
 		pool:          pool,
 		dirTableToken: dirTableToken,
 		locker:        locker,
+		debugAsserts:  debugAsserts,
 	}
 }
 
 func (iter *dirItemsScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, storage.DirectoryItem, error]] {
 	return func(yield func(utils.Triple[common.RecordID, storage.DirectoryItem, error]) bool) {
 		if !iter.locker.UpgradeFileLock(iter.dirTableToken, txns.GranularLockShared) {
-			yieldErrorTripple(fmt.Errorf("failed to upgrade file lock"), yield)
+			err := fmt.Errorf("failed to upgrade file lock: %w", txns.ErrDeadlockPrevention)
+			yieldErrorTripple(err, yield)
 			return
 		}
 
@@ -907,15 +940,18 @@ func (iter *dirItemsScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 				FileID: iter.dirTableToken.GetFileID(),
 				PageID: common.PageID(pageID),
 			}
-			pToken := iter.locker.LockPage(
-				iter.dirTableToken,
-				common.PageID(pageID),
-				txns.PageLockShared,
-			)
-			assert.Assert(
-				pToken != nil,
-				"should have locked the page (the table is locked in the shared mode)",
-			)
+
+			if iter.debugAsserts {
+				pToken := iter.locker.LockPage(
+					iter.dirTableToken,
+					common.PageID(pageID),
+					txns.PageLockShared,
+				)
+				assert.Assert(
+					pToken != nil,
+					"should have locked the page (the table is locked in the shared mode)",
+				)
+			}
 
 			pg, err := iter.pool.GetPageNoCreate(pageIdent)
 			if errors.Is(err, disk.ErrNoSuchPage) {

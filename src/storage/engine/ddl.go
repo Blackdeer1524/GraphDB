@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,7 +81,7 @@ func (s *StorageEngine) CreateVertexTable(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -147,7 +146,7 @@ func (s *StorageEngine) createDirTable(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -209,7 +208,7 @@ func (s *StorageEngine) CreateEdgeTable(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -270,7 +269,7 @@ func (s *StorageEngine) DropVertexTable(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -312,7 +311,7 @@ func (s *StorageEngine) DropEdgeTable(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -349,7 +348,7 @@ func (s *StorageEngine) dropDirTable(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -388,7 +387,7 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -487,7 +486,7 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -686,7 +685,7 @@ func (s *StorageEngine) GetVertexTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		return nil, errors.New("unable to upgrade catalog lock")
+		return nil, fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -727,7 +726,7 @@ func (s *StorageEngine) GetEdgeTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		return nil, errors.New("unable to upgrade catalog lock")
+		return nil, fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -770,7 +769,7 @@ func (s *StorageEngine) createDirTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to get system catalog X-lock")
+		return fmt.Errorf("unable to get system catalog X-lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -908,7 +907,7 @@ func (s *StorageEngine) getDirTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
-		return nil, errors.New("unable to upgrade catalog lock")
+		return nil, fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -940,7 +939,7 @@ func (s *StorageEngine) DropVertexTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to upgrade catalog lock")
+		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -967,7 +966,7 @@ func (s *StorageEngine) DropEdgeTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to get system catalog X-lock")
+		return fmt.Errorf("unable to get system catalog X-lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()
@@ -994,7 +993,7 @@ func (s *StorageEngine) dropDirTableIndex(
 	logger common.ITxnLoggerWithContext,
 ) error {
 	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
-		return errors.New("unable to get system catalog X-lock")
+		return fmt.Errorf("unable to get system catalog X-lock: %w", txns.ErrDeadlockPrevention)
 	}
 
 	err := s.catalog.Load()

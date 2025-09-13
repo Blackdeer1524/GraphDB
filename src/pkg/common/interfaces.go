@@ -2,10 +2,17 @@ package common
 
 type ITxnLogger interface {
 	WithContext(txnID TxnID) ITxnLoggerWithContext
+	GetLogfileID() FileID
 	GetFlushLSN() LSN
 	GetFlushInfo() (FileID, PageID, PageID, LSN)
 	UpdateFirstUnflushedPage(pageID PageID)
 	UpdateFlushLSN(lsn LSN)
+	AppendCheckpointBegin() (LogRecordLocInfo, error)
+	AppendCheckpointEnd(
+		checkpointBeginLocation LogRecordLocInfo,
+		att map[TxnID]LogRecordLocInfo,
+		dpt map[PageIdentity]LogRecordLocInfo,
+	) error
 }
 
 type ITxnLoggerWithContext interface {

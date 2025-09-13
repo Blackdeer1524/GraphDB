@@ -54,6 +54,7 @@ func (s *StorageEngine) AllVerticesWithValue(
 		vertTableToken,
 		vertTableMeta.Schema,
 		s.locker,
+		s.debugAsserts,
 	)
 	return iter, nil
 }
@@ -99,6 +100,7 @@ func (s *StorageEngine) GetAllVertices(
 		vertTableToken,
 		vertTableMeta.Schema,
 		s.locker,
+		s.debugAsserts,
 	)
 	return iter, nil
 }
@@ -120,6 +122,7 @@ func (s *StorageEngine) GetAllEdges(
 		edgeTableToken,
 		edgeTableMeta.Schema,
 		s.locker,
+		s.debugAsserts,
 	)
 	return iter, nil
 }
@@ -133,6 +136,7 @@ func (s *StorageEngine) GetAllDirItems(
 		s.pool,
 		dirTableToken,
 		s.locker,
+		s.debugAsserts,
 	)
 	return iter, nil
 }
@@ -154,6 +158,7 @@ func (s *StorageEngine) GetNeighborsWithEdgeFilter(
 		edgeFilter,
 		s.locker,
 		logger,
+		s.debugAsserts,
 	)
 	return iter, nil
 }

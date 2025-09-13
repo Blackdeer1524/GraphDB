@@ -83,6 +83,7 @@ func setupExecutor(
 		locker,
 		fs,
 		indexLoader,
+		debugMode,
 	)
 	executor := New(se, locker)
 	return executor, debugPool, locker, logger, nil
@@ -2181,6 +2182,84 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 	}
 }
 
+func TestPhantomRead(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	e, pool, _, logger, err := setupExecutor(fs, 10, false)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	verticesFieldName := "money"
+	edgeTableName := "indepted_to"
+	edgesFieldName := "debt_amount"
+
+	setupTables(
+		t,
+		e,
+		&ticker,
+		vertTableName,
+		verticesFieldName,
+		edgeTableName,
+		edgesFieldName,
+		logger,
+	)
+
+	vertices := make([]storage.VertexInfo, 0, 100)
+	for i := 0; i < 100; i++ {
+		vertices = append(vertices, storage.VertexInfo{
+			SystemID: storage.VertexSystemID(uuid.New()),
+			Data: map[string]any{
+				verticesFieldName: int64(i),
+			},
+		})
+	}
+
+	signaller := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				err = e.InsertVertices(txnID, vertTableName, vertices, logger)
+				require.NoError(t, err)
+				signaller <- struct{}{}
+				time.Sleep(time.Second * 3)
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	}()
+
+	time.Sleep(time.Second * 1)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		err := Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				<-signaller
+				for _, vert := range vertices {
+					_, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+					break
+				}
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	}()
+	wg.Wait()
+}
+
 func TestRecovery(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	e, pool, _, logger, err := setupExecutor(fs, 10, false)
@@ -2416,7 +2495,7 @@ func TestRecoveryRandomized(t *testing.T) {
 	}
 }
 
-func TestPhantomRead(t *testing.T) {
+func TestRecoveryCheckpoint(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	e, pool, _, logger, err := setupExecutor(fs, 10, false)
 	require.NoError(t, err)
@@ -2439,14 +2518,82 @@ func TestPhantomRead(t *testing.T) {
 		logger,
 	)
 
-	wg := sync.WaitGroup{}
+	require.NoError(t, pool.FlushAllPages())
 
-	go func() {
-	}()
-
-	go func() {
-
-	}()
-
-	wg.Wait()
+	{
+		_, _, _, _, err := setupExecutor(fs, 10, false)
+		require.NoError(t, err)
+		require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked())
+	}
 }
+
+// func TestBankTransactions(t *testing.T) {
+// 	fs := afero.NewMemMapFs()
+// 	e, pool, _, logger, err := setupExecutor(fs, 10, false)
+// 	require.NoError(t, err)
+// 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+//
+// 	ticker := atomic.Uint64{}
+// 	vertTableName := "person"
+// 	verticesFieldName := "money"
+// 	edgeTableName := "indepted_to"
+// 	edgesFieldName := "debt_amount"
+//
+// 	setupTables(
+// 		t,
+// 		e,
+// 		&ticker,
+// 		vertTableName,
+// 		verticesFieldName,
+// 		edgeTableName,
+// 		edgesFieldName,
+// 		logger,
+// 	)
+//
+// 	const (
+// 		nAccounts    = 1_000
+// 		nTxns        = 10_000
+// 		initBalance  = int64(200)
+// 		totalBalance = initBalance * int64(nAccounts)
+// 	)
+// 	accounts := make([]storage.VertexInfo, 0, nAccounts)
+//
+// 	for i := 0; i < nAccounts; i++ {
+// 		accounts = append(accounts, storage.VertexInfo{
+// 			SystemID: storage.VertexSystemID(uuid.New()),
+// 			Data: map[string]any{
+// 				verticesFieldName: initBalance,
+// 			},
+// 		})
+// 	}
+//
+// 	err = Execute(
+// 		&ticker,
+// 		e,
+// 		logger,
+// 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+// 			err = e.InsertVertices(txnID, vertTableName, accounts, logger)
+// 			require.NoError(t, err)
+// 			return nil
+// 		},
+// 	)
+// 	require.NoError(t, err)
+//
+// 	wg := sync.WaitGroup{}
+// 	for range nTxns {
+// 		wg.Add(1)
+// 		go func() {
+// 			defer wg.Done()
+// 			err = Execute(
+// 				&ticker,
+// 				e,
+// 				logger,
+// 				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+// 					return nil
+// 				},
+// 			)
+// 			require.NoError(t, err)
+// 		}()
+// 	}
+// 	wg.Wait()
+// }

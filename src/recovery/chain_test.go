@@ -117,7 +117,7 @@ func TestChainSanity(t *testing.T) {
 		Abort().
 		Commit().
 		CheckpointBegin().
-		CheckpointEnd(checkpointATT, checkpointDPT).
+		CheckpointEnd(chain.Loc(), checkpointATT, checkpointDPT).
 		TxnEnd()
 
 	require.NoError(t, chain.Err())
