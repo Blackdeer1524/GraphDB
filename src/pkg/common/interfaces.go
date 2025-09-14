@@ -46,4 +46,7 @@ type DiskManager[T Page] interface {
 	GetPageNoNew(page T, pageIdent PageIdentity) error
 	GetPageNoNewAssumeLocked(page T, pageIdent PageIdentity) error
 	WritePageAssumeLocked(page T, pageIdent PageIdentity) error
+	BulkWritePageAssumeLockedBegin(
+		fileID FileID,
+	) (func(page T, pageID PageID) error, func() error, error)
 }

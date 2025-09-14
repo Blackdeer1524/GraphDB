@@ -74,7 +74,7 @@ func (m *Manager) getOrOpenFile(fileID common.FileID) (afero.File, error) {
 	path := utils.GetFilePath(m.basePath, fileID)
 	file, err := m.fs.OpenFile(
 		filepath.Clean(path),
-		os.O_RDWR|os.O_CREATE|syscall.O_SYNC|syscall.O_DIRECT,
+		os.O_RDWR|os.O_CREATE|syscall.O_DIRECT,
 		0o644,
 	)
 	if err != nil {
@@ -311,6 +311,41 @@ func (m *Manager) GetEmptyPage(fileID common.FileID) (common.PageID, error) {
 	pagesCount := filesize / page.PageSize
 	//nolint:gosec
 	return common.PageID(pagesCount), nil
+}
+
+// BulkWritePageAssumeLockedBegin returns two handles for batched page writes.
+// The first handle writes a page at the given pageID offset without flushing.
+// The second handle must be called by the caller to flush the file contents.
+func (m *Manager) BulkWritePageAssumeLockedBegin(
+	fileID common.FileID,
+) (func(lockedPage *page.SlottedPage, pageID common.PageID) error, func() error, error) {
+	file, err := m.getOrOpenFile(fileID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open file: %w", err)
+	}
+
+	path := utils.GetFilePath(m.basePath, fileID)
+
+	bulkWriter := func(lockedPage *page.SlottedPage, pageID common.PageID) error {
+		data := lockedPage[:]
+		//nolint:gosec
+		offset := int64(pageID * page.PageSize)
+
+		_, err := file.WriteAt(data, offset)
+		if err != nil {
+			return fmt.Errorf("failed to write at file %s: %w", path, err)
+		}
+		return nil
+	}
+
+	doneHandle := func() error {
+		if err := file.Sync(); err != nil {
+			return fmt.Errorf("failed to sync file %s: %w", path, err)
+		}
+		return nil
+	}
+
+	return bulkWriter, doneHandle, nil
 }
 
 func (m *InMemoryManager) BulkWritePageAssumeLockedBegin(

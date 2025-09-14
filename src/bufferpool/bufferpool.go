@@ -501,6 +501,14 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
 	log.Printf("flushing logs from %d to %d. lastLSN: %d", startPageID, endPageID, lastLSN)
 
+	bulkWriter, doneHandle, err := m.diskManager.BulkWritePageAssumeLockedBegin(logFileID)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, doneHandle())
+	}()
+
 	var flush = func(pageID common.PageID) error {
 		logPageIdent := common.PageIdentity{
 			FileID: logFileID,
@@ -520,7 +528,7 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 			logPage.RLock()
 			defer logPage.RUnlock()
 
-			err := m.diskManager.WritePageAssumeLocked(logPage, logPageIdent)
+			err := bulkWriter(logPage, logPageIdent.PageID)
 			if err != nil {
 				return err
 			}

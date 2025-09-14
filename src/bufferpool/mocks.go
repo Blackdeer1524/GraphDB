@@ -12,6 +12,15 @@ type MockDiskManager struct {
 	mock.Mock
 }
 
+func (m *MockDiskManager) BulkWritePageAssumeLockedBegin(
+	fileID common.FileID,
+) (func(page *page.SlottedPage, pageID common.PageID) error, func() error, error) {
+	args := m.Called(fileID)
+	return args.Get(0).(func(page *page.SlottedPage, pageID common.PageID) error), args.Get(1).(func() error), args.Error(
+		2,
+	)
+}
+
 var (
 	_ common.DiskManager[*page.SlottedPage] = &MockDiskManager{}
 )
