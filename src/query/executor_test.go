@@ -3625,6 +3625,34 @@ func insertVertexWithRetry(
 	}
 }
 
+func insertEdgeWithRetry(
+	t testing.TB,
+	ticker *atomic.Uint64,
+	e *Executor,
+	logger common.ITxnLogger,
+	tableName string,
+	edge storage.EdgeInfo,
+) {
+	inserted := false
+	for !inserted {
+		_ = Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				err = e.InsertEdge(txnID, tableName, edge, logger)
+				if err != nil {
+					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+					return ErrRollback
+				}
+				inserted = true
+				return nil
+			},
+			false,
+		)
+	}
+}
+
 func TestConcurrentVertexInsertsSameTable(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_concurrent_inserts_same_table"
@@ -3875,4 +3903,159 @@ func TestConcurrentVertexInsertsHighContention(t *testing.T) {
 			false,
 		))
 	}
+}
+
+func TestForbidSelectOnInsertedVertex(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
+	pools := uint64(20)
+	debug := false
+
+	e, _, locker, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
+	require.NoError(t, err)
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	vertFieldName := "money"
+	edgeTableName := "friend"
+	edgeFieldName := "how_long"
+	setupTables(
+		t,
+		e,
+		&ticker,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgeFieldName,
+		logger,
+	)
+
+	srcVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			vertFieldName: int64(100),
+		},
+	}
+	dstVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			vertFieldName: int64(200),
+		},
+	}
+	edge := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: srcVert.SystemID,
+		DstVertexID: dstVert.SystemID,
+		Data: map[string]any{
+			edgeFieldName: int64(300),
+		},
+	}
+
+	insertDoneCh := make(chan struct{})
+	go func() {
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				err := e.InsertVertex(txnID, vertTableName, srcVert, logger)
+				require.NoError(t, err)
+
+				err = e.InsertVertex(txnID, vertTableName, dstVert, logger)
+				require.NoError(t, err)
+
+				t.Logf("inserted vertices: %s, %s", srcVert.SystemID, dstVert.SystemID)
+				close(insertDoneCh)
+				time.Sleep(time.Hour)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	time.Sleep(time.Second * 1)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				<-insertDoneCh
+				t.Logf("selecting src vertex: %s", srcVert.SystemID)
+				_, err := e.SelectVertex(txnID, vertTableName, srcVert.SystemID, logger)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				<-insertDoneCh
+				t.Logf("selecting dst vertex: %s", dstVert.SystemID)
+				_, err := e.SelectVertex(txnID, vertTableName, dstVert.SystemID, logger)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				<-insertDoneCh
+				t.Logf("inserting edge: %s", edge.SystemID)
+				err := e.InsertEdge(txnID, edgeTableName, edge, logger)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				<-insertDoneCh
+				t.Logf("getting vertices on depth: %s", edge.SrcVertexID)
+				_, err := e.GetVerticesOnDepth(
+					txnID,
+					edgeTableName,
+					edge.SrcVertexID,
+					1,
+					storage.AllowAllVerticesFilter,
+					logger,
+				)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	time.AfterFunc(time.Second*3, func() {
+		t.Logf("dependency graph:\n%s", locker.DumpDependencyGraph())
+	})
+	wg.Wait()
 }

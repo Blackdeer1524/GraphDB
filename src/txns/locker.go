@@ -417,6 +417,8 @@ func (l *LockManager) UpgradeFileLock(
 		ft.lockMode = ft.lockMode.Combine(GranularLockExclusive)
 	case GranularLockShared:
 		ft.lockMode = ft.lockMode.Combine(GranularLockShared)
+	case GranularLockSharedIntentionExclusive:
+		ft.lockMode = ft.lockMode.Combine(GranularLockShared)
 	}
 
 	if reqLockMode.WeakerOrEqual(ft.lockMode) {
@@ -463,6 +465,8 @@ func (l *LockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) 
 	case GranularLockExclusive:
 		pt.lockMode = pt.lockMode.Combine(PageLockExclusive)
 	case GranularLockShared:
+		pt.lockMode = pt.lockMode.Combine(PageLockShared)
+	case GranularLockSharedIntentionExclusive:
 		pt.lockMode = pt.lockMode.Combine(PageLockShared)
 	}
 
