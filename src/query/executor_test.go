@@ -4221,7 +4221,8 @@ func (g *GraphGenerator) ensureTriangles(minTriangles int) {
 		for _, e := range edgesToCreate {
 			if _, exists := g.edges[e]; !exists {
 				g.edges[e] = struct{}{}
-				if rand.Intn(2) == 0 {
+
+				if bytes.Compare(e.a[:], e.b[:]) < 0 {
 					g.addEdge(e.a, e.b)
 				} else {
 					g.addEdge(e.b, e.a)
