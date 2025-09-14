@@ -3,6 +3,7 @@ package bufferpool
 import (
 	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"sync"
 
@@ -385,7 +386,6 @@ func (m *Manager) GetPageAssumeLocked(
 	)
 
 	victimPage := &m.frames[victimInfo.frameID]
-
 	err = m.flushPageAssumeDiskLocked(victimPage, victimPageIdent)
 	if err != nil {
 		m.replacer.Pin(victimPageIdent)
@@ -499,6 +499,7 @@ func (m *Manager) FlushLogs() error {
 // WARN: expects **BOTH** buffer pool and diskManager to be locked
 func (m *Manager) flushLogsAssumeLocked() (err error) {
 	logFileID, startPageID, endPageID, lastLSN := m.logger.GetFlushInfo()
+	log.Printf("flushing logs from %d to %d. lastLSN: %d", startPageID, endPageID, lastLSN)
 
 	var flush = func(pageID common.PageID) error {
 		logPageIdent := common.PageIdentity{
@@ -506,16 +507,18 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 			PageID: common.PageID(pageID),
 		}
 		if _, ok := m.DPT[logPageIdent]; !ok {
+			log.Printf("log page %d is not dirty", pageID)
 			return nil
 		}
+		log.Printf("flushing log page %d", pageID)
 
 		logPageInfo, ok := m.pageTable[logPageIdent]
 		assert.Assert(ok, "dirty log page %+v not found", logPageIdent)
 
 		logPage := &m.frames[logPageInfo.frameID]
 		err := func() error {
-			logPage.Lock()
-			defer logPage.Unlock()
+			logPage.RLock()
+			defer logPage.RUnlock()
 
 			err := m.diskManager.WritePageAssumeLocked(logPage, logPageIdent)
 			if err != nil {
@@ -556,9 +559,15 @@ func (m *Manager) flushPageAssumeDiskLocked(
 
 	flushLSN := m.logger.GetFlushLSN()
 	if lockedPg.PageLSN() > flushLSN {
+		log.Printf(
+			"flushing logs because pageLSN is greater than flushLSN. pageLSN: %d, flushLSN: %d",
+			lockedPg.PageLSN(),
+			flushLSN,
+		)
 		if err := m.flushLogsAssumeLocked(); err != nil {
 			return err
 		}
+		assert.Assert(lockedPg.PageLSN() <= m.logger.GetFlushLSN(), "flushLSN is not updated")
 	}
 
 	err := m.diskManager.WritePageAssumeLocked(lockedPg, pIdent)

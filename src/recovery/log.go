@@ -3,6 +3,7 @@ package recovery
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 	"sync"
@@ -915,6 +916,7 @@ func (l *TxnLogger) AppendCommit(
 		return common.NewNilLogRecordLocation(), err
 	}
 
+	log.Println("flushing logs after appending commit")
 	err = l.pool.FlushLogs()
 	if err != nil {
 		return common.NewNilLogRecordLocation(), err

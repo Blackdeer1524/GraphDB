@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/spf13/afero"
 
@@ -54,11 +55,7 @@ func (m *Manager) Unlock() {
 }
 
 // getOrOpenFile returns a cached file handle or opens a new one and caches it
-func (m *Manager) getOrOpenFile(
-	fileID common.FileID,
-	flags int,
-	perm os.FileMode,
-) (afero.File, error) {
+func (m *Manager) getOrOpenFile(fileID common.FileID) (afero.File, error) {
 	m.cacheMu.RLock()
 	if file, exists := m.fileCache[fileID]; exists {
 		m.cacheMu.RUnlock()
@@ -66,18 +63,25 @@ func (m *Manager) getOrOpenFile(
 	}
 	m.cacheMu.RUnlock()
 
-	// File not in cache, need to open it
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+
+	if file, exists := m.fileCache[fileID]; exists {
+		m.cacheMu.RUnlock()
+		return file, nil
+	}
+
 	path := utils.GetFilePath(m.basePath, fileID)
-	file, err := m.fs.OpenFile(filepath.Clean(path), flags, perm)
+	file, err := m.fs.OpenFile(
+		filepath.Clean(path),
+		os.O_RDWR|os.O_CREATE|syscall.O_SYNC|syscall.O_DIRECT,
+		0o644,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache the file
-	m.cacheMu.Lock()
 	m.fileCache[fileID] = file
-	m.cacheMu.Unlock()
-
 	return file, nil
 }
 
@@ -92,7 +96,7 @@ func (m *Manager) ReadPageAssumeLocked(
 	pg *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
-	file, err := m.getOrOpenFile(pageIdent.FileID, os.O_RDWR|os.O_CREATE, 0o644)
+	file, err := m.getOrOpenFile(pageIdent.FileID)
 	if err != nil {
 		return err
 	}
@@ -137,7 +141,7 @@ func (m *Manager) GetPageNoNewAssumeLocked(
 	pg *page.SlottedPage,
 	pageIdent common.PageIdentity,
 ) error {
-	file, err := m.getOrOpenFile(pageIdent.FileID, os.O_RDWR|os.O_CREATE, 0o644)
+	file, err := m.getOrOpenFile(pageIdent.FileID)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
@@ -163,7 +167,7 @@ func (m *Manager) WritePageAssumeLocked(
 	data := lockedPage[:]
 	path := utils.GetFilePath(m.basePath, pageIdent.FileID)
 
-	file, err := m.getOrOpenFile(pageIdent.FileID, os.O_WRONLY|os.O_CREATE, 0600)
+	file, err := m.getOrOpenFile(pageIdent.FileID)
 	if err != nil {
 		return fmt.Errorf("failed to open file %s: %w", path, err)
 	}
@@ -270,7 +274,7 @@ func (m *Manager) GetLastFilePage(fileID common.FileID) (common.PageID, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	file, err := m.getOrOpenFile(fileID, os.O_RDWR, 0o644)
+	file, err := m.getOrOpenFile(fileID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to open file: %w", err)
 	}
@@ -293,7 +297,7 @@ func (m *Manager) GetEmptyPage(fileID common.FileID) (common.PageID, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	file, err := m.getOrOpenFile(fileID, os.O_RDWR|os.O_CREATE, 0o644)
+	file, err := m.getOrOpenFile(fileID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to open file: %w", err)
 	}
