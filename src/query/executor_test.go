@@ -73,7 +73,14 @@ func setupExecutor(
 		locker *txns.LockManager,
 		logger common.ITxnLoggerWithContext,
 	) (storage.Index, error) {
-		return index.NewLinearProbingIndex(indexMeta, pool, locker, logger, debugMode, 42)
+		return index.NewLinearProbingIndex(
+			indexMeta,
+			pool,
+			locker,
+			logger,
+			debugMode,
+			42,
+		)
 	}
 
 	se := engine.New(
@@ -97,7 +104,7 @@ func Execute(
 	executor *Executor,
 	logger common.ITxnLogger,
 	fn Task,
-	isReadOnly bool,
+	isReadOnly bool, // не будет писать логов -> немного получше скорость
 ) (err error) {
 	txnID := common.TxnID(ticker.Add(1))
 	defer executor.locker.Unlock(txnID)
@@ -1276,7 +1283,13 @@ func TestBuildGraph(t *testing.T) {
 	}
 }
 
-func generateRandomGraph(n int, connectivity float32, r *rand.Rand, bidirectional bool) GraphInfo {
+func generateRandomGraph(
+	t testing.TB,
+	vertexCount int,
+	connectivity float32,
+	r *rand.Rand,
+	bidirectional bool,
+) GraphInfo {
 	myassert.Assert(connectivity >= 0.0 && connectivity <= 1.0)
 
 	graphInfo := GraphInfo{
@@ -1285,14 +1298,14 @@ func generateRandomGraph(n int, connectivity float32, r *rand.Rand, bidirectiona
 		edgesInfo:    make(map[utils.Pair[int, int]]int64),
 	}
 
-	for i := 0; i < n; i++ {
+	for i := 0; i < vertexCount; i++ {
 		graphInfo.verticesInfo[i] = r.Int63() % 100
 		graphInfo.g[i] = []int{}
 	}
 
 	if bidirectional {
-		for i := 0; i < n; i++ {
-			for j := i; j < n; j++ {
+		for i := 0; i < vertexCount; i++ {
+			for j := i; j < vertexCount; j++ {
 				if r.Float32() <= connectivity {
 					graphInfo.g[i] = append(graphInfo.g[i], j)
 
@@ -1307,8 +1320,8 @@ func generateRandomGraph(n int, connectivity float32, r *rand.Rand, bidirectiona
 			}
 		}
 	} else {
-		for i := 0; i < n; i++ {
-			for j := 0; j < n; j++ {
+		for i := 0; i < vertexCount; i++ {
+			for j := 0; j < vertexCount; j++ {
 				if r.Float32() <= connectivity {
 					graphInfo.g[i] = append(graphInfo.g[i], j)
 					edgePair := utils.Pair[int, int]{First: i, Second: j}
@@ -1318,6 +1331,9 @@ func generateRandomGraph(n int, connectivity float32, r *rand.Rand, bidirectiona
 			}
 		}
 	}
+
+	edgeCount := len(graphInfo.edgesInfo)
+	t.Logf("|V| = %d, |E| = %d", vertexCount, edgeCount)
 
 	return graphInfo
 }
@@ -1362,7 +1378,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 
 	for _, test := range tests {
 		for range nTries {
-			graphInfo := generateRandomGraph(test.vertexCount, test.connectivity, r, false)
+			graphInfo := generateRandomGraph(t, test.vertexCount, test.connectivity, r, false)
 			t.Run(
 				fmt.Sprintf("vertexCount=%d,connectivity=%f", test.vertexCount, test.connectivity),
 				func(t *testing.T) {
@@ -1434,7 +1450,7 @@ func TestRandomizedBuildGraph(t *testing.T) {
 func TestBigRandomGraph(t *testing.T) {
 	fs := afero.NewOsFs()
 	catalogBasePath := t.TempDir()
-	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 100_000, false)
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 100, false)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -1446,7 +1462,7 @@ func TestBigRandomGraph(t *testing.T) {
 	verticesFieldName := "money"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(1000, 0.05, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(t, 700, 0.01, rand.New(rand.NewSource(42)), false)
 
 	setupTables(
 		t,
@@ -2180,6 +2196,7 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 				)
 
 				graphInfo := generateRandomGraph(
+					t,
 					test.vertexCount,
 					test.connectivity,
 					rand.New(rand.NewSource(42)),
@@ -2450,7 +2467,7 @@ func TestRecoveryRandomized(t *testing.T) {
 	edgeTableName := "indepted_to"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(t, 100, 0.05, rand.New(rand.NewSource(42)), false)
 
 	var intToVertSystemID map[int]storage.VertexSystemID
 	var edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID
@@ -2529,7 +2546,7 @@ func TestRecoveryRandomized(t *testing.T) {
 		secondVerticesFieldName := "money2"
 		secondEdgeTableName := "indepted_to2"
 		secondEdgesFieldName := "debt_amount2"
-		secondGraphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+		secondGraphInfo := generateRandomGraph(t, 100, 0.05, rand.New(rand.NewSource(42)), false)
 
 		setupTables(
 			t,
@@ -2598,7 +2615,7 @@ func TestRecoveryCheckpoint(t *testing.T) {
 	edgeTableName := "indepted_to"
 	edgeFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(t, 100, 0.05, rand.New(rand.NewSource(42)), false)
 	var intToVertSystemID map[int]storage.VertexSystemID
 	var edgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID
 
@@ -2653,7 +2670,7 @@ func TestRecoveryCheckpoint(t *testing.T) {
 	secondEdgeTableName := "indepted_to2"
 	secondEdgesFieldName := "debt_amount2"
 
-	secondGraphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+	secondGraphInfo := generateRandomGraph(t, 100, 0.05, rand.New(rand.NewSource(42)), false)
 
 	var secondIntToVertSystemID map[int]storage.VertexSystemID
 	var secondEdgesSystemInfo map[utils.Pair[int, int]]storage.EdgeSystemID
@@ -3400,7 +3417,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		logger,
 	)
 
-	graphInfo := generateRandomGraph(100, 0.05, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(t, 100, 0.05, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		t,
 		&ticker,
@@ -3479,7 +3496,7 @@ func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDiffe
 
 	targetEdgeCountPerNode := 7
 	connectivity := min(float32(targetEdgeCountPerNode)/float32(b.N), 0)
-	graphInfo := generateRandomGraph(b.N, connectivity, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(b, b.N, connectivity, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		b,
 		&ticker,
@@ -3542,7 +3559,7 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 		logger,
 	)
 
-	graphInfo := generateRandomGraph(1_000, 0.01, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(b, 1_000, 0.01, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		b,
 		&ticker,

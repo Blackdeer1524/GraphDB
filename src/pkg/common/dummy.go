@@ -42,16 +42,18 @@ func (d *dummyLogger) WithContext(txnID TxnID) ITxnLoggerWithContext {
 	return &DummyLoggerWithContext{}
 }
 
-type DummyLoggerWithContext struct{}
+type DummyLoggerWithContext struct {
+	txnID TxnID
+}
 
 var _ ITxnLoggerWithContext = &DummyLoggerWithContext{}
 
-func NoLogs() *DummyLoggerWithContext {
-	return &DummyLoggerWithContext{}
+func NoLogs(txnID TxnID) *DummyLoggerWithContext {
+	return &DummyLoggerWithContext{txnID: txnID}
 }
 
 func (l *DummyLoggerWithContext) GetTxnID() TxnID {
-	return NilTxnID
+	return l.txnID
 }
 
 func (l *DummyLoggerWithContext) AppendBegin() error {

@@ -280,7 +280,7 @@ func TestManager_Replacement(t *testing.T) {
 					slotID, logRecordLoc, err := lockedPage.InsertWithLogs(
 						utils.ToBytes[uint64](i),
 						pid,
-						common.NoLogs(),
+						common.NoLogs(common.TxnID(i)),
 					)
 					if err != nil {
 						failedCh <- i

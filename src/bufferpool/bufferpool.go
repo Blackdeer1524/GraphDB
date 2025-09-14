@@ -506,6 +506,7 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 		return err
 	}
 	defer func() {
+		log.Printf("flusing logs after bulk write")
 		err = errors.Join(err, doneHandle())
 	}()
 
@@ -515,10 +516,8 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 			PageID: common.PageID(pageID),
 		}
 		if _, ok := m.DPT[logPageIdent]; !ok {
-			log.Printf("log page %d is not dirty", pageID)
 			return nil
 		}
-		log.Printf("flushing log page %d", pageID)
 
 		logPageInfo, ok := m.pageTable[logPageIdent]
 		assert.Assert(ok, "dirty log page %+v not found", logPageIdent)
