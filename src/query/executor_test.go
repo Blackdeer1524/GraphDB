@@ -3871,3 +3871,140 @@ func TestConcurrentVertexInsertsHighContention(t *testing.T) {
 		))
 	}
 }
+
+func TestConcurrentGetTriangles(t *testing.T) {
+	tests := []struct {
+		vertexCount  int
+		connectivity float32
+	}{
+		{
+			vertexCount:  10,
+			connectivity: 0.3,
+		},
+		{
+			vertexCount:  10,
+			connectivity: 0.5,
+		},
+		{
+			vertexCount:  10,
+			connectivity: 1.0,
+		},
+	}
+
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 20, true)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	verticesFieldName := "money"
+	edgeTableName := "indepted_to"
+	edgesFieldName := "debt_amount"
+
+	threads := 20
+
+	for _, test := range tests {
+		t.Run(
+			fmt.Sprintf("vertexCount=%d,connectivity=%f", test.vertexCount, test.connectivity),
+			func(t *testing.T) {
+				setupTables(
+					t,
+					e,
+					&ticker,
+					vertTableName,
+					verticesFieldName,
+					edgeTableName,
+					edgesFieldName,
+					logger,
+				)
+
+				graphInfo := generateRandomGraph(
+					t,
+					test.vertexCount,
+					test.connectivity,
+					rand.New(rand.NewSource(42)),
+					true,
+				)
+				expectedTriangles := graphCountTriangles(graphInfo.g)
+
+				intToVertSystemID, edgesSystemInfo := instantiateGraph(
+					t,
+					&ticker,
+					vertTableName,
+					edgeTableName,
+					e,
+					logger,
+					graphInfo.g,
+					edgesFieldName,
+					graphInfo.edgesInfo,
+					verticesFieldName,
+					graphInfo.verticesInfo,
+				)
+
+				assertDBGraph(
+					t,
+					&ticker,
+					e,
+					logger,
+					graphInfo,
+					vertTableName,
+					verticesFieldName,
+					edgeTableName,
+					edgesFieldName,
+					intToVertSystemID,
+					edgesSystemInfo,
+					1,
+					1,
+				)
+
+				var wg sync.WaitGroup
+
+				wg.Add(threads)
+
+				for range threads {
+					go func() {
+						defer wg.Done()
+
+						err = Execute(
+							&ticker,
+							e,
+							logger,
+							func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+								triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+								require.NoError(t, err)
+								if !assert.Equal(t, uint64(len(expectedTriangles)), triangles) {
+									t.Logf(
+										"Graph: \n%s\nExpected triangles %v",
+										graphInfo.GraphVizRepr(),
+										expectedTriangles,
+									)
+									t.FailNow()
+								}
+								return nil
+							},
+							false,
+						)
+						require.NoError(t, err)
+					}()
+				}
+
+				wg.Wait()
+
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						require.NoError(t, e.DropVertexTable(txnID, vertTableName, logger))
+						require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
+						return nil
+					},
+					false,
+				)
+				require.NoError(t, err)
+			},
+		)
+	}
+}
