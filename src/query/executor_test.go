@@ -2035,6 +2035,7 @@ func hasDirectedEdge(g map[int][]int, src, dst int) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -4166,42 +4167,41 @@ func (g *GraphGenerator) ensureTriangles(minTriangles int) {
 	triangles := g.countTriangles()
 
 	for triangles < minTriangles {
-		// Нужно создать хотя бы один треугольник
 		if len(g.vertexIDs) < 3 {
-			// Добавляем недостающие вершины
 			for len(g.vertexIDs) < 3 {
 				g.addVertex()
 			}
 		}
 
-		// Выбираем три случайные вершины
 		indices := rand.Perm(len(g.vertexIDs))[:3]
 		a := g.vertexIDs[indices[0]]
 		b := g.vertexIDs[indices[1]]
 		c := g.vertexIDs[indices[2]]
 
-		// Создаем ребра для треугольника (A→B, B→C, C→A)
 		edgesToCreate := []edge{
 			{src: a, dst: b},
+			{src: b, dst: a},
+
 			{src: b, dst: c},
+			{src: c, dst: b},
+
 			{src: c, dst: a},
+			{src: a, dst: c},
 		}
 
-		// Проверяем, какие ребра уже существуют
 		allEdgesExist := true
 		for _, e := range edgesToCreate {
 			if _, exists := g.edges[e]; !exists {
 				allEdgesExist = false
+
 				break
 			}
 		}
 
 		if allEdgesExist {
-			// Этот треугольник уже существует, пробуем другие вершины
 			continue
 		}
 
-		// Добавляем отсутствующие ребра
 		for _, e := range edgesToCreate {
 			if _, exists := g.edges[e]; !exists {
 				g.addEdge(e.src, e.dst)
@@ -4216,13 +4216,11 @@ func (g *GraphGenerator) countTriangles() int {
 	count := 0
 	n := len(g.vertexIDs)
 
-	// Строим матрицу смежности для более эффективного поиска
 	adjMatrix := make([][]bool, n)
 	for i := range adjMatrix {
 		adjMatrix[i] = make([]bool, n)
 	}
 
-	// Заполняем матрицу смежности
 	for e := range g.edges {
 		srcIdx := g.getVertexIndex(e.src)
 		dstIdx := g.getVertexIndex(e.dst)
@@ -4231,7 +4229,6 @@ func (g *GraphGenerator) countTriangles() int {
 		}
 	}
 
-	// Ищем треугольники
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
 			if i != j && adjMatrix[i][j] {
@@ -4244,7 +4241,6 @@ func (g *GraphGenerator) countTriangles() int {
 		}
 	}
 
-	// Каждый треугольник считается 3 раза (для каждой вершины в цикле)
 	return count / 3
 }
 
@@ -4346,6 +4342,27 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 
 			g[u] = append(g[u], v)
 		}
+
+		trCnt := uint64(len(graphCountTriangles(g)))
+
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+				require.NoError(t, err)
+				require.Equal(t, trCnt, triangles)
+
+				slog.Info("triangles database", "cnt", triangles)
+
+				return nil
+			},
+			false,
+		)
+
+		require.NoError(t, err)
+
 	}
 
 	for i, j := range g {
