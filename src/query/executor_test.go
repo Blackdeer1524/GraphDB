@@ -3651,6 +3651,44 @@ func insertEdgeWithRetry(
 	}
 }
 
+func insertNotOrientedEdgeWithRetry(
+	t testing.TB,
+	ticker *atomic.Uint64,
+	e *Executor,
+	logger common.ITxnLogger,
+	tableName string,
+	edge storage.EdgeInfo,
+) {
+	inserted := false
+	for !inserted {
+		_ = Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				err = e.InsertEdge(txnID, tableName, edge, logger)
+				if err != nil {
+					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+					return ErrRollback
+				}
+				err = e.InsertEdge(txnID, tableName, storage.EdgeInfo{
+					SystemID:    storage.EdgeSystemID(uuid.New()),
+					SrcVertexID: edge.DstVertexID,
+					DstVertexID: edge.SrcVertexID,
+					Data:        edge.Data,
+				}, logger)
+				if err != nil {
+					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+					return ErrRollback
+				}
+				inserted = true
+				return nil
+			},
+			false,
+		)
+	}
+}
+
 func TestConcurrentVertexInsertsSameTable(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_concurrent_inserts_same_table"
@@ -4372,15 +4410,7 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 								g[d] = make([]int, 0)
 								mu.Unlock()
 							} else {
-								insertEdgeWithRetry(t, &ticker, e, logger, edgeTableName, o.e)
-
-								// insert reverse edge
-								insertEdgeWithRetry(t, &ticker, e, logger, edgeTableName, storage.EdgeInfo{
-									SystemID:    storage.EdgeSystemID(uuid.New()),
-									SrcVertexID: o.e.DstVertexID,
-									DstVertexID: o.e.SrcVertexID,
-									Data:        o.e.Data,
-								})
+								insertNotOrientedEdgeWithRetry(t, &ticker, e, logger, edgeTableName, o.e)
 
 								u, v := opGen.getVertexIndex(o.e.SrcVertexID), opGen.getVertexIndex(o.e.DstVertexID)
 
