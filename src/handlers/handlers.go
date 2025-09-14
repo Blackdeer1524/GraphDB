@@ -129,16 +129,6 @@ func (h *Handler) CreateVertexType(w http.ResponseWriter, r *http.Request) {
 				return fmt.Errorf("failed to create vertex type: %w", err)
 			}
 
-			err = e.CreateVertexType(
-				txnID,
-				request.TableName,
-				request.Schema,
-				logger,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to insert vertex: %w", err)
-			}
-
 			return nil
 		},
 		false,
