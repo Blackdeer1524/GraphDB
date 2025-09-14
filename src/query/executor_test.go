@@ -3,6 +3,7 @@ package query
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"strings"
 	"sync"
@@ -3620,6 +3621,34 @@ func insertVertexWithRetry(
 	}
 }
 
+func insertEdgeWithRetry(
+	t testing.TB,
+	ticker *atomic.Uint64,
+	e *Executor,
+	logger common.ITxnLogger,
+	tableName string,
+	edge storage.EdgeInfo,
+) {
+	inserted := false
+	for !inserted {
+		_ = Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				err = e.InsertEdge(txnID, tableName, edge, logger)
+				if err != nil {
+					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+					return ErrRollback
+				}
+				inserted = true
+				return nil
+			},
+			false,
+		)
+	}
+}
+
 func TestConcurrentVertexInsertsSameTable(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_concurrent_inserts_same_table"
@@ -4006,5 +4035,194 @@ func TestConcurrentGetTriangles(t *testing.T) {
 				require.NoError(t, err)
 			},
 		)
+	}
+}
+
+func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_concurrent_inserts_same_table"
+	poolPageCount := uint64(50)
+	debugMode := false
+
+	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+	vertTableName := "person"
+	vertFieldName := "id"
+	edgeTableName := "is-friend"
+	edgeFieldName := "years"
+
+	// Create the vertex table
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{{Name: vertFieldName, Type: storage.ColumnTypeInt64}}
+			return e.CreateVertexType(txnID, vertTableName, schema, logger)
+		},
+		false,
+	)
+	require.NoError(t, err)
+
+	// Create the edges table
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+			schema := storage.Schema{{Name: edgeFieldName, Type: storage.ColumnTypeInt64}}
+			return e.CreateEdgeType(txnID, edgeTableName, schema, vertTableName, vertTableName, logger)
+		},
+		false,
+	)
+	require.NoError(t, err)
+
+	// generate operations
+
+	const (
+		vertexType = iota
+		edgeType
+
+		operationsCount = 10
+	)
+
+	type op struct {
+		t int
+		v storage.VertexInfo
+		e storage.EdgeInfo
+	}
+
+	type edge struct {
+		src storage.VertexSystemID
+		dst storage.VertexSystemID
+	}
+
+	vertexesCnt := 0
+	edges := make(map[edge]struct{})
+	vertexIDs := make([]storage.VertexSystemID, 0, operationsCount)
+
+	getVertexIdBySystemID := func(u storage.VertexSystemID) int {
+		for i, v := range vertexIDs {
+			if v == u {
+				return i
+			}
+		}
+
+		return -1
+	}
+
+	operations := make([]op, 0, operationsCount)
+
+	for i := 0; i < operationsCount; i++ {
+		var curOp op
+		generated := false
+
+		for !generated {
+			var tp int
+
+			if vertexesCnt < 2 {
+				tp = vertexType
+			} else {
+				r := rand.Intn(100)
+				if r < 60 && len(vertexIDs) >= 2 {
+					tp = edgeType
+				} else {
+					tp = vertexType
+				}
+			}
+
+			if tp == vertexType {
+				vertexesCnt++
+				vertexID := storage.VertexSystemID(uuid.New())
+
+				curOp = op{
+					t: vertexType,
+					v: storage.VertexInfo{
+						SystemID: vertexID,
+						Data: map[string]any{
+							vertFieldName: int64(vertexesCnt),
+						},
+					},
+				}
+				vertexIDs = append(vertexIDs, vertexID)
+				generated = true
+
+				break
+			}
+
+			// gen edge
+
+			if len(vertexIDs) < 2 {
+				continue
+			}
+
+			srcIdx := rand.Intn(len(vertexIDs))
+			dstIdx := rand.Intn(len(vertexIDs))
+
+			for srcIdx == dstIdx {
+				dstIdx = rand.Intn(len(vertexIDs))
+			}
+
+			srcID := vertexIDs[srcIdx]
+			dstID := vertexIDs[dstIdx]
+
+			e := edge{src: srcID, dst: dstID}
+			if _, exists := edges[e]; exists {
+				continue
+			}
+
+			edges[e] = struct{}{}
+
+			edgeID := storage.EdgeSystemID(uuid.New())
+
+			curOp = op{
+				t: edgeType,
+				e: storage.EdgeInfo{
+					SystemID:    edgeID,
+					SrcVertexID: srcID,
+					DstVertexID: dstID,
+					Data: map[string]any{
+						edgeFieldName: int64(rand.Intn(10) + 1),
+					},
+				},
+			}
+
+			generated = true
+		}
+
+		operations = append(operations, curOp)
+	}
+
+	for _, o := range operations {
+		if o.t == vertexType {
+			slog.Info("vertex", "data", o.v)
+		} else {
+			slog.Info("edge", "data", o.e)
+		}
+	}
+
+	g := make(map[int][]int)
+
+	for _, o := range operations {
+		if o.t == vertexType {
+			insertVertexWithRetry(t, &ticker, e, logger, vertTableName, o.v)
+
+			d := getVertexIdBySystemID(o.v.SystemID)
+
+			g[d] = make([]int, 0)
+		} else {
+			u, v := getVertexIdBySystemID(o.e.SrcVertexID), getVertexIdBySystemID(o.e.DstVertexID)
+
+			insertEdgeWithRetry(t, &ticker, e, logger, edgeTableName, o.e)
+
+			g[u] = append(g[u], v)
+		}
+	}
+
+	for i, j := range g {
+		fmt.Println(i, j)
 	}
 }
