@@ -3390,8 +3390,8 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVertices(t *testing.T) {
 }
 
 func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepths(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
 	poolPageCount := uint64(100)
 	debugMode := false
 
@@ -3417,7 +3417,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		logger,
 	)
 
-	graphInfo := generateRandomGraph(t, 100, 0.05, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(t, 300, 0.05, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		t,
 		&ticker,
@@ -3431,6 +3431,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		vertFieldName,
 		graphInfo.verticesInfo,
 	)
+	t.Log("[one thread] asserting a graph...")
 	assertDBGraph(
 		t,
 		&ticker,
@@ -3447,6 +3448,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		1,
 	)
 
+	t.Log("[concurrent] asserting a graph...")
 	assertDBGraph(
 		t,
 		&ticker,
@@ -3460,15 +3462,15 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		intToVertSystemID,
 		edgesSystemInfo,
 		2,
-		10,
+		128,
 	)
 }
 
 func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDifferentDepths(
 	b *testing.B,
 ) {
-	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
+	fs := afero.NewOsFs()
+	catalogBasePath := b.TempDir()
 	poolPageCount := uint64(300)
 	debugMode := false
 
@@ -3495,7 +3497,7 @@ func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDiffe
 	)
 
 	targetEdgeCountPerNode := 7
-	connectivity := min(float32(targetEdgeCountPerNode)/float32(b.N), 0)
+	connectivity := min(max(float32(targetEdgeCountPerNode)/float32(b.N), 0), 1)
 	graphInfo := generateRandomGraph(b, b.N, connectivity, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		b,
@@ -3532,8 +3534,8 @@ func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDiffe
 func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepths(
 	b *testing.B,
 ) {
-	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
+	fs := afero.NewOsFs()
+	catalogBasePath := b.TempDir()
 	poolPageCount := uint64(300)
 	debugMode := false
 
@@ -3559,7 +3561,9 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 		logger,
 	)
 
-	graphInfo := generateRandomGraph(b, 1_000, 0.01, rand.New(rand.NewSource(42)), false)
+	targetEdgeCountPerNode := 7
+	connectivity := min(max(float32(targetEdgeCountPerNode)/float32(b.N), 0), 1)
+	graphInfo := generateRandomGraph(b, b.N, connectivity, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		b,
 		&ticker,
