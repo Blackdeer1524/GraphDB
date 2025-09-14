@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/spf13/afero"
 
@@ -73,7 +74,7 @@ func (m *Manager) getOrOpenFile(fileID common.FileID) (afero.File, error) {
 	path := utils.GetFilePath(m.basePath, fileID)
 	file, err := m.fs.OpenFile(
 		filepath.Clean(path),
-		os.O_RDWR|os.O_CREATE,
+		os.O_RDWR|os.O_CREATE|syscall.O_DIRECT,
 		0o644,
 	)
 	if err != nil {

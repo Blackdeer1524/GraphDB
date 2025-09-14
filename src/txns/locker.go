@@ -243,10 +243,12 @@ func (l *LockManager) LockFile(
 	lockMode GranularLockMode,
 ) *FileLockToken {
 	switch lockMode {
-	case GranularLockIntentionShared,
-		GranularLockIntentionExclusive,
-		GranularLockSharedIntentionExclusive:
+	case GranularLockIntentionShared, GranularLockIntentionExclusive:
 		if !l.UpgradeCatalogLock(ct, lockMode) {
+			return nil
+		}
+	case GranularLockSharedIntentionExclusive:
+		if !l.UpgradeCatalogLock(ct, GranularLockIntentionExclusive) {
 			return nil
 		}
 	case GranularLockShared:
@@ -284,9 +286,33 @@ func (l *LockManager) LockPage(
 		if !l.UpgradeFileLock(ft, GranularLockIntentionShared) {
 			return nil
 		}
+		switch ft.lockMode {
+		case GranularLockExclusive:
+			res := NewPageLockToken(
+				common.PageIdentity{FileID: ft.fileID, PageID: pageID},
+				PageLockExclusive,
+				ft,
+			)
+			return res
+		case GranularLockShared:
+			res := NewPageLockToken(
+				common.PageIdentity{FileID: ft.fileID, PageID: pageID},
+				PageLockShared,
+				ft,
+			)
+			return res
+		}
 	case PageLockExclusive:
 		if !l.UpgradeFileLock(ft, GranularLockIntentionExclusive) {
 			return nil
+		}
+		if ft.lockMode == GranularLockExclusive {
+			res := NewPageLockToken(
+				common.PageIdentity{FileID: ft.fileID, PageID: pageID},
+				PageLockExclusive,
+				ft,
+			)
+			return res
 		}
 	}
 
@@ -343,15 +369,42 @@ func (l *LockManager) UpgradeCatalogLock(
 		return false
 	}
 	<-n
+	t.lockMode = t.lockMode.Combine(lockMode)
 	return true
 }
 
 func (l *LockManager) UpgradeFileLock(
 	ft *FileLockToken,
-	lockMode GranularLockMode,
+	reqLockMode GranularLockMode,
 ) bool {
+	switch reqLockMode {
+	case GranularLockIntentionShared:
+		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionShared) {
+			return false
+		}
+	case GranularLockIntentionExclusive:
+		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionExclusive) {
+			return false
+		}
+	case GranularLockShared:
+		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionShared) {
+			return false
+		}
+	case GranularLockSharedIntentionExclusive:
+		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionExclusive) {
+			return false
+		}
+	case GranularLockExclusive:
+		if !l.UpgradeCatalogLock(ft.ct, GranularLockIntentionExclusive) {
+			return false
+		}
+	default:
+		assert.Assert(false, "invalid lock mode %v", reqLockMode)
+		panic("unreachable")
+	}
+
 	if !ft.WasSetUp() {
-		innerFt := l.LockFile(ft.ct, ft.fileID, lockMode)
+		innerFt := l.LockFile(ft.ct, ft.fileID, reqLockMode)
 		if innerFt == nil {
 			return false
 		}
@@ -359,24 +412,46 @@ func (l *LockManager) UpgradeFileLock(
 		return true
 	}
 
-	if lockMode.WeakerOrEqual(ft.lockMode) {
+	switch ft.ct.lockMode {
+	case GranularLockExclusive:
+		ft.lockMode = ft.lockMode.Combine(GranularLockExclusive)
+	case GranularLockShared:
+		ft.lockMode = ft.lockMode.Combine(GranularLockShared)
+	case GranularLockSharedIntentionExclusive:
+		ft.lockMode = ft.lockMode.Combine(GranularLockShared)
+	}
+
+	if reqLockMode.WeakerOrEqual(ft.lockMode) {
 		return true
 	}
 
 	req := TxnLockRequest[GranularLockMode, common.FileID]{
 		txnID:    ft.txnID,
 		objectId: ft.fileID,
-		lockMode: lockMode,
+		lockMode: reqLockMode,
 	}
 	n := l.fileLockManager.Upgrade(req)
 	if n == nil {
 		return false
 	}
 	<-n
+
+	ft.lockMode = ft.lockMode.Combine(reqLockMode)
 	return true
 }
 
 func (l *LockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) bool {
+	switch lockMode {
+	case PageLockShared:
+		if !l.UpgradeFileLock(pt.ft, GranularLockIntentionShared) {
+			return false
+		}
+	case PageLockExclusive:
+		if !l.UpgradeFileLock(pt.ft, GranularLockIntentionExclusive) {
+			return false
+		}
+	}
+
 	if !pt.WasSetUp() {
 		innerPt := l.LockPage(pt.ft, pt.pageID.PageID, lockMode)
 		if innerPt == nil {
@@ -384,6 +459,15 @@ func (l *LockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) 
 		}
 		*pt = *innerPt
 		return true
+	}
+
+	switch pt.ft.lockMode {
+	case GranularLockExclusive:
+		pt.lockMode = pt.lockMode.Combine(PageLockExclusive)
+	case GranularLockShared:
+		pt.lockMode = pt.lockMode.Combine(PageLockShared)
+	case GranularLockSharedIntentionExclusive:
+		pt.lockMode = pt.lockMode.Combine(PageLockShared)
 	}
 
 	if lockMode.WeakerOrEqual(pt.lockMode) {
@@ -400,6 +484,8 @@ func (l *LockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) 
 		return false
 	}
 	<-n
+
+	pt.lockMode = pt.lockMode.Combine(lockMode)
 	return true
 }
 

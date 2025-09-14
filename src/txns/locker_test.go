@@ -3,6 +3,7 @@ package txns
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +30,7 @@ func TestLockManagerNilFileLockToken(t *testing.T) {
 		{GranularLockExclusive, GranularLockIntentionExclusive},
 		{GranularLockIntentionShared, GranularLockIntentionShared},
 		{GranularLockIntentionExclusive, GranularLockIntentionExclusive},
-		{GranularLockSharedIntentionExclusive, GranularLockSharedIntentionExclusive},
+		{GranularLockSharedIntentionExclusive, GranularLockIntentionExclusive},
 		{GranularLockShared, GranularLockIntentionShared},
 	}
 
@@ -189,6 +190,92 @@ func TestLockManagerLockToken_RequestWeakerLockModeRequestGranted(t *testing.T) 
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestLockCompatibilityMatrix(t *testing.T) {
+	lm := NewLockManager()
+
+	// Test all combinations of granular lock modes
+	lockModes := []GranularLockMode{
+		GranularLockIntentionShared,
+		GranularLockIntentionExclusive,
+		GranularLockShared,
+		GranularLockSharedIntentionExclusive,
+		GranularLockExclusive,
+	}
+
+	testFunc := func(txnID1, txnID2 common.TxnID, mode1, mode2 GranularLockMode) {
+		defer lm.Unlock(txnID1)
+		defer lm.Unlock(txnID2)
+
+		done1 := make(chan struct{})
+		done2 := make(chan struct{})
+
+		compatible := mode1.Compatible(mode2)
+
+		firstStartedNotifier := make(chan struct{})
+		go func() {
+			ct := lm.LockCatalog(txnID1, mode1)
+			require.NotNil(t, ct, "LockCatalog should succeed for txn 1")
+			firstStartedNotifier <- struct{}{}
+			done1 <- struct{}{}
+		}()
+
+		// * incompatible modes: we either die due to a deadlock prevention policy
+		// or wait forever
+		// * compatible modes: we both complete
+		go func() {
+			<-firstStartedNotifier
+			ct := lm.LockCatalog(txnID2, mode2)
+			// block on the lock or die trying
+			if ct == nil {
+				return
+			}
+			done2 <- struct{}{}
+		}()
+
+		if compatible {
+			select {
+			case <-done1:
+			case <-time.After(100 * time.Millisecond):
+				t.Fatal("First goroutine did not complete in time")
+			}
+
+			select {
+			case <-done2:
+			case <-time.After(100 * time.Millisecond):
+				t.Fatal("Second goroutine did not complete in time")
+			}
+		} else {
+			select {
+			case <-done1:
+				select {
+				case <-done2:
+					t.Fatal("Second goroutine should not have completed because of incompatible locks")
+				case <-time.After(100 * time.Millisecond):
+				}
+			case <-done2:
+				select {
+				case <-done1:
+					t.Fatal("Second goroutine should not have completed because of incompatible locks")
+				case <-time.After(100 * time.Millisecond):
+				}
+			case <-time.After(100 * time.Millisecond):
+				t.Fatal("None of the goroutine did not complete in time")
+			}
+		}
+	}
+
+	testIndex := 0
+	for _, mode1 := range lockModes {
+		for _, mode2 := range lockModes {
+			t.Run(fmt.Sprintf("%s_vs_%s", mode1.String(), mode2.String()), func(t *testing.T) {
+				testFunc(common.TxnID(testIndex*2+1), common.TxnID(testIndex*2+2), mode1, mode2)
+				testFunc(common.TxnID(testIndex*2+2), common.TxnID(testIndex*2+1), mode1, mode2)
+				testIndex++
+			})
 		}
 	}
 }

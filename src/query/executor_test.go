@@ -1,10 +1,8 @@
 package query
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/rand"
 	"strings"
 	"sync"
@@ -122,14 +120,9 @@ func Execute(
 		if isReadOnly {
 			return
 		}
-
 		if err != nil {
 			myassert.NoError(ctxLogger.AppendAbort())
 			ctxLogger.Rollback()
-			if err == ErrRollback || errors.Is(err, txns.ErrDeadlockPrevention) {
-				err = nil
-				return
-			}
 			return
 		}
 		if err = ctxLogger.AppendCommit(); err != nil {
@@ -145,9 +138,10 @@ func Execute(
 func TestCreateVertexType(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_test"
-	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
+	e, pool, locker, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	defer func() { require.True(t, locker.AreAllQueuesEmpty()) }()
 
 	ticker := atomic.Uint64{}
 	err = Execute(
@@ -297,7 +291,7 @@ func TestCreateVertexRollback(t *testing.T) {
 		},
 		false,
 	)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrRollback)
 
 	err = Execute(
 		&ticker,
@@ -374,7 +368,7 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 		},
 		false,
 	)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrRollback)
 
 	err = Execute(
 		&ticker,
@@ -649,7 +643,7 @@ func TestVertexAndEdgeTableDrop(t *testing.T) {
 		},
 		false,
 	)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrRollback)
 
 	err = Execute(
 		&ticker,
@@ -1464,7 +1458,7 @@ func TestBigRandomGraph(t *testing.T) {
 	verticesFieldName := "money"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(t, 700, 0.01, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(t, 500, 0.01, rand.New(rand.NewSource(42)), false)
 
 	setupTables(
 		t,
@@ -2036,7 +2030,6 @@ func hasDirectedEdge(g map[int][]int, src, dst int) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -2166,7 +2159,7 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 			connectivity: 0.5,
 		},
 		{
-			vertexCount:  10,
+			vertexCount:  50,
 			connectivity: 1.0,
 		},
 	}
@@ -3393,8 +3386,8 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVertices(t *testing.T) {
 }
 
 func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepths(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
 	poolPageCount := uint64(100)
 	debugMode := false
 
@@ -3420,7 +3413,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		logger,
 	)
 
-	graphInfo := generateRandomGraph(t, 100, 0.05, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(t, 300, 0.05, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		t,
 		&ticker,
@@ -3434,6 +3427,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		vertFieldName,
 		graphInfo.verticesInfo,
 	)
+	t.Log("[one thread] asserting a graph...")
 	assertDBGraph(
 		t,
 		&ticker,
@@ -3450,6 +3444,7 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		1,
 	)
 
+	t.Log("[concurrent] asserting a graph...")
 	assertDBGraph(
 		t,
 		&ticker,
@@ -3463,16 +3458,16 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepth
 		intToVertSystemID,
 		edgesSystemInfo,
 		2,
-		10,
+		128,
 	)
 }
 
 func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDifferentDepths(
 	b *testing.B,
 ) {
-	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
-	poolPageCount := uint64(300)
+	fs := afero.NewOsFs()
+	catalogBasePath := b.TempDir()
+	poolPageCount := uint64(300_000)
 	debugMode := false
 
 	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
@@ -3498,7 +3493,7 @@ func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDiffe
 	)
 
 	targetEdgeCountPerNode := 7
-	connectivity := min(float32(targetEdgeCountPerNode)/float32(b.N), 0)
+	connectivity := min(max(float32(targetEdgeCountPerNode)/float32(b.N), 0), 1)
 	graphInfo := generateRandomGraph(b, b.N, connectivity, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		b,
@@ -3535,9 +3530,9 @@ func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDiffe
 func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferentDepths(
 	b *testing.B,
 ) {
-	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_concurrent_starts_and_depths_test"
-	poolPageCount := uint64(300)
+	fs := afero.NewOsFs()
+	catalogBasePath := b.TempDir()
+	poolPageCount := uint64(300_000)
 	debugMode := false
 
 	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
@@ -3562,7 +3557,9 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 		logger,
 	)
 
-	graphInfo := generateRandomGraph(b, 1_000, 0.01, rand.New(rand.NewSource(42)), false)
+	targetEdgeCountPerNode := 7
+	connectivity := min(max(float32(targetEdgeCountPerNode)/float32(b.N), 0), 1)
+	graphInfo := generateRandomGraph(b, b.N, connectivity, rand.New(rand.NewSource(42)), false)
 	intToVertSystemID, edgesSystemInfo := instantiateGraph(
 		b,
 		&ticker,
@@ -3591,7 +3588,7 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 		intToVertSystemID,
 		edgesSystemInfo,
 		2,
-		16,
+		10_000,
 	)
 }
 
@@ -3873,4 +3870,688 @@ func TestConcurrentVertexInsertsHighContention(t *testing.T) {
 			false,
 		))
 	}
+}
+
+func TestForbidSelectOnInsertedVertex(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
+	pools := uint64(20)
+	debug := false
+
+	e, _, _, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
+	require.NoError(t, err)
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	vertFieldName := "money"
+	edgeTableName := "friend"
+	edgeFieldName := "how_long"
+	setupTables(
+		t,
+		e,
+		&ticker,
+		vertTableName,
+		vertFieldName,
+		edgeTableName,
+		edgeFieldName,
+		logger,
+	)
+
+	srcVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			vertFieldName: int64(100),
+		},
+	}
+	dstVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data: map[string]any{
+			vertFieldName: int64(200),
+		},
+	}
+	edge := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: srcVert.SystemID,
+		DstVertexID: dstVert.SystemID,
+		Data: map[string]any{
+			edgeFieldName: int64(300),
+		},
+	}
+
+	insertDoneCh := make(chan struct{})
+	go func() {
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				err := e.InsertVertex(txnID, vertTableName, srcVert, logger)
+				require.NoError(t, err)
+
+				err = e.InsertVertex(txnID, vertTableName, dstVert, logger)
+				require.NoError(t, err)
+
+				t.Logf("inserted vertices: %s, %s", srcVert.SystemID, dstVert.SystemID)
+				close(insertDoneCh)
+				time.Sleep(time.Hour)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	time.Sleep(time.Second * 1)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				<-insertDoneCh
+				t.Logf("selecting src vertex: %s", srcVert.SystemID)
+				_, err := e.SelectVertex(txnID, vertTableName, srcVert.SystemID, logger)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				<-insertDoneCh
+				t.Logf("selecting dst vertex: %s", dstVert.SystemID)
+				_, err := e.SelectVertex(txnID, vertTableName, dstVert.SystemID, logger)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				<-insertDoneCh
+				t.Logf("inserting edge: %s", edge.SystemID)
+				err := e.InsertEdge(txnID, edgeTableName, edge, logger)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				<-insertDoneCh
+				t.Logf("getting vertices on depth: %s", edge.SrcVertexID)
+				_, err := e.GetVerticesOnDepth(
+					txnID,
+					edgeTableName,
+					edge.SrcVertexID,
+					1,
+					storage.AllowAllVerticesFilter,
+					logger,
+				)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+	}()
+
+	wg.Wait()
+}
+
+func TestOlderWaitsAndSucceedsOnEdgeInsert(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
+	pools := uint64(20)
+	debug := false
+
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+	vertTableName := "person"
+	vertFieldName := "money"
+	edgeTableName := "friend"
+	edgeFieldName := "how_long"
+	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeTableName, edgeFieldName, logger)
+
+	srcVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data:     map[string]any{vertFieldName: int64(10)},
+	}
+	dstVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data:     map[string]any{vertFieldName: int64(20)},
+	}
+	require.NoError(t, Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			require.NoError(t, e.InsertVertex(txnID, vertTableName, srcVert, logger))
+			require.NoError(t, e.InsertVertex(txnID, vertTableName, dstVert, logger))
+			return nil
+		},
+		false,
+	))
+
+	edgeToInsert := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: srcVert.SystemID,
+		DstVertexID: dstVert.SystemID,
+		Data:        map[string]any{edgeFieldName: int64(300)},
+	}
+
+	youngerReady := make(chan struct{})
+	olderEntered := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	// Older txn: obtain txnID first, then wait for younger's S-locks and insert edge
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				// Signal older entered and has smaller txnID
+				olderEntered <- struct{}{}
+				<-youngerReady
+				// Allowed to wait (older waits on younger) and then succeed
+				require.NoError(t, e.InsertEdge(txnID, edgeTableName, edgeToInsert, logger))
+				return nil
+			},
+			false,
+		))
+	}()
+
+	// Ensure older obtained txnID before starting younger
+	<-olderEntered
+
+	// Younger txn: acquire S-locks on the edge index (via a SelectEdge) and finish shortly after
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				_, _ = e.SelectEdge(
+					txnID,
+					edgeTableName,
+					storage.EdgeSystemID(uuid.New()),
+					logger,
+				) // ensure S-locks on index pages
+				close(youngerReady)
+				time.Sleep(200 * time.Millisecond)
+				return nil
+			},
+			true,
+		))
+	}()
+
+	wg.Wait()
+
+	// Verify edge was inserted
+	require.NoError(t, Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			edge, err := e.SelectEdge(txnID, edgeTableName, edgeToInsert.SystemID, logger)
+			require.NoError(t, err)
+			require.Equal(t, int64(300), edge.Data[edgeFieldName])
+			return nil
+		},
+		true,
+	))
+}
+
+func TestYoungerInsertEdgeForbiddenByOlderRead(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
+	pools := uint64(20)
+	debug := false
+
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+	vertTableName := "person"
+	vertFieldName := "money"
+	edgeTableName := "friend"
+	edgeFieldName := "how_long"
+	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeTableName, edgeFieldName, logger)
+
+	srcVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data:     map[string]any{vertFieldName: int64(10)},
+	}
+	dstVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data:     map[string]any{vertFieldName: int64(20)},
+	}
+	require.NoError(t, Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			require.NoError(t, e.InsertVertex(txnID, vertTableName, srcVert, logger))
+			require.NoError(t, e.InsertVertex(txnID, vertTableName, dstVert, logger))
+			return nil
+		},
+		false,
+	))
+
+	edgeToInsert := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: srcVert.SystemID,
+		DstVertexID: dstVert.SystemID,
+		Data:        map[string]any{edgeFieldName: int64(1)},
+	}
+
+	olderReady := make(chan struct{})
+	holdOlder := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	// Older txn: take shared locks by scanning neighbors and hold the txn
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				_, err := e.GetVerticesOnDepth(
+					txnID,
+					vertTableName,
+					srcVert.SystemID,
+					1,
+					storage.AllowAllVerticesFilter,
+					logger,
+				)
+				require.NoError(t, err)
+				close(olderReady)
+				<-holdOlder // keep S-locks until the younger tries to insert
+				return nil
+			},
+			false,
+		))
+	}()
+
+	// Younger txn: try to insert edge; should be aborted due to wait-die
+	go func() {
+		defer wg.Done()
+		<-olderReady
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				err := e.InsertEdge(txnID, edgeTableName, edgeToInsert, logger)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		))
+		close(holdOlder)
+	}()
+
+	wg.Wait()
+
+	// Verify that the edge was not inserted
+	require.NoError(t, Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			_, err := e.SelectEdge(txnID, edgeTableName, edgeToInsert.SystemID, logger)
+			require.ErrorIs(t, err, storage.ErrKeyNotFound)
+			return nil
+		},
+		true,
+	))
+}
+
+func TestYoungerSelectEdgeForbiddenByOlderInsert(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
+	pools := uint64(20)
+	debug := false
+
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+	vertTableName := "person"
+	vertFieldName := "money"
+	edgeTableName := "friend"
+	edgeFieldName := "how_long"
+	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeTableName, edgeFieldName, logger)
+
+	srcVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data:     map[string]any{vertFieldName: int64(10)},
+	}
+	dstVert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data:     map[string]any{vertFieldName: int64(20)},
+	}
+	require.NoError(t, Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			require.NoError(t, e.InsertVertex(txnID, vertTableName, srcVert, logger))
+			require.NoError(t, e.InsertVertex(txnID, vertTableName, dstVert, logger))
+			return nil
+		},
+		false,
+	))
+
+	edgeToInsert := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: srcVert.SystemID,
+		DstVertexID: dstVert.SystemID,
+		Data:        map[string]any{edgeFieldName: int64(111)},
+	}
+
+	olderHold := make(chan struct{})
+	olderReady := make(chan struct{})
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	// Older txn: insert edge and hold the txn to keep X-locks on index master page
+	go func() {
+		defer wg.Done()
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				require.NoError(t, e.InsertEdge(txnID, edgeTableName, edgeToInsert, logger))
+				close(olderReady)
+				<-olderHold
+				return nil
+			},
+			false,
+		))
+	}()
+
+	// Younger txn: try to select while older holds X-lock; should be aborted (wait-die)
+	go func() {
+		defer wg.Done()
+		<-olderReady
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				_, err := e.SelectEdge(
+					txnID,
+					edgeTableName,
+					storage.EdgeSystemID(uuid.New()),
+					logger,
+				)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			true,
+		))
+		close(olderHold)
+	}()
+
+	wg.Wait()
+
+	// Verify that the inserted edge is present
+	require.NoError(t, Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			edge, err := e.SelectEdge(txnID, edgeTableName, edgeToInsert.SystemID, logger)
+			require.NoError(t, err)
+			require.Equal(t, int64(111), edge.Data[edgeFieldName])
+			return nil
+		},
+		true,
+	))
+}
+
+func TestConcurrentCheckpoint(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
+	pools := uint64(200)
+	debug := false
+
+	vertTableName := "person"
+	vertFieldName := "money"
+	edgeTableName := "friend"
+	edgeFieldName := "how_long"
+
+	const (
+		workersCount = 100
+		insertsCount = 100_000
+		edgesCount   = 10
+	)
+
+	vertMu := sync.RWMutex{}
+	insertedVertexIDs := make(map[storage.VertexSystemID]storage.VertexInfo)
+
+	failedVertexIDsMu := sync.RWMutex{}
+	failedVertexIDs := make([]storage.VertexSystemID, 0)
+
+	edgesMu := sync.RWMutex{}
+	insertedEdgeIDs := make(map[storage.VertexSystemID][]storage.EdgeInfo)
+
+	failedEdgeIDsMu := sync.RWMutex{}
+	failedEdgeIDs := make([]storage.EdgeSystemID, 0)
+
+	ensureConsistentDB := func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+		for vertSysID, vertInfo := range insertedVertexIDs {
+			storedVert, err := e.SelectVertex(txnID, vertTableName, vertSysID, logger)
+			require.NoError(t, err)
+
+			expectedFieldVal := vertInfo.Data[vertFieldName].(int64)
+			require.Equal(t, expectedFieldVal, storedVert.Data[vertFieldName].(int64))
+
+			for _, edge := range insertedEdgeIDs[vertSysID] {
+				storedEdge, err := e.SelectEdge(txnID, edgeTableName, edge.SystemID, logger)
+				require.NoError(t, err)
+				require.Equal(
+					t,
+					edge.Data[edgeFieldName].(int64),
+					storedEdge.Data[edgeFieldName].(int64),
+				)
+			}
+		}
+
+		for _, vert := range failedVertexIDs {
+			_, err := e.SelectVertex(txnID, vertTableName, vert, logger)
+			require.ErrorIs(t, err, storage.ErrKeyNotFound)
+		}
+
+		for _, edge := range failedEdgeIDs {
+			_, err := e.SelectEdge(txnID, edgeTableName, edge, logger)
+			require.ErrorIs(t, err, storage.ErrKeyNotFound)
+		}
+		return nil
+	}
+
+	func() {
+		var ticker atomic.Uint64
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+		setupTables(
+			t,
+			e,
+			&ticker,
+			vertTableName,
+			vertFieldName,
+			edgeTableName,
+			edgeFieldName,
+			logger,
+		)
+
+		workerPool, err := ants.NewPool(workersCount)
+		require.NoError(t, err)
+		defer workerPool.Release()
+
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				for i := range edgesCount {
+					vert := storage.VertexInfo{
+						SystemID: storage.VertexSystemID(uuid.New()),
+						Data:     map[string]any{vertFieldName: int64(i)},
+					}
+					require.NoError(t, e.InsertVertex(txnID, vertTableName, vert, logger))
+					insertedVertexIDs[vert.SystemID] = vert
+				}
+				return nil
+			},
+			false,
+		)
+		require.NoError(t, err)
+
+		wg := sync.WaitGroup{}
+		for i := edgesCount; i < insertsCount+edgesCount; i++ {
+			wg.Add(1)
+			j := i
+			require.NoError(t, workerPool.Submit(func() {
+				defer wg.Done()
+				vertex := storage.VertexInfo{
+					SystemID: storage.VertexSystemID(uuid.New()),
+					Data:     map[string]any{vertFieldName: int64(j)},
+				}
+
+				edgeIDs := make([]storage.EdgeSystemID, 0, edgesCount)
+				for range edgesCount {
+					edgeIDs = append(edgeIDs, storage.EdgeSystemID(uuid.New()))
+				}
+				insertedEdges := make([]storage.EdgeInfo, 0, edgesCount)
+
+				err := Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+						err := e.InsertVertex(txnID, vertTableName, vertex, logger)
+						if err != nil {
+							return err
+						}
+
+						c := 0
+						vertMu.RLock()
+						for dst := range insertedVertexIDs {
+							edgeInfo := storage.EdgeInfo{
+								SystemID:    edgeIDs[c],
+								SrcVertexID: dst,
+								DstVertexID: vertex.SystemID,
+								Data:        map[string]any{edgeFieldName: int64(j + c)},
+							}
+							insertedEdges = append(insertedEdges, edgeInfo)
+							c++
+							if c == edgesCount {
+								break
+							}
+						}
+						vertMu.RUnlock()
+						require.Equal(t, edgesCount, c)
+
+						err = e.InsertEdges(txnID, edgeTableName, insertedEdges, logger)
+						return err
+					},
+					false,
+				)
+				if errors.Is(err, txns.ErrDeadlockPrevention) {
+					failedEdgeIDsMu.Lock()
+					failedEdgeIDs = append(failedEdgeIDs, edgeIDs...)
+					failedEdgeIDsMu.Unlock()
+
+					failedVertexIDsMu.Lock()
+					failedVertexIDs = append(failedVertexIDs, vertex.SystemID)
+					failedVertexIDsMu.Unlock()
+					return
+				}
+				require.NoError(t, err)
+
+				vertMu.Lock()
+				insertedVertexIDs[vertex.SystemID] = vertex
+				vertMu.Unlock()
+
+				edgesMu.Lock()
+				insertedEdgeIDs[vertex.SystemID] = insertedEdges
+				edgesMu.Unlock()
+			}))
+
+			if i == insertsCount/2 {
+				wg.Add(1)
+				require.NoError(t, workerPool.Submit(func() {
+					defer wg.Done()
+					require.NoError(t, pool.FlushAllPages())
+				}))
+			}
+		}
+		wg.Wait()
+
+		err = Execute(
+			&ticker,
+			e,
+			logger,
+			ensureConsistentDB,
+			true,
+		)
+		require.NoError(t, err)
+	}()
+
+	func() {
+		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+		ticker := atomic.Uint64{}
+
+		require.NoError(t, Execute(
+			&ticker,
+			e,
+			logger,
+			ensureConsistentDB,
+			true,
+		))
+	}()
 }
