@@ -1,6 +1,7 @@
 package query
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1990,6 +1991,18 @@ func TestGetAllTriangles(t *testing.T) {
 		)
 		require.NoError(t, err)
 	}
+}
+
+func TestStupidTest(t *testing.T) {
+	g := map[int][]int{
+		0: {1, 2},
+		1: {0, 2, 3, 4},
+		2: {3, 1},
+		3: {2, 1},
+		4: {3, 1},
+	}
+
+	fmt.Println(graphCountTriangles(g))
 }
 
 func graphCountTriangles(g map[int][]int) [][]int {
@@ -4040,14 +4053,14 @@ func TestConcurrentGetTriangles(t *testing.T) {
 }
 
 const (
-	vertexType = iota
-	edgeType
+	vertexType = 1
+	edgeType   = 2
 )
 
 type GraphGenerator struct {
 	operations    []op
 	vertexCount   int
-	edges         map[edge]struct{}
+	edges         map[undirectedEdge]struct{}
 	vertexIDs     []storage.VertexSystemID
 	edgeProb      int
 	vertFieldName string
@@ -4060,14 +4073,22 @@ type op struct {
 	e storage.EdgeInfo
 }
 
-type edge struct {
-	src storage.VertexSystemID
-	dst storage.VertexSystemID
+type undirectedEdge struct {
+	a storage.VertexSystemID
+	b storage.VertexSystemID
+}
+
+func makeUndirectedEdge(u, v storage.VertexSystemID) undirectedEdge {
+	if bytes.Compare(u[:], v[:]) < 0 {
+		return undirectedEdge{a: u, b: v}
+	}
+
+	return undirectedEdge{a: v, b: u}
 }
 
 func NewGraphGenerator(edgeProb int, vertFieldName, edgeFieldName string) *GraphGenerator {
 	return &GraphGenerator{
-		edges:         make(map[edge]struct{}),
+		edges:         make(map[undirectedEdge]struct{}),
 		edgeProb:      edgeProb,
 		vertFieldName: vertFieldName,
 		edgeFieldName: edgeFieldName,
@@ -4075,7 +4096,6 @@ func NewGraphGenerator(edgeProb int, vertFieldName, edgeFieldName string) *Graph
 }
 
 func (g *GraphGenerator) Generate(operationsCount, minTriangles int) []op {
-	// Основная генерация операций
 	for i := 0; i < operationsCount; i++ {
 		generated := false
 		for !generated {
@@ -4108,10 +4128,12 @@ func (g *GraphGenerator) Generate(operationsCount, minTriangles int) []op {
 				srcID := g.vertexIDs[srcIdx]
 				dstID := g.vertexIDs[dstIdx]
 
-				e := edge{src: srcID, dst: dstID}
-				if _, exists := g.edges[e]; exists {
+				ue := makeUndirectedEdge(srcID, dstID)
+				if _, exists := g.edges[ue]; exists {
 					continue
 				}
+
+				g.edges[ue] = struct{}{}
 
 				g.addEdge(srcID, dstID)
 				generated = true
@@ -4119,10 +4141,25 @@ func (g *GraphGenerator) Generate(operationsCount, minTriangles int) []op {
 		}
 	}
 
-	// Добавляем недостающие треугольники
 	g.ensureTriangles(minTriangles)
 
+	g.sortOperations()
+
 	return g.operations
+}
+
+func (g *GraphGenerator) sortOperations() {
+	var vertexOps, edgeOps []op
+
+	for _, o := range g.operations {
+		if o.t == vertexType {
+			vertexOps = append(vertexOps, o)
+		} else {
+			edgeOps = append(edgeOps, o)
+		}
+	}
+
+	g.operations = append(vertexOps, edgeOps...)
 }
 
 func (g *GraphGenerator) addVertex() {
@@ -4144,9 +4181,6 @@ func (g *GraphGenerator) addVertex() {
 }
 
 func (g *GraphGenerator) addEdge(src, dst storage.VertexSystemID) {
-	e := edge{src: src, dst: dst}
-	g.edges[e] = struct{}{}
-
 	edgeID := storage.EdgeSystemID(uuid.New())
 	newOp := op{
 		t: edgeType,
@@ -4178,33 +4212,32 @@ func (g *GraphGenerator) ensureTriangles(minTriangles int) {
 		b := g.vertexIDs[indices[1]]
 		c := g.vertexIDs[indices[2]]
 
-		edgesToCreate := []edge{
-			{src: a, dst: b},
-			{src: b, dst: a},
-
-			{src: b, dst: c},
-			{src: c, dst: b},
-
-			{src: c, dst: a},
-			{src: a, dst: c},
+		edgesToCreate := []undirectedEdge{
+			makeUndirectedEdge(a, b),
+			makeUndirectedEdge(a, c),
+			makeUndirectedEdge(b, c),
 		}
 
-		allEdgesExist := true
+		fullTriangleExists := true
 		for _, e := range edgesToCreate {
 			if _, exists := g.edges[e]; !exists {
-				allEdgesExist = false
-
+				fullTriangleExists = false
 				break
 			}
 		}
 
-		if allEdgesExist {
+		if fullTriangleExists {
 			continue
 		}
 
 		for _, e := range edgesToCreate {
 			if _, exists := g.edges[e]; !exists {
-				g.addEdge(e.src, e.dst)
+				g.edges[e] = struct{}{}
+				if rand.Intn(2) == 0 {
+					g.addEdge(e.a, e.b)
+				} else {
+					g.addEdge(e.b, e.a)
+				}
 			}
 		}
 
@@ -4215,33 +4248,31 @@ func (g *GraphGenerator) ensureTriangles(minTriangles int) {
 func (g *GraphGenerator) countTriangles() int {
 	count := 0
 	n := len(g.vertexIDs)
-
-	adjMatrix := make([][]bool, n)
-	for i := range adjMatrix {
-		adjMatrix[i] = make([]bool, n)
-	}
-
-	for e := range g.edges {
-		srcIdx := g.getVertexIndex(e.src)
-		dstIdx := g.getVertexIndex(e.dst)
-		if srcIdx >= 0 && dstIdx >= 0 {
-			adjMatrix[srcIdx][dstIdx] = true
-		}
+	if n < 3 {
+		return 0
 	}
 
 	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			if i != j && adjMatrix[i][j] {
-				for k := 0; k < n; k++ {
-					if k != i && k != j && adjMatrix[j][k] && adjMatrix[k][i] {
-						count++
-					}
+		for j := i + 1; j < n; j++ {
+			for k := j + 1; k < n; k++ {
+				a := g.vertexIDs[i]
+				b := g.vertexIDs[j]
+				c := g.vertexIDs[k]
+
+				if g.hasEdge(a, b) && g.hasEdge(a, c) && g.hasEdge(b, c) {
+					count++
 				}
 			}
 		}
 	}
 
-	return count / 3
+	return count
+}
+
+func (g *GraphGenerator) hasEdge(u, v storage.VertexSystemID) bool {
+	_, exists := g.edges[makeUndirectedEdge(u, v)]
+
+	return exists
 }
 
 func (g *GraphGenerator) getVertexIndex(systemID storage.VertexSystemID) int {
@@ -4250,24 +4281,7 @@ func (g *GraphGenerator) getVertexIndex(systemID storage.VertexSystemID) int {
 			return i
 		}
 	}
-
 	return -1
-}
-
-func (g *GraphGenerator) GetVertexID(systemID storage.VertexSystemID) int {
-	return g.getVertexIndex(systemID)
-}
-
-func (g *GraphGenerator) GetOperations() []op {
-	return g.operations
-}
-
-func (g *GraphGenerator) GetVertexIDs() []storage.VertexSystemID {
-	return g.vertexIDs
-}
-
-func (g *GraphGenerator) GetEdges() map[edge]struct{} {
-	return g.edges
 }
 
 func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
@@ -4286,86 +4300,176 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 	edgeTableName := "is-friend"
 	edgeFieldName := "years"
 
-	// Create the vertex table
-	err = Execute(
-		&ticker,
-		e,
-		logger,
-		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			schema := storage.Schema{{Name: vertFieldName, Type: storage.ColumnTypeInt64}}
-			return e.CreateVertexType(txnID, vertTableName, schema, logger)
+	tests := []struct {
+		threadsCount   int
+		opsCnt         int
+		minTriangleCnt int
+	}{
+		{
+			threadsCount:   10,
+			opsCnt:         400,
+			minTriangleCnt: 20,
 		},
-		false,
-	)
-	require.NoError(t, err)
-
-	// Create the edges table
-	err = Execute(
-		&ticker,
-		e,
-		logger,
-		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-			schema := storage.Schema{{Name: edgeFieldName, Type: storage.ColumnTypeInt64}}
-			return e.CreateEdgeType(txnID, edgeTableName, schema, vertTableName, vertTableName, logger)
+		{
+			threadsCount:   20,
+			opsCnt:         200,
+			minTriangleCnt: 30,
 		},
-		false,
-	)
-	require.NoError(t, err)
-
-	// generate operations
-
-	opGen := NewGraphGenerator(60, vertFieldName, edgeFieldName)
-
-	opGen.Generate(10, 2)
-
-	for _, o := range opGen.operations {
-		if o.t == vertexType {
-			slog.Info("vertex", "data", o.v)
-		} else {
-			slog.Info("edge", "data", o.e)
-		}
+		{
+			threadsCount:   15,
+			opsCnt:         300,
+			minTriangleCnt: 257,
+		},
 	}
 
-	g := make(map[int][]int)
-
-	for _, o := range opGen.operations {
-		if o.t == vertexType {
-			insertVertexWithRetry(t, &ticker, e, logger, vertTableName, o.v)
-
-			d := opGen.getVertexIndex(o.v.SystemID)
-
-			g[d] = make([]int, 0)
-		} else {
-			u, v := opGen.getVertexIndex(o.e.SrcVertexID), opGen.getVertexIndex(o.e.DstVertexID)
-
-			insertEdgeWithRetry(t, &ticker, e, logger, edgeTableName, o.e)
-
-			g[u] = append(g[u], v)
-		}
-
-		trCnt := uint64(len(graphCountTriangles(g)))
-
-		err = Execute(
-			&ticker,
-			e,
-			logger,
-			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-				triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+	for i, test := range tests {
+		t.Run(
+			fmt.Sprintf("test %d, threads=%d, ops=%d, minTrianglesCount=%d",
+				i, test.threadsCount, test.opsCnt, test.minTriangleCnt),
+			func(t *testing.T) {
+				// Create the vertex table
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						schema := storage.Schema{{Name: vertFieldName, Type: storage.ColumnTypeInt64}}
+						return e.CreateVertexType(txnID, vertTableName, schema, logger)
+					},
+					false,
+				)
 				require.NoError(t, err)
-				require.Equal(t, trCnt, triangles)
 
-				slog.Info("triangles database", "cnt", triangles)
+				// Create the edges table
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						schema := storage.Schema{{Name: edgeFieldName, Type: storage.ColumnTypeInt64}}
+						return e.CreateEdgeType(txnID, edgeTableName, schema, vertTableName, vertTableName, logger)
+					},
+					false,
+				)
+				require.NoError(t, err)
 
-				return nil
-			},
-			false,
-		)
+				// generate operations
 
-		require.NoError(t, err)
+				opGen := NewGraphGenerator(60, vertFieldName, edgeFieldName)
+				opGen.Generate(test.opsCnt, test.minTriangleCnt)
 
+				var (
+					checkInterval = 10
+
+					g      = make(map[int][]int)
+					opChan = make(chan op, test.threadsCount)
+
+					mu sync.RWMutex
+					wg sync.WaitGroup
+				)
+
+				wg.Add(test.threadsCount)
+
+				for range test.threadsCount {
+					go func() {
+						defer wg.Done()
+
+						for o := range opChan {
+							if o.t == vertexType {
+								insertVertexWithRetry(t, &ticker, e, logger, vertTableName, o.v)
+
+								d := opGen.getVertexIndex(o.v.SystemID)
+
+								mu.Lock()
+								g[d] = make([]int, 0)
+								mu.Unlock()
+							} else {
+								insertEdgeWithRetry(t, &ticker, e, logger, edgeTableName, o.e)
+
+								// insert reverse edge
+								insertEdgeWithRetry(t, &ticker, e, logger, edgeTableName, storage.EdgeInfo{
+									SystemID:    storage.EdgeSystemID(uuid.New()),
+									SrcVertexID: o.e.DstVertexID,
+									DstVertexID: o.e.SrcVertexID,
+									Data:        o.e.Data,
+								})
+
+								u, v := opGen.getVertexIndex(o.e.SrcVertexID), opGen.getVertexIndex(o.e.DstVertexID)
+
+								mu.Lock()
+								g[u] = append(g[u], v)
+								g[v] = append(g[v], u)
+								mu.Unlock()
+							}
+						}
+					}()
+				}
+
+				operationCounter := 0
+
+				for _, o := range opGen.operations {
+					opChan <- o
+					operationCounter++
+
+					if operationCounter%checkInterval == 0 {
+						time.Sleep(100 * time.Millisecond)
+
+						mu.RLock()
+						trCnt := uint64(len(graphCountTriangles(g)))
+						mu.RUnlock()
+
+						err = Execute(
+							&ticker,
+							e,
+							logger,
+							func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+								triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+								require.NoError(t, err)
+								require.Equal(t, trCnt, triangles)
+
+								return nil
+							},
+							false,
+						)
+						require.NoError(t, err)
+					}
+				}
+
+				close(opChan)
+				wg.Wait()
+
+				mu.RLock()
+				trCnt := uint64(len(graphCountTriangles(g)))
+				mu.RUnlock()
+
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+						require.NoError(t, err)
+						require.Equal(t, trCnt, triangles)
+						slog.Info("final check", "db", triangles, "inmemory", trCnt)
+						return nil
+					},
+					false,
+				)
+				require.NoError(t, err)
+
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						require.NoError(t, e.DropVertexTable(txnID, vertTableName, logger))
+						require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
+						return nil
+					},
+					false,
+				)
+				require.NoError(t, err)
+			})
 	}
 
-	for i, j := range g {
-		fmt.Println(i, j)
-	}
 }
