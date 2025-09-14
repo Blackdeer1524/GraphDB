@@ -4274,7 +4274,7 @@ func (g *GraphGenerator) getVertexIndex(systemID storage.VertexSystemID) int {
 
 func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_concurrent_inserts_same_table"
+	catalogBasePath := "/tmp/graphdb_concurrent_get_triangles_with_write"
 	poolPageCount := uint64(50)
 	debugMode := false
 
@@ -4429,6 +4429,8 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 				trCnt := uint64(len(graphCountTriangles(g)))
 				mu.RUnlock()
 
+				require.GreaterOrEqual(t, trCnt, uint64(test.minTriangleCnt))
+
 				err = Execute(
 					&ticker,
 					e,
@@ -4458,5 +4460,4 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 				require.NoError(t, err)
 			})
 	}
-
 }
