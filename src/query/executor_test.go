@@ -1,8 +1,10 @@
 package query
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"strings"
 	"sync"
@@ -4554,4 +4556,600 @@ func TestConcurrentCheckpoint(t *testing.T) {
 			true,
 		))
 	}()
+}
+
+func insertNotOrientedEdgeWithRetry(
+	t testing.TB,
+	ticker *atomic.Uint64,
+	e *Executor,
+	logger common.ITxnLogger,
+	tableName string,
+	edge storage.EdgeInfo,
+) {
+	inserted := false
+	for !inserted {
+		_ = Execute(
+			ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+				err = e.InsertEdge(txnID, tableName, edge, logger)
+				if err != nil {
+					if errors.Is(err, storage.ErrKeyNotFound) {
+						return ErrRollback
+					}
+
+					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+					return ErrRollback
+				}
+				err = e.InsertEdge(txnID, tableName, storage.EdgeInfo{
+					SystemID:    storage.EdgeSystemID(uuid.New()),
+					SrcVertexID: edge.DstVertexID,
+					DstVertexID: edge.SrcVertexID,
+					Data:        edge.Data,
+				}, logger)
+				if err != nil {
+					if errors.Is(err, storage.ErrKeyNotFound) {
+						return ErrRollback
+					}
+
+					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+					return ErrRollback
+				}
+				inserted = true
+				return nil
+			},
+			false,
+		)
+	}
+}
+
+func TestConcurrentGetTriangles(t *testing.T) {
+	tests := []struct {
+		vertexCount  int
+		connectivity float32
+	}{
+		{
+			vertexCount:  10,
+			connectivity: 0.3,
+		},
+		{
+			vertexCount:  10,
+			connectivity: 0.5,
+		},
+		{
+			vertexCount:  10,
+			connectivity: 1.0,
+		},
+	}
+
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_test"
+	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 20, true)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	verticesFieldName := "money"
+	edgeTableName := "indepted_to"
+	edgesFieldName := "debt_amount"
+
+	threads := 20
+
+	for _, test := range tests {
+		t.Run(
+			fmt.Sprintf("vertexCount=%d,connectivity=%f", test.vertexCount, test.connectivity),
+			func(t *testing.T) {
+				setupTables(
+					t,
+					e,
+					&ticker,
+					vertTableName,
+					verticesFieldName,
+					edgeTableName,
+					edgesFieldName,
+					logger,
+				)
+
+				graphInfo := generateRandomGraph(
+					t,
+					test.vertexCount,
+					test.connectivity,
+					rand.New(rand.NewSource(42)),
+					true,
+				)
+				expectedTriangles := graphCountTriangles(graphInfo.g)
+
+				intToVertSystemID, edgesSystemInfo := instantiateGraph(
+					t,
+					&ticker,
+					vertTableName,
+					edgeTableName,
+					e,
+					logger,
+					graphInfo.g,
+					edgesFieldName,
+					graphInfo.edgesInfo,
+					verticesFieldName,
+					graphInfo.verticesInfo,
+				)
+
+				assertDBGraph(
+					t,
+					&ticker,
+					e,
+					logger,
+					graphInfo,
+					vertTableName,
+					verticesFieldName,
+					edgeTableName,
+					edgesFieldName,
+					intToVertSystemID,
+					edgesSystemInfo,
+					1,
+					1,
+				)
+
+				var wg sync.WaitGroup
+
+				wg.Add(threads)
+
+				for range threads {
+					go func() {
+						defer wg.Done()
+
+						err = Execute(
+							&ticker,
+							e,
+							logger,
+							func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+								triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+								require.NoError(t, err)
+								if !assert.Equal(t, uint64(len(expectedTriangles)), triangles) {
+									t.Logf(
+										"Graph: \n%s\nExpected triangles %v",
+										graphInfo.GraphVizRepr(),
+										expectedTriangles,
+									)
+									t.FailNow()
+								}
+								return nil
+							},
+							false,
+						)
+						require.NoError(t, err)
+					}()
+				}
+
+				wg.Wait()
+
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						require.NoError(t, e.DropVertexTable(txnID, vertTableName, logger))
+						require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
+						return nil
+					},
+					false,
+				)
+				require.NoError(t, err)
+			},
+		)
+	}
+}
+
+const (
+	vertexType = 1
+	edgeType   = 2
+)
+
+type GraphGenerator struct {
+	operations    []op
+	vertexCount   int
+	edges         map[undirectedEdge]struct{}
+	vertexIDs     []storage.VertexSystemID
+	edgeProb      int
+	vertFieldName string
+	edgeFieldName string
+}
+
+type op struct {
+	t int
+	v storage.VertexInfo
+	e storage.EdgeInfo
+}
+
+type undirectedEdge struct {
+	a storage.VertexSystemID
+	b storage.VertexSystemID
+}
+
+func makeUndirectedEdge(u, v storage.VertexSystemID) undirectedEdge {
+	if bytes.Compare(u[:], v[:]) < 0 {
+		return undirectedEdge{a: u, b: v}
+	}
+
+	return undirectedEdge{a: v, b: u}
+}
+
+func NewGraphGenerator(edgeProb int, vertFieldName, edgeFieldName string) *GraphGenerator {
+	return &GraphGenerator{
+		edges:         make(map[undirectedEdge]struct{}),
+		edgeProb:      edgeProb,
+		vertFieldName: vertFieldName,
+		edgeFieldName: edgeFieldName,
+	}
+}
+
+func (g *GraphGenerator) Generate(operationsCount, minTriangles int) []op {
+	for i := 0; i < operationsCount; i++ {
+		generated := false
+		for !generated {
+			var tp int
+			if g.vertexCount < 2 {
+				tp = vertexType
+			} else {
+				r := rand.Intn(100)
+				if r < g.edgeProb && len(g.vertexIDs) >= 2 {
+					tp = edgeType
+				} else {
+					tp = vertexType
+				}
+			}
+
+			if tp == vertexType {
+				g.addVertex()
+				generated = true
+			} else {
+				if len(g.vertexIDs) < 2 {
+					continue
+				}
+
+				srcIdx := rand.Intn(len(g.vertexIDs))
+				dstIdx := rand.Intn(len(g.vertexIDs))
+				for srcIdx == dstIdx {
+					dstIdx = rand.Intn(len(g.vertexIDs))
+				}
+
+				srcID := g.vertexIDs[srcIdx]
+				dstID := g.vertexIDs[dstIdx]
+
+				ue := makeUndirectedEdge(srcID, dstID)
+				if _, exists := g.edges[ue]; exists {
+					continue
+				}
+
+				g.edges[ue] = struct{}{}
+
+				g.addEdge(srcID, dstID)
+				generated = true
+			}
+		}
+	}
+
+	g.ensureTriangles(minTriangles)
+
+	return g.operations
+}
+
+func (g *GraphGenerator) sortOperations() {
+	var vertexOps, edgeOps []op
+
+	for _, o := range g.operations {
+		if o.t == vertexType {
+			vertexOps = append(vertexOps, o)
+		} else {
+			edgeOps = append(edgeOps, o)
+		}
+	}
+
+	g.operations = append(vertexOps, edgeOps...)
+}
+
+func (g *GraphGenerator) addVertex() {
+	vertexID := storage.VertexSystemID(uuid.New())
+	g.vertexCount++
+
+	newOp := op{
+		t: vertexType,
+		v: storage.VertexInfo{
+			SystemID: vertexID,
+			Data: map[string]any{
+				g.vertFieldName: int64(g.vertexCount),
+			},
+		},
+	}
+
+	g.operations = append(g.operations, newOp)
+	g.vertexIDs = append(g.vertexIDs, vertexID)
+}
+
+func (g *GraphGenerator) addEdge(src, dst storage.VertexSystemID) {
+	edgeID := storage.EdgeSystemID(uuid.New())
+	newOp := op{
+		t: edgeType,
+		e: storage.EdgeInfo{
+			SystemID:    edgeID,
+			SrcVertexID: src,
+			DstVertexID: dst,
+			Data: map[string]any{
+				g.edgeFieldName: int64(rand.Intn(10) + 1),
+			},
+		},
+	}
+
+	g.operations = append(g.operations, newOp)
+}
+
+func (g *GraphGenerator) ensureTriangles(minTriangles int) {
+	triangles := g.countTriangles()
+
+	for triangles < minTriangles {
+		if len(g.vertexIDs) < 3 {
+			for len(g.vertexIDs) < 3 {
+				g.addVertex()
+			}
+		}
+
+		indices := rand.Perm(len(g.vertexIDs))[:3]
+		a := g.vertexIDs[indices[0]]
+		b := g.vertexIDs[indices[1]]
+		c := g.vertexIDs[indices[2]]
+
+		edgesToCreate := []undirectedEdge{
+			makeUndirectedEdge(a, b),
+			makeUndirectedEdge(a, c),
+			makeUndirectedEdge(b, c),
+		}
+
+		fullTriangleExists := true
+		for _, e := range edgesToCreate {
+			if _, exists := g.edges[e]; !exists {
+				fullTriangleExists = false
+				break
+			}
+		}
+
+		if fullTriangleExists {
+			continue
+		}
+
+		for _, e := range edgesToCreate {
+			if _, exists := g.edges[e]; !exists {
+				g.edges[e] = struct{}{}
+
+				if bytes.Compare(e.a[:], e.b[:]) < 0 {
+					g.addEdge(e.a, e.b)
+				} else {
+					g.addEdge(e.b, e.a)
+				}
+			}
+		}
+
+		triangles = g.countTriangles()
+	}
+}
+
+func (g *GraphGenerator) countTriangles() int {
+	count := 0
+	n := len(g.vertexIDs)
+	if n < 3 {
+		return 0
+	}
+
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			for k := j + 1; k < n; k++ {
+				a := g.vertexIDs[i]
+				b := g.vertexIDs[j]
+				c := g.vertexIDs[k]
+
+				if g.hasEdge(a, b) && g.hasEdge(a, c) && g.hasEdge(b, c) {
+					count++
+				}
+			}
+		}
+	}
+
+	return count
+}
+
+func (g *GraphGenerator) hasEdge(u, v storage.VertexSystemID) bool {
+	_, exists := g.edges[makeUndirectedEdge(u, v)]
+
+	return exists
+}
+
+func (g *GraphGenerator) getVertexIndex(systemID storage.VertexSystemID) int {
+	for i, id := range g.vertexIDs {
+		if id == systemID {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_concurrent_get_triangles_with_write"
+	poolPageCount := uint64(50)
+	debugMode := false
+
+	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+	vertTableName := "person"
+	vertFieldName := "id"
+	edgeTableName := "is-friend"
+	edgeFieldName := "years"
+
+	tests := []struct {
+		threadsCount   int
+		opsCnt         int
+		minTriangleCnt int
+	}{
+		{
+			threadsCount:   10,
+			opsCnt:         400,
+			minTriangleCnt: 20,
+		},
+		{
+			threadsCount:   20,
+			opsCnt:         200,
+			minTriangleCnt: 30,
+		},
+		{
+			threadsCount:   15,
+			opsCnt:         300,
+			minTriangleCnt: 257,
+		},
+	}
+
+	for i, test := range tests {
+		t.Run(
+			fmt.Sprintf("test %d, threads=%d, ops=%d, minTrianglesCount=%d",
+				i, test.threadsCount, test.opsCnt, test.minTriangleCnt),
+			func(t *testing.T) {
+				// Create the vertex table
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						schema := storage.Schema{{Name: vertFieldName, Type: storage.ColumnTypeInt64}}
+						return e.CreateVertexType(txnID, vertTableName, schema, logger)
+					},
+					false,
+				)
+				require.NoError(t, err)
+
+				// Create the edges table
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						schema := storage.Schema{{Name: edgeFieldName, Type: storage.ColumnTypeInt64}}
+						return e.CreateEdgeType(txnID, edgeTableName, schema, vertTableName, vertTableName, logger)
+					},
+					false,
+				)
+				require.NoError(t, err)
+
+				// generate operations
+				opGen := NewGraphGenerator(60, vertFieldName, edgeFieldName)
+				opGen.Generate(test.opsCnt, test.minTriangleCnt)
+
+				var (
+					checkInterval = 10
+
+					g      = make(map[int][]int)
+					opChan = make(chan op, test.threadsCount)
+
+					mu sync.RWMutex
+					wg sync.WaitGroup
+				)
+
+				wg.Add(test.threadsCount)
+
+				for range test.threadsCount {
+					go func() {
+						defer wg.Done()
+
+						for o := range opChan {
+							if o.t == vertexType {
+								insertVertexWithRetry(t, &ticker, e, logger, vertTableName, o.v)
+
+								d := opGen.getVertexIndex(o.v.SystemID)
+
+								mu.Lock()
+								g[d] = make([]int, 0)
+								mu.Unlock()
+							} else {
+								insertNotOrientedEdgeWithRetry(t, &ticker, e, logger, edgeTableName, o.e)
+
+								u, v := opGen.getVertexIndex(o.e.SrcVertexID), opGen.getVertexIndex(o.e.DstVertexID)
+
+								mu.Lock()
+								g[u] = append(g[u], v)
+								g[v] = append(g[v], u)
+								mu.Unlock()
+							}
+						}
+					}()
+				}
+
+				operationCounter := 0
+
+				for _, o := range opGen.operations {
+					opChan <- o
+					operationCounter++
+
+					if operationCounter%checkInterval == 0 {
+						time.Sleep(100 * time.Millisecond)
+
+						mu.RLock()
+						trCnt := uint64(len(graphCountTriangles(g)))
+						mu.RUnlock()
+
+						err = Execute(
+							&ticker,
+							e,
+							logger,
+							func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+								triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+								require.NoError(t, err)
+								require.Equal(t, trCnt, triangles)
+
+								return nil
+							},
+							false,
+						)
+						require.NoError(t, err)
+					}
+				}
+
+				close(opChan)
+				wg.Wait()
+
+				mu.RLock()
+				trCnt := uint64(len(graphCountTriangles(g)))
+				mu.RUnlock()
+
+				require.GreaterOrEqual(t, trCnt, uint64(test.minTriangleCnt))
+
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						triangles, err := e.GetAllTriangles(txnID, vertTableName, logger)
+						require.NoError(t, err)
+						require.Equal(t, trCnt, triangles)
+						slog.Info("final check", "db", triangles, "inmemory", trCnt)
+						return nil
+					},
+					false,
+				)
+				require.NoError(t, err)
+
+				err = Execute(
+					&ticker,
+					e,
+					logger,
+					func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
+						require.NoError(t, e.DropVertexTable(txnID, vertTableName, logger))
+						require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
+						return nil
+					},
+					false,
+				)
+				require.NoError(t, err)
+			})
+	}
 }
