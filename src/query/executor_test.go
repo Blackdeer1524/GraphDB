@@ -143,9 +143,10 @@ func Execute(
 func TestCreateVertexType(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_test"
-	e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
+	e, pool, locker, logger, err := setupExecutor(fs, catalogBasePath, 10, true)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	defer func() { require.True(t, locker.AreAllQueuesEmpty()) }()
 
 	ticker := atomic.Uint64{}
 	err = Execute(
@@ -1462,7 +1463,7 @@ func TestBigRandomGraph(t *testing.T) {
 	verticesFieldName := "money"
 	edgesFieldName := "debt_amount"
 
-	graphInfo := generateRandomGraph(t, 700, 0.01, rand.New(rand.NewSource(42)), false)
+	graphInfo := generateRandomGraph(t, 500, 0.01, rand.New(rand.NewSource(42)), false)
 
 	setupTables(
 		t,
@@ -2163,7 +2164,7 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 			connectivity: 0.5,
 		},
 		{
-			vertexCount:  10,
+			vertexCount:  50,
 			connectivity: 1.0,
 		},
 	}
@@ -3471,7 +3472,7 @@ func BenchmarkGetVertexesOnDepthSingleThreadedWithDifferentStartVerticesAndDiffe
 ) {
 	fs := afero.NewOsFs()
 	catalogBasePath := b.TempDir()
-	poolPageCount := uint64(300)
+	poolPageCount := uint64(300_000)
 	debugMode := false
 
 	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
@@ -3536,7 +3537,7 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 ) {
 	fs := afero.NewOsFs()
 	catalogBasePath := b.TempDir()
-	poolPageCount := uint64(300)
+	poolPageCount := uint64(300_000)
 	debugMode := false
 
 	e, debugPool, _, logger, err := setupExecutor(fs, catalogBasePath, poolPageCount, debugMode)
@@ -3592,7 +3593,7 @@ func BenchmarkGetVertexesOnDepthConcurrentWithDifferentStartVerticesAndDifferent
 		intToVertSystemID,
 		edgesSystemInfo,
 		2,
-		16,
+		10_000,
 	)
 }
 

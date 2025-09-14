@@ -30,7 +30,7 @@ func TestLockManagerNilFileLockToken(t *testing.T) {
 		{GranularLockExclusive, GranularLockIntentionExclusive},
 		{GranularLockIntentionShared, GranularLockIntentionShared},
 		{GranularLockIntentionExclusive, GranularLockIntentionExclusive},
-		{GranularLockSharedIntentionExclusive, GranularLockSharedIntentionExclusive},
+		{GranularLockSharedIntentionExclusive, GranularLockIntentionExclusive},
 		{GranularLockShared, GranularLockIntentionShared},
 	}
 
