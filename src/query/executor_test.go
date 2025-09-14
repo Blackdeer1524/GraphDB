@@ -4038,6 +4038,242 @@ func TestConcurrentGetTriangles(t *testing.T) {
 	}
 }
 
+const (
+	vertexType = iota
+	edgeType
+)
+
+type GraphGenerator struct {
+	operations    []op
+	vertexCount   int
+	edges         map[edge]struct{}
+	vertexIDs     []storage.VertexSystemID
+	edgeProb      int
+	vertFieldName string
+	edgeFieldName string
+}
+
+type op struct {
+	t int
+	v storage.VertexInfo
+	e storage.EdgeInfo
+}
+
+type edge struct {
+	src storage.VertexSystemID
+	dst storage.VertexSystemID
+}
+
+func NewGraphGenerator(edgeProb int, vertFieldName, edgeFieldName string) *GraphGenerator {
+	return &GraphGenerator{
+		edges:         make(map[edge]struct{}),
+		edgeProb:      edgeProb,
+		vertFieldName: vertFieldName,
+		edgeFieldName: edgeFieldName,
+	}
+}
+
+func (g *GraphGenerator) Generate(operationsCount, minTriangles int) []op {
+	// Основная генерация операций
+	for i := 0; i < operationsCount; i++ {
+		generated := false
+		for !generated {
+			var tp int
+			if g.vertexCount < 2 {
+				tp = vertexType
+			} else {
+				r := rand.Intn(100)
+				if r < g.edgeProb && len(g.vertexIDs) >= 2 {
+					tp = edgeType
+				} else {
+					tp = vertexType
+				}
+			}
+
+			if tp == vertexType {
+				g.addVertex()
+				generated = true
+			} else {
+				if len(g.vertexIDs) < 2 {
+					continue
+				}
+
+				srcIdx := rand.Intn(len(g.vertexIDs))
+				dstIdx := rand.Intn(len(g.vertexIDs))
+				for srcIdx == dstIdx {
+					dstIdx = rand.Intn(len(g.vertexIDs))
+				}
+
+				srcID := g.vertexIDs[srcIdx]
+				dstID := g.vertexIDs[dstIdx]
+
+				e := edge{src: srcID, dst: dstID}
+				if _, exists := g.edges[e]; exists {
+					continue
+				}
+
+				g.addEdge(srcID, dstID)
+				generated = true
+			}
+		}
+	}
+
+	// Добавляем недостающие треугольники
+	g.ensureTriangles(minTriangles)
+
+	return g.operations
+}
+
+func (g *GraphGenerator) addVertex() {
+	vertexID := storage.VertexSystemID(uuid.New())
+	g.vertexCount++
+
+	newOp := op{
+		t: vertexType,
+		v: storage.VertexInfo{
+			SystemID: vertexID,
+			Data: map[string]any{
+				g.vertFieldName: int64(g.vertexCount),
+			},
+		},
+	}
+
+	g.operations = append(g.operations, newOp)
+	g.vertexIDs = append(g.vertexIDs, vertexID)
+}
+
+func (g *GraphGenerator) addEdge(src, dst storage.VertexSystemID) {
+	e := edge{src: src, dst: dst}
+	g.edges[e] = struct{}{}
+
+	edgeID := storage.EdgeSystemID(uuid.New())
+	newOp := op{
+		t: edgeType,
+		e: storage.EdgeInfo{
+			SystemID:    edgeID,
+			SrcVertexID: src,
+			DstVertexID: dst,
+			Data: map[string]any{
+				g.edgeFieldName: int64(rand.Intn(10) + 1),
+			},
+		},
+	}
+
+	g.operations = append(g.operations, newOp)
+}
+
+func (g *GraphGenerator) ensureTriangles(minTriangles int) {
+	triangles := g.countTriangles()
+
+	for triangles < minTriangles {
+		// Нужно создать хотя бы один треугольник
+		if len(g.vertexIDs) < 3 {
+			// Добавляем недостающие вершины
+			for len(g.vertexIDs) < 3 {
+				g.addVertex()
+			}
+		}
+
+		// Выбираем три случайные вершины
+		indices := rand.Perm(len(g.vertexIDs))[:3]
+		a := g.vertexIDs[indices[0]]
+		b := g.vertexIDs[indices[1]]
+		c := g.vertexIDs[indices[2]]
+
+		// Создаем ребра для треугольника (A→B, B→C, C→A)
+		edgesToCreate := []edge{
+			{src: a, dst: b},
+			{src: b, dst: c},
+			{src: c, dst: a},
+		}
+
+		// Проверяем, какие ребра уже существуют
+		allEdgesExist := true
+		for _, e := range edgesToCreate {
+			if _, exists := g.edges[e]; !exists {
+				allEdgesExist = false
+				break
+			}
+		}
+
+		if allEdgesExist {
+			// Этот треугольник уже существует, пробуем другие вершины
+			continue
+		}
+
+		// Добавляем отсутствующие ребра
+		for _, e := range edgesToCreate {
+			if _, exists := g.edges[e]; !exists {
+				g.addEdge(e.src, e.dst)
+			}
+		}
+
+		triangles = g.countTriangles()
+	}
+}
+
+func (g *GraphGenerator) countTriangles() int {
+	count := 0
+	n := len(g.vertexIDs)
+
+	// Строим матрицу смежности для более эффективного поиска
+	adjMatrix := make([][]bool, n)
+	for i := range adjMatrix {
+		adjMatrix[i] = make([]bool, n)
+	}
+
+	// Заполняем матрицу смежности
+	for e := range g.edges {
+		srcIdx := g.getVertexIndex(e.src)
+		dstIdx := g.getVertexIndex(e.dst)
+		if srcIdx >= 0 && dstIdx >= 0 {
+			adjMatrix[srcIdx][dstIdx] = true
+		}
+	}
+
+	// Ищем треугольники
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if i != j && adjMatrix[i][j] {
+				for k := 0; k < n; k++ {
+					if k != i && k != j && adjMatrix[j][k] && adjMatrix[k][i] {
+						count++
+					}
+				}
+			}
+		}
+	}
+
+	// Каждый треугольник считается 3 раза (для каждой вершины в цикле)
+	return count / 3
+}
+
+func (g *GraphGenerator) getVertexIndex(systemID storage.VertexSystemID) int {
+	for i, id := range g.vertexIDs {
+		if id == systemID {
+			return i
+		}
+	}
+
+	return -1
+}
+
+func (g *GraphGenerator) GetVertexID(systemID storage.VertexSystemID) int {
+	return g.getVertexIndex(systemID)
+}
+
+func (g *GraphGenerator) GetOperations() []op {
+	return g.operations
+}
+
+func (g *GraphGenerator) GetVertexIDs() []storage.VertexSystemID {
+	return g.vertexIDs
+}
+
+func (g *GraphGenerator) GetEdges() map[edge]struct{} {
+	return g.edges
+}
+
 func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	catalogBasePath := "/tmp/graphdb_concurrent_inserts_same_table"
@@ -4082,121 +4318,11 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 
 	// generate operations
 
-	const (
-		vertexType = iota
-		edgeType
+	opGen := NewGraphGenerator(60, vertFieldName, edgeFieldName)
 
-		operationsCount = 10
-	)
+	opGen.Generate(10, 2)
 
-	type op struct {
-		t int
-		v storage.VertexInfo
-		e storage.EdgeInfo
-	}
-
-	type edge struct {
-		src storage.VertexSystemID
-		dst storage.VertexSystemID
-	}
-
-	vertexesCnt := 0
-	edges := make(map[edge]struct{})
-	vertexIDs := make([]storage.VertexSystemID, 0, operationsCount)
-
-	getVertexIdBySystemID := func(u storage.VertexSystemID) int {
-		for i, v := range vertexIDs {
-			if v == u {
-				return i
-			}
-		}
-
-		return -1
-	}
-
-	operations := make([]op, 0, operationsCount)
-
-	for i := 0; i < operationsCount; i++ {
-		var curOp op
-		generated := false
-
-		for !generated {
-			var tp int
-
-			if vertexesCnt < 2 {
-				tp = vertexType
-			} else {
-				r := rand.Intn(100)
-				if r < 60 && len(vertexIDs) >= 2 {
-					tp = edgeType
-				} else {
-					tp = vertexType
-				}
-			}
-
-			if tp == vertexType {
-				vertexesCnt++
-				vertexID := storage.VertexSystemID(uuid.New())
-
-				curOp = op{
-					t: vertexType,
-					v: storage.VertexInfo{
-						SystemID: vertexID,
-						Data: map[string]any{
-							vertFieldName: int64(vertexesCnt),
-						},
-					},
-				}
-				vertexIDs = append(vertexIDs, vertexID)
-				generated = true
-
-				break
-			}
-
-			// gen edge
-
-			if len(vertexIDs) < 2 {
-				continue
-			}
-
-			srcIdx := rand.Intn(len(vertexIDs))
-			dstIdx := rand.Intn(len(vertexIDs))
-
-			for srcIdx == dstIdx {
-				dstIdx = rand.Intn(len(vertexIDs))
-			}
-
-			srcID := vertexIDs[srcIdx]
-			dstID := vertexIDs[dstIdx]
-
-			e := edge{src: srcID, dst: dstID}
-			if _, exists := edges[e]; exists {
-				continue
-			}
-
-			edges[e] = struct{}{}
-
-			edgeID := storage.EdgeSystemID(uuid.New())
-
-			curOp = op{
-				t: edgeType,
-				e: storage.EdgeInfo{
-					SystemID:    edgeID,
-					SrcVertexID: srcID,
-					DstVertexID: dstID,
-					Data: map[string]any{
-						edgeFieldName: int64(rand.Intn(10) + 1),
-					},
-				},
-			}
-
-			generated = true
-		}
-
-		operations = append(operations, curOp)
-	}
-
-	for _, o := range operations {
+	for _, o := range opGen.operations {
 		if o.t == vertexType {
 			slog.Info("vertex", "data", o.v)
 		} else {
@@ -4206,15 +4332,15 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 
 	g := make(map[int][]int)
 
-	for _, o := range operations {
+	for _, o := range opGen.operations {
 		if o.t == vertexType {
 			insertVertexWithRetry(t, &ticker, e, logger, vertTableName, o.v)
 
-			d := getVertexIdBySystemID(o.v.SystemID)
+			d := opGen.getVertexIndex(o.v.SystemID)
 
 			g[d] = make([]int, 0)
 		} else {
-			u, v := getVertexIdBySystemID(o.e.SrcVertexID), getVertexIdBySystemID(o.e.DstVertexID)
+			u, v := opGen.getVertexIndex(o.e.SrcVertexID), opGen.getVertexIndex(o.e.DstVertexID)
 
 			insertEdgeWithRetry(t, &ticker, e, logger, edgeTableName, o.e)
 
