@@ -1993,18 +1993,6 @@ func TestGetAllTriangles(t *testing.T) {
 	}
 }
 
-func TestStupidTest(t *testing.T) {
-	g := map[int][]int{
-		0: {1, 2},
-		1: {0, 2, 3, 4},
-		2: {3, 1},
-		3: {2, 1},
-		4: {3, 1},
-	}
-
-	fmt.Println(graphCountTriangles(g))
-}
-
 func graphCountTriangles(g map[int][]int) [][]int {
 	// For an oriented graph, three vertices V1, V2, V3 form a triangle if there exist
 	// all 6 directed edges: V1->V2, V2->V1, V1->V3, V3->V1, V2->V3, V3->V2
@@ -4354,7 +4342,6 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 				require.NoError(t, err)
 
 				// generate operations
-
 				opGen := NewGraphGenerator(60, vertFieldName, edgeFieldName)
 				opGen.Generate(test.opsCnt, test.minTriangleCnt)
 
