@@ -291,7 +291,7 @@ func TestCreateVertexRollback(t *testing.T) {
 		},
 		false,
 	)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrRollback)
 
 	err = Execute(
 		&ticker,
@@ -368,7 +368,7 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 		},
 		false,
 	)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrRollback)
 
 	err = Execute(
 		&ticker,
@@ -643,7 +643,7 @@ func TestVertexAndEdgeTableDrop(t *testing.T) {
 		},
 		false,
 	)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrRollback)
 
 	err = Execute(
 		&ticker,
@@ -3608,34 +3608,6 @@ func insertVertexWithRetry(
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 				err = e.InsertVertex(txnID, tableName, vertex, logger)
-				if err != nil {
-					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
-					return ErrRollback
-				}
-				inserted = true
-				return nil
-			},
-			false,
-		)
-	}
-}
-
-func insertEdgeWithRetry(
-	t testing.TB,
-	ticker *atomic.Uint64,
-	e *Executor,
-	logger common.ITxnLogger,
-	tableName string,
-	edge storage.EdgeInfo,
-) {
-	inserted := false
-	for !inserted {
-		_ = Execute(
-			ticker,
-			e,
-			logger,
-			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
-				err = e.InsertEdge(txnID, tableName, edge, logger)
 				if err != nil {
 					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
 					return ErrRollback
