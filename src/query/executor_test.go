@@ -3668,6 +3668,10 @@ func insertNotOrientedEdgeWithRetry(
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 				err = e.InsertEdge(txnID, tableName, edge, logger)
 				if err != nil {
+					if errors.Is(err, storage.ErrKeyNotFound) {
+						return ErrRollback
+					}
+
 					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
 					return ErrRollback
 				}
@@ -3678,6 +3682,10 @@ func insertNotOrientedEdgeWithRetry(
 					Data:        edge.Data,
 				}, logger)
 				if err != nil {
+					if errors.Is(err, storage.ErrKeyNotFound) {
+						return ErrRollback
+					}
+
 					require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
 					return ErrRollback
 				}
@@ -4168,8 +4176,6 @@ func (g *GraphGenerator) Generate(operationsCount, minTriangles int) []op {
 	}
 
 	g.ensureTriangles(minTriangles)
-
-	g.sortOperations()
 
 	return g.operations
 }
