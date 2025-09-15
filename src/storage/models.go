@@ -281,13 +281,13 @@ func NewVertexSystemFields(
 }
 
 type EdgeInfo struct {
-	SystemID    EdgeSystemID
-	SrcVertexID VertexSystemID
-	DstVertexID VertexSystemID
-	Data        map[string]any
+	SystemID    EdgeSystemID   `json:"system_id"`
+	SrcVertexID VertexSystemID `json:"src_vertex_id"`
+	DstVertexID VertexSystemID `json:"dst_vertex_id"`
+	Data        map[string]any `json:"data"`
 }
 
 type VertexInfo struct {
-	SystemID VertexSystemID
-	Data     map[string]any
+	SystemID VertexSystemID `json:"system_id"`
+	Data     map[string]any `json:"data"`
 }

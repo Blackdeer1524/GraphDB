@@ -2,26 +2,43 @@ package raft
 
 import (
 	"fmt"
-	"net"
-
+	hraft "github.com/hashicorp/raft"
+	"github.com/spf13/afero"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"net"
 
 	"github.com/Jille/raft-grpc-leader-rpc/leaderhealth"
 	transport "github.com/Jille/raft-grpc-transport"
-	hraft "github.com/hashicorp/raft"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/Blackdeer1524/GraphDB/src"
+	"github.com/Blackdeer1524/GraphDB/src/bufferpool"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/query"
+	"github.com/Blackdeer1524/GraphDB/src/recovery"
+	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
+	"github.com/Blackdeer1524/GraphDB/src/storage/engine"
+	"github.com/Blackdeer1524/GraphDB/src/storage/index"
+	"github.com/Blackdeer1524/GraphDB/src/storage/page"
+	"github.com/Blackdeer1524/GraphDB/src/storage/systemcatalog"
+	"github.com/Blackdeer1524/GraphDB/src/txns"
 )
 
 type Node struct {
-	id   string
-	addr string
-	raft *hraft.Raft
-	grpc *grpc.Server
-
+	id     string
+	addr   string
+	raft   *hraft.Raft
+	grpc   *grpc.Server
 	logger src.Logger
+
+	executor    *query.Executor
+	txnLogger   *recovery.TxnLogger
+	debugPool   *bufferpool.DebugBufferPool
+	lockManager *txns.LockManager
+
+	ticker uint64
 }
 
 func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node, error) {
@@ -37,20 +54,70 @@ func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	})
 
+	fs := afero.NewOsFs()
+	basePath := fmt.Sprintf("/tmp/graphdb_%s", id)
+	if err := systemcatalog.InitSystemCatalog(basePath, fs); err != nil {
+		return nil, fmt.Errorf("init system catalog failed: %w", err)
+	}
+	if err := systemcatalog.CreateLogFileIfDoesntExist(basePath, fs); err != nil {
+		return nil, fmt.Errorf("init WAL log file failed: %w", err)
+	}
+
+	diskMgr := disk.New(
+		basePath,
+		func(fileID common.FileID, pageID common.PageID) page.SlottedPage {
+			return page.NewSlottedPage()
+		},
+		fs,
+	)
+
+	pool := bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskMgr)
+	debugPool := bufferpool.NewDebugBufferPool(pool)
+
+	sysCat, err := systemcatalog.New(basePath, fs, debugPool)
+	if err != nil {
+		return nil, fmt.Errorf("system catalog init failed: %w", err)
+	}
+
+	debugPool.MarkPageAsLeaking(systemcatalog.CatalogVersionPageIdent())
+	debugPool.MarkPageAsLeaking(recovery.GetMasterPageIdent(systemcatalog.LogFileID))
+
+	txnLogger := recovery.NewTxnLogger(pool, systemcatalog.LogFileID)
+
+	locker := txns.NewLockManager()
+
+	indexLoader := func(idxMeta storage.IndexMeta, pool bufferpool.BufferPool, locker *txns.LockManager,
+		logger common.ITxnLoggerWithContext) (storage.Index, error) {
+		return index.NewLinearProbingIndex(idxMeta, pool, locker, logger, false, 42)
+	}
+
+	se := engine.New(
+		sysCat,
+		debugPool,
+		diskMgr.GetLastFilePage,
+		diskMgr.GetEmptyPage,
+		locker,
+		fs,
+		indexLoader,
+		false,
+	)
+
+	exec := query.New(se, locker)
+
+	fsmInstance := &fsm{
+		nodeID:    id,
+		log:       logger,
+		executor:  exec,
+		txnLogger: txnLogger,
+	}
+
 	logStore := hraft.NewInmemStore()
 	stableStore := hraft.NewInmemStore()
 	snapStore := hraft.NewInmemSnapshotStore()
-
-	fsmInit := &fsm{
-		nodeID: id,
-		log:    logger,
-	}
-
-	r, err := hraft.NewRaft(cfg, fsmInit, logStore, stableStore, snapStore, tr.Transport())
+	r, err := hraft.NewRaft(cfg, fsmInstance, logStore, stableStore, snapStore, tr.Transport())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create raft node: %w", err)
 	}
-
 	if len(peers) > 0 {
 		r.BootstrapCluster(hraft.Configuration{Servers: peers})
 	}
@@ -59,29 +126,23 @@ func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node,
 	tr.Register(s)
 	leaderhealth.Setup(r, s, []string{"graphdb"})
 
-	n := &Node{
-		id:     id,
-		addr:   addr,
-		raft:   r,
-		grpc:   s,
-		logger: logger,
+	node := &Node{
+		id:          id,
+		addr:        addr,
+		raft:        r,
+		grpc:        s,
+		logger:      logger,
+		executor:    exec,
+		txnLogger:   txnLogger,
+		debugPool:   debugPool,
+		lockManager: locker,
 	}
 
 	go func() {
-		err := s.Serve(lis)
-		if err != nil {
-			n.logger.Errorw("raft node failed to serve", zap.Error(err))
+		if serveErr := s.Serve(lis); serveErr != nil {
+			logger.Errorw("Raft transport gRPC server stopped", zap.Error(serveErr))
 		}
 	}()
 
-	return n, nil
-}
-
-func (n *Node) Close() {
-	if err := n.raft.Shutdown().Error(); err != nil {
-		n.logger.Errorw("raft node failed to close raft", zap.Error(err))
-	}
-	n.grpc.GracefulStop()
-	n.logger.Infow("raft node gracefully stopped",
-		zap.String("node_id", n.id), zap.String("address", n.addr))
+	return node, nil
 }
