@@ -76,7 +76,7 @@ func TestUndoInsertOnNonExistingPage(t *testing.T) {
 func TestValidRecovery(t *testing.T) {
 	logPageId := common.PageIdentity{
 		FileID: 42,
-		PageID: 321,
+		PageID: 1,
 	}
 
 	diskManager := disk.NewInMemoryManager()
@@ -91,12 +91,6 @@ func TestValidRecovery(t *testing.T) {
 		Lsn:      common.NilLSN,
 		Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
 	}
-	setupLoggerMasterPage(
-		t,
-		debugPool,
-		masterRecordPageIdent.FileID,
-		loggerStart,
-	)
 	logger := NewTxnLogger(debugPool, logPageId.FileID)
 
 	defer func() {
@@ -108,8 +102,18 @@ func TestValidRecovery(t *testing.T) {
 		assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked())
 	}()
 
+	ctxLogger := logger.WithContext(common.TxnID(100))
+	// Simulate a transaction: Begin -> Insert -> Update -> Commit -> TxnEnd
+	require.NoError(t, ctxLogger.AppendBegin())
+
 	dataPageID := common.PageIdentity{FileID: 42, PageID: 123}
-	slotNumOpt, err := insertValueNoLogs(t, debugPool, dataPageID, []byte("bef000"))
+	slotNumOpt, err := insertValue(
+		t,
+		debugPool,
+		dataPageID,
+		[]byte("bef000"),
+		ctxLogger,
+	)
 	require.True(t, slotNumOpt.IsSome())
 	slotNum := slotNumOpt.Unwrap()
 	require.NoError(t, err)
@@ -118,21 +122,20 @@ func TestValidRecovery(t *testing.T) {
 	before := []byte("before")
 	after := []byte("after!")
 
+	_, err = ctxLogger.AppendUpdate(common.RecordID{
+		FileID:  dataPageID.FileID,
+		PageID:  dataPageID.PageID,
+		SlotNum: uint16(slotNum),
+	}, before, after)
+	require.NoError(t, err)
+
+	err = ctxLogger.AppendCommit()
+	require.NoError(t, err)
+
+	err = ctxLogger.AppendTxnEnd()
+	require.NoError(t, err)
+
 	chain := NewTxnLogChain(logger, txnID)
-	// Simulate a transaction: Begin -> Insert -> Update -> Commit -> TxnEnd
-	chain.Begin().
-		Insert(common.RecordID{
-			FileID:  dataPageID.FileID,
-			PageID:  dataPageID.PageID,
-			SlotNum: uint16(slotNum),
-		}, before).
-		Update(common.RecordID{
-			FileID:  dataPageID.FileID,
-			PageID:  dataPageID.PageID,
-			SlotNum: uint16(slotNum),
-		}, before, after).
-		Commit().
-		TxnEnd()
 
 	err = chain.Err()
 	if err != nil {
@@ -193,25 +196,17 @@ func TestFailedTxn(t *testing.T) {
 
 	pageIdent := common.PageIdentity{FileID: 13, PageID: 7}
 
-	TransactionID := common.TxnID(100)
+	txnID := common.TxnID(100)
 	before := []byte("before")
 
-	slotNumOpt, err := insertValueNoLogs(t, debugPool, pageIdent, before)
+	ctxLogger := logger.WithContext(txnID)
+	require.NoError(t, ctxLogger.AppendBegin())
+
+	slotNumOpt, err := insertValue(t, debugPool, pageIdent, before, ctxLogger)
 	require.NoError(t, err, "couldn't insert a record")
 	require.True(t, slotNumOpt.IsSome())
-	slotNum := slotNumOpt.Unwrap()
 
 	// Simulate a transaction: **Begin -> Insert -> CRASH**
-	chain := NewTxnLogChain(logger, TransactionID).
-		Begin().
-		Insert(common.RecordID{
-			FileID:  pageIdent.FileID,
-			PageID:  pageIdent.PageID,
-			SlotNum: slotNum,
-		}, before)
-	require.Nil(t, chain.Err(), "log record append failed")
-
-	// Simulate a crash and recovery
 	logger.Recover()
 
 	// BEGIN
@@ -220,7 +215,7 @@ func TestFailedTxn(t *testing.T) {
 	{
 		tag, untypedRecord, err := iter.ReadRecord()
 		require.NoError(t, err)
-		assertLogRecord(t, tag, untypedRecord, TypeBegin, TransactionID)
+		assertLogRecord(t, tag, untypedRecord, TypeBegin, txnID)
 	}
 
 	// INSERT
@@ -230,7 +225,7 @@ func TestFailedTxn(t *testing.T) {
 	{
 		tag, untypedRecord, err := iter.ReadRecord()
 		require.NoError(t, err)
-		assertLogRecord(t, tag, untypedRecord, TypeInsert, TransactionID)
+		assertLogRecord(t, tag, untypedRecord, TypeInsert, txnID)
 	}
 
 	// CLR
@@ -240,7 +235,7 @@ func TestFailedTxn(t *testing.T) {
 	{
 		tag, untypedRecord, err := iter.ReadRecord()
 		require.NoError(t, err)
-		assertLogRecord(t, tag, untypedRecord, TypeCompensation, TransactionID)
+		assertLogRecord(t, tag, untypedRecord, TypeCompensation, txnID)
 	}
 
 	// TxnEnd
@@ -250,7 +245,7 @@ func TestFailedTxn(t *testing.T) {
 	{
 		tag, untypedRecord, err := iter.ReadRecord()
 		require.NoError(t, err)
-		assertLogRecord(t, tag, untypedRecord, TypeTxnEnd, TransactionID)
+		assertLogRecord(t, tag, untypedRecord, TypeTxnEnd, txnID)
 	}
 
 	// NOTHING
@@ -259,22 +254,33 @@ func TestFailedTxn(t *testing.T) {
 	require.False(t, ok)
 }
 
-func insertValueNoLogs(
+func insertValue(
 	t *testing.T,
 	pool bufferpool.BufferPool,
 	pageId common.PageIdentity,
 	data []byte,
+	logger common.ITxnLoggerWithContext,
 ) (optional.Optional[uint16], error) {
 	p, err := pool.GetPage(pageId)
 	require.NoError(t, err)
 	defer pool.Unpin(pageId)
 
-	p.Lock()
-	defer p.Unlock()
-
-	slotOpt := p.UnsafeInsertNoLogs(data)
-	if slotOpt.IsNone() {
-		return optional.None[uint16](), nil
+	slotOpt := optional.None[uint16]()
+	err = pool.WithMarkDirty(
+		logger.GetTxnID(),
+		pageId,
+		p,
+		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
+			slot, loc, err := lockedPage.InsertWithLogs(data, pageId, logger)
+			if err != nil {
+				return common.NewNilLogRecordLocation(), err
+			}
+			slotOpt = optional.Some(slot)
+			return loc, nil
+		},
+	)
+	if err != nil {
+		require.ErrorIs(t, err, page.ErrNoSpaceLeft)
 	}
 
 	return slotOpt, nil
@@ -283,7 +289,7 @@ func insertValueNoLogs(
 func TestMassiveRecovery(t *testing.T) {
 	logPageId := common.PageIdentity{
 		FileID: 42,
-		PageID: 321,
+		PageID: 1,
 	}
 
 	masterRecordPageIdent := common.PageIdentity{
@@ -292,21 +298,12 @@ func TestMassiveRecovery(t *testing.T) {
 	}
 
 	diskManager := disk.NewInMemoryManager()
-	pool := bufferpool.New(1000, bufferpool.NewLRUReplacer(), diskManager)
+	pool := bufferpool.New(20, bufferpool.NewLRUReplacer(), diskManager)
 	debugPool := bufferpool.NewDebugBufferPool(pool)
 	debugPool.MarkPageAsLeaking(masterRecordPageIdent)
 
 	defer func() { assert.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	setupLoggerMasterPage(
-		t,
-		debugPool,
-		masterRecordPageIdent.FileID,
-		common.LogRecordLocInfo{
-			Lsn:      common.NilLSN,
-			Location: common.FileLocation{PageID: logPageId.PageID, SlotNum: 0},
-		},
-	)
 	logger := NewTxnLogger(debugPool, logPageId.FileID)
 
 	INIT := []byte("init")
@@ -323,13 +320,23 @@ func TestMassiveRecovery(t *testing.T) {
 	N := 3000
 	i := 0
 
+	txnIDTicker := atomic.Uint64{}
 	index2pageID := map[int]common.FileLocation{}
+
+	initLogger := logger.WithContext(common.TxnID(txnIDTicker.Add(1)))
+	require.NoError(t, initLogger.AppendBegin())
 
 	for i < N {
 		succ := func() bool {
 			var err error
 
-			slot, err = insertValueNoLogs(t, debugPool, dataPageId, INIT)
+			slot, err = insertValue(
+				t,
+				debugPool,
+				dataPageId,
+				INIT,
+				initLogger,
+			)
 			if slot.IsNone() {
 				dataPageId.PageID++
 				return false
@@ -347,6 +354,8 @@ func TestMassiveRecovery(t *testing.T) {
 			i++
 		}
 	}
+	require.NoError(t, initLogger.AppendCommit())
+	require.NoError(t, initLogger.AppendTxnEnd())
 
 	left := N - N/10
 	inc := N * 6 / 10
@@ -359,7 +368,7 @@ func TestMassiveRecovery(t *testing.T) {
 		"step must divide inc. otherwise, it would cause an infinite loop",
 	)
 
-	TransactionIDCounter := atomic.Uint64{}
+	r := rand.New(rand.NewSource(42))
 	wg := sync.WaitGroup{}
 	for i := left; i != right; i = (i + STEP) % N {
 		wg.Add(1)
@@ -367,8 +376,8 @@ func TestMassiveRecovery(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			TransactionID := common.TxnID(TransactionIDCounter.Add(1))
-			chain := NewTxnLogChain(logger, TransactionID)
+			txnID := common.TxnID(txnIDTicker.Add(1))
+			chain := NewTxnLogChain(logger, txnID)
 
 			chain.Begin()
 
@@ -381,7 +390,7 @@ func TestMassiveRecovery(t *testing.T) {
 					PageID: recordLoc.PageID,
 				}
 
-				switch rand.Int() % 2 {
+				switch r.Int() % 2 {
 				case 0:
 					chain.
 						Update(common.RecordID{
