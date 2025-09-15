@@ -5042,7 +5042,7 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 				opGen.Generate(test.opsCnt, test.minTriangleCnt)
 
 				var (
-					checkInterval = test.opsCnt * 2
+					checkInterval = test.opsCnt / 4
 
 					g      = make(map[int][]int)
 					opChan = make(chan op, test.threadsCount)
