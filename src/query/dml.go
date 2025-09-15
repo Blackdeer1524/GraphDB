@@ -103,7 +103,39 @@ func (e *Executor) DeleteVertex() error {
 	return nil
 }
 
-func (e *Executor) UpdateVertex() error {
+func (e *Executor) UpdateVertex(
+	txnID common.TxnID,
+	tableName string,
+	vertexID storage.VertexSystemID,
+	data map[string]any,
+	logger common.ITxnLoggerWithContext,
+) error {
+	cToken := txns.NewNilCatalogLockToken(txnID)
+	tableMeta, err := e.se.GetVertexTableMeta(tableName, cToken)
+	if err != nil {
+		return fmt.Errorf("failed to get vertex table meta: %w", err)
+	}
+
+	tableIndex, err := e.se.GetVertexTableSystemIndex(txnID, tableMeta.FileID, cToken, logger)
+	if err != nil {
+		return fmt.Errorf("failed to get vertex table internal index: %w", err)
+	}
+	defer tableIndex.Close()
+
+	fileToken := txns.NewNilFileLockToken(cToken, tableMeta.FileID)
+	err = e.se.UpdateVertex(
+		txnID,
+		vertexID,
+		data,
+		tableMeta.Schema,
+		fileToken,
+		tableIndex,
+		logger,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update vertex: %w", err)
+	}
+
 	return nil
 }
 
