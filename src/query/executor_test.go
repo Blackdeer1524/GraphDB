@@ -4684,7 +4684,7 @@ func TestConcurrentGetTriangles(t *testing.T) {
 					go func() {
 						defer wg.Done()
 
-						err = Execute(
+						err := Execute(
 							&ticker,
 							e,
 							logger,
@@ -4701,7 +4701,7 @@ func TestConcurrentGetTriangles(t *testing.T) {
 								}
 								return nil
 							},
-							false,
+							true,
 						)
 						require.NoError(t, err)
 					}()

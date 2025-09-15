@@ -26,12 +26,11 @@ func TestBankTransactions(t *testing.T) {
 		t.Skip("Skipping slow test in short mode")
 	}
 
-	r := rand.New(rand.NewSource(42))
 	generatedFileIDs := utils.GenerateUniqueInts[common.FileID](
 		2,
 		0,
 		1024,
-		r,
+		rand.New(rand.NewSource(42)),
 	)
 
 	masterRecordPageIdent := common.PageIdentity{
@@ -148,6 +147,7 @@ func TestBankTransactions(t *testing.T) {
 	task := func(txnID common.TxnID) bool {
 		logger := logger.WithContext(txnID)
 
+		r := rand.New(rand.NewSource(int64(txnID)))
 		res := utils.GenerateUniqueInts[int](2, 0, len(IDs)-1, r)
 		me := IDs[res[0]]
 		first := IDs[res[1]]
@@ -328,7 +328,7 @@ func TestBankTransactions(t *testing.T) {
 		txnsCount,
 		1,
 		txnsCount+1,
-		r,
+		rand.New(rand.NewSource(33)),
 	)
 	t.Logf("generated txn IDs")
 	retryingTask := func() {

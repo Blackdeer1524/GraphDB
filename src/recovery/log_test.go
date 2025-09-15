@@ -368,12 +368,12 @@ func TestMassiveRecovery(t *testing.T) {
 		"step must divide inc. otherwise, it would cause an infinite loop",
 	)
 
-	r := rand.New(rand.NewSource(42))
 	wg := sync.WaitGroup{}
 	for i := left; i != right; i = (i + STEP) % N {
 		wg.Add(1)
 
 		go func(i int) {
+			r := rand.New(rand.NewSource(int64(i)))
 			defer wg.Done()
 
 			txnID := common.TxnID(txnIDTicker.Add(1))
