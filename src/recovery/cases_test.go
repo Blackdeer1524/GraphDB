@@ -26,11 +26,12 @@ func TestBankTransactions(t *testing.T) {
 		t.Skip("Skipping slow test in short mode")
 	}
 
+	r := rand.New(rand.NewSource(42))
 	generatedFileIDs := utils.GenerateUniqueInts[common.FileID](
 		2,
 		0,
 		1024,
-		rand.New(rand.NewSource(42)),
+		r,
 	)
 
 	masterRecordPageIdent := common.PageIdentity{
