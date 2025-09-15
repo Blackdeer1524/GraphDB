@@ -19,8 +19,7 @@ paths:
       operationId: raftInsertVertex
       summary: Вставить одну вершину
       description: >
-        Создаёт вершину в указанной таблице.
-        Запрос приходит на текущего лидера
+        Создаёт вершину в указанной таблице
       requestBody:
         required: true
         content:
@@ -77,8 +76,7 @@ paths:
       operationId: raftInsertVertices
       summary: Вставить пакет вершин
       description: >
-        Пакетная вставка нескольких вершин в одну таблицу.
-        Обрабатывается как одна команда в журнале Raft или как серия атомарных команд
+        Пакетная вставка нескольких вершин в одну таблицу
       requestBody:
         required: true
         content:
@@ -253,7 +251,6 @@ paths:
 
 components:
   schemas:
-    # ==== Requests ====
     InsertVertexRequest:
       type: object
       required: [table, record]

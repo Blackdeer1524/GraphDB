@@ -3,6 +3,7 @@ package raft
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"sync/atomic"
 	"time"
 
@@ -11,8 +12,13 @@ import (
 )
 
 // InsertVertex inserts a single vertex into the graph
-func (n *Node) InsertVertex(tableName string, record storage.VertexInfo) (storage.VertexSystemID, error) {
+func (n *Node) InsertVertex(tableName string, props map[string]any) (storage.VertexSystemID, error) {
 	txnID := common.TxnID(atomic.AddUint64(&n.ticker, 1))
+
+	record := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data:     props,
+	}
 
 	recordBytes, err := json.Marshal(record)
 	if err != nil {
@@ -39,8 +45,16 @@ func (n *Node) InsertVertex(tableName string, record storage.VertexInfo) (storag
 }
 
 // InsertVertices inserts multiple vertices in bulk
-func (n *Node) InsertVertices(tableName string, records []storage.VertexInfo) ([]storage.VertexSystemID, error) {
+func (n *Node) InsertVertices(tableName string, props []map[string]any) ([]storage.VertexSystemID, error) {
 	txnID := common.TxnID(atomic.AddUint64(&n.ticker, 1))
+
+	records := make([]storage.VertexInfo, 0, len(props))
+	for _, prop := range props {
+		records = append(records, storage.VertexInfo{
+			SystemID: storage.VertexSystemID(uuid.New()),
+			Data:     prop,
+		})
+	}
 
 	recordsBytes, err := json.Marshal(records)
 	if err != nil {
@@ -66,9 +80,22 @@ func (n *Node) InsertVertices(tableName string, records []storage.VertexInfo) ([
 	return vIDs, nil
 }
 
+type InsertEdgeDTO struct {
+	SrcVertexID storage.VertexSystemID
+	DstVertexID storage.VertexSystemID
+	Data        map[string]any
+}
+
 // InsertEdge inserts a single edge into the graph
-func (n *Node) InsertEdge(edgeTableName string, record storage.EdgeInfo) (storage.EdgeSystemID, error) {
+func (n *Node) InsertEdge(edgeTableName string, dto InsertEdgeDTO) (storage.EdgeSystemID, error) {
 	txnID := common.TxnID(atomic.AddUint64(&n.ticker, 1))
+
+	record := storage.EdgeInfo{
+		SystemID:    storage.EdgeSystemID(uuid.New()),
+		SrcVertexID: dto.SrcVertexID,
+		DstVertexID: dto.DstVertexID,
+		Data:        dto.Data,
+	}
 
 	recordBytes, err := json.Marshal(record)
 	if err != nil {
@@ -95,8 +122,18 @@ func (n *Node) InsertEdge(edgeTableName string, record storage.EdgeInfo) (storag
 }
 
 // InsertEdges inserts multiple edges into the graph
-func (n *Node) InsertEdges(edgeTableName string, records []storage.EdgeInfo) ([]storage.EdgeSystemID, error) {
+func (n *Node) InsertEdges(edgeTableName string, dto []InsertEdgeDTO) ([]storage.EdgeSystemID, error) {
 	txnID := common.TxnID(atomic.AddUint64(&n.ticker, 1))
+
+	records := make([]storage.EdgeInfo, 0, len(dto))
+	for _, el := range dto {
+		records = append(records, storage.EdgeInfo{
+			SystemID:    storage.EdgeSystemID(uuid.New()),
+			SrcVertexID: el.SrcVertexID,
+			DstVertexID: el.DstVertexID,
+			Data:        el.Data,
+		})
+	}
 
 	recordsBytes, err := json.Marshal(records)
 	if err != nil {

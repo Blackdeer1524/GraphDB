@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/Blackdeer1524/GraphDB/src"
+	api "github.com/Blackdeer1524/GraphDB/src/generated"
+	"github.com/Blackdeer1524/GraphDB/src/raft"
 )
 
 type Server struct {
@@ -26,8 +28,19 @@ func NewServer(host string, port int, log src.Logger) *Server {
 	}
 }
 
-func (s *Server) Run() error {
+func (s *Server) Run(node *raft.Node) error {
+	h := &APIHandler{
+		Node:   node,
+		Logger: s.log,
+	}
+
+	srv, err := api.NewServer(h)
+	if err != nil {
+		return err
+	}
+
 	mux := http.DefaultServeMux
+	mux.Handle("/", srv)
 
 	s.http = &http.Server{
 		Addr: fmt.Sprintf(
