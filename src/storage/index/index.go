@@ -505,7 +505,11 @@ func (i *LinearProbingIndex) grow() error {
 		return err
 	}
 	if i.debugAssertsEnabled {
-		masterPageToken := i.locker.LockPage(i.indexFileToken, masterPageID, txns.SimpleLockExclusive)
+		masterPageToken := i.locker.LockPage(
+			i.indexFileToken,
+			masterPageID,
+			txns.SimpleLockExclusive,
+		)
 		assert.Assert(masterPageToken != nil)
 	}
 
