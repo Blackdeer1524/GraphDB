@@ -98,14 +98,10 @@ func (g txnDependencyGraph[LockModeType, ID]) Dump() string {
 		"red":     {},
 		"blue":    {},
 		"green":   {},
-		"yellow":  {},
 		"purple":  {},
 		"orange":  {},
 		"brown":   {},
-		"pink":    {},
-		"cyan":    {},
 		"magenta": {},
-		"lime":    {},
 		"teal":    {},
 	}
 

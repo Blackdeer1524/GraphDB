@@ -835,15 +835,7 @@ func TestLoggerRollback(t *testing.T) {
 			logger := logger.WithContext(txnID)
 			require.NoError(t, logger.AppendBegin())
 
-			cToken := locker.LockCatalog(
-				txnID,
-				txns.GranularLockIntentionExclusive,
-			)
-			if cToken == nil {
-				assert.NoError(t, logger.AppendAbort())
-				logger.Rollback()
-				return
-			}
+			cToken := txns.NewNilCatalogLockToken(txnID)
 			defer locker.Unlock(txnID)
 
 			for j := range len(batch) * 3 / 2 {
