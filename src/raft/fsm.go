@@ -64,7 +64,7 @@ func (f *fsm) Apply(l *hraft.Log) any {
 			return fmt.Errorf("InsertVertex failed: %w", err)
 		}
 		f.log.Infow("vertex inserted", nodeID)
-		return nil
+		return record.SystemID
 
 	case InsertVertices:
 		f.log.Infow("processing insert vertices action", nodeID)
@@ -81,7 +81,11 @@ func (f *fsm) Apply(l *hraft.Log) any {
 			return fmt.Errorf("InsertVertices failed: %w", err)
 		}
 		f.log.Infow("vertices inserted", nodeID)
-		return nil
+		ids := make([]storage.VertexSystemID, 0, len(records))
+		for _, record := range records {
+			ids = append(ids, record.SystemID)
+		}
+		return ids
 
 	case InsertEdge:
 		f.log.Infow("processing insert edge action", nodeID)
@@ -98,7 +102,7 @@ func (f *fsm) Apply(l *hraft.Log) any {
 			return fmt.Errorf("InsertEdge failed: %w", err)
 		}
 		f.log.Infow("edge inserted", nodeID)
-		return nil
+		return edgeInfo.SystemID
 
 	case InsertEdges:
 		f.log.Infow("processing insert edges action", nodeID)
@@ -115,7 +119,11 @@ func (f *fsm) Apply(l *hraft.Log) any {
 			return fmt.Errorf("InsertEdges failed: %w", err)
 		}
 		f.log.Infow("edges inserted", nodeID)
-		return nil
+		ids := make([]storage.EdgeSystemID, 0, len(edges))
+		for _, edge := range edges {
+			ids = append(ids, edge.SystemID)
+		}
+		return ids
 
 	default:
 		return fmt.Errorf("unhandled action: %s", actionStr)

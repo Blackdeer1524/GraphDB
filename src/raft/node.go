@@ -197,7 +197,7 @@ func addMoneyNodeType(
 		func(txnID common.TxnID, e *query.Executor, logger common.ITxnLoggerWithContext) (err error) {
 			tableName := "main"
 			schema := storage.Schema{
-				{Name: "money", Type: storage.ColumnTypeInt64},
+				{Name: "money", Type: storage.ColumnTypeFloat64},
 			}
 			err = e.CreateVertexType(txnID, tableName, schema, logger)
 			return nil
