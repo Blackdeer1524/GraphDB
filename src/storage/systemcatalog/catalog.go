@@ -166,6 +166,11 @@ func initializeVersionFile(fs afero.Fs, versionFile string) (err error) {
 
 	data := p.GetData()
 
+	dir := filepath.Dir(versionFile)
+	if err := fs.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+
 	file, err := fs.OpenFile(
 		filepath.Clean(versionFile),
 		os.O_WRONLY|os.O_CREATE,

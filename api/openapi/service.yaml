@@ -1,0 +1,371 @@
+openapi: 3.0.3
+info:
+  title: GraphDB API
+  version: "1.0.0"
+  description: >
+    Ручки для вставки вершин и рёбер через лидера кластера
+
+servers:
+  - url: /
+
+tags:
+  - name: raft
+    description: Операции записи (leader-only)
+
+paths:
+  /raft/vertices:
+    post:
+      tags: [raft]
+      operationId: raftInsertVertex
+      summary: Вставить одну вершину
+      description: >
+        Создаёт вершину в указанной таблице
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertVertexRequest"
+            examples:
+              simple:
+                value:
+                  table: "person"
+                  record:
+                    name: "Alice"
+                    age: 31
+                    city: "Berlin"
+      responses:
+        "200":
+          description: Вершина создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VertexIDResponse"
+              examples:
+                ok:
+                  value:
+                    id: "7f3a1a0e-5b1a-4e3c-8b4a-4f2c6c9a1a1a"
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Конфликт данных
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Внутренняя ошибка
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /raft/vertices/batch:
+    post:
+      tags: [raft]
+      operationId: raftInsertVertices
+      summary: Вставить пакет вершин
+      description: >
+        Пакетная вставка нескольких вершин в одну таблицу
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertVerticesRequest"
+            examples:
+              batch:
+                value:
+                  table: "person"
+                  records:
+                    - { name: "Bob", age: 28 }
+                    - { name: "Carol", age: 35, city: "Munich" }
+      responses:
+        "200":
+          description: Вершины созданы
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VertexIDsResponse"
+              examples:
+                ok:
+                  value:
+                    ids:
+                      - "6fbb1d9b-8e2e-4d2e-9f5d-1f9f1e2d3c4b"
+                      - "2c3d4e5f-6a7b-8c9d-0e1f-223344556677"
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Конфликт данных
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Внутренняя ошибка
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /raft/edges:
+    post:
+      tags: [raft]
+      operationId: raftInsertEdge
+      summary: Вставить одно ребро
+      description: >
+        Создаёт ребро в указанной таблице.
+        from/to — идентификаторы вершин (UUID)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertEdgeRequest"
+            examples:
+              simple:
+                value:
+                  table: "knows"
+                  edge:
+                    from: "7f3a1a0e-5b1a-4e3c-8b4a-4f2c6c9a1a1a"
+                    to:   "6fbb1d9b-8e2e-4d2e-9f5d-1f9f1e2d3c4b"
+                    properties:
+                      since: 2020
+      responses:
+        "200":
+          description: Ребро создано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EdgeIDResponse"
+              examples:
+                ok:
+                  value:
+                    id: "0a1b2c3d-4e5f-6789-abcd-ffeeddccbbaa"
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Конфликт (дубликаты / нарушение ограничений)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Внутренняя ошибка
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /raft/edges/batch:
+    post:
+      tags: [raft]
+      operationId: raftInsertEdges
+      summary: Вставить пакет рёбер (через Raft)
+      description: >
+        Пакетная вставка рёбер в одну таблицу
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertEdgesRequest"
+            examples:
+              batch:
+                value:
+                  table: "knows"
+                  edges:
+                    - from: "7f3a1a0e-5b1a-4e3c-8b4a-4f2c6c9a1a1a"
+                      to:   "2c3d4e5f-6a7b-8c9d-0e1f-223344556677"
+                      properties: { since: 2018 }
+                    - from: "6fbb1d9b-8e2e-4d2e-9f5d-1f9f1e2d3c4b"
+                      to:   "7f3a1a0e-5b1a-4e3c-8b4a-4f2c6c9a1a1a"
+                      properties: { weight: 0.42 }
+      responses:
+        "200":
+          description: Рёбра созданы
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EdgeIDsResponse"
+              examples:
+                ok:
+                  value:
+                    ids:
+                      - "11111111-2222-3333-4444-555555555555"
+                      - "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Конфликт данных
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Внутренняя ошибка
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+    InsertVertexRequest:
+      type: object
+      required: [table, record]
+      properties:
+        table:
+          type: string
+          description: Имя таблицы (типа вершины)
+          example: person
+        record:
+          $ref: "#/components/schemas/VertexInfo"
+    InsertVerticesRequest:
+      type: object
+      required: [table, records]
+      properties:
+        table:
+          type: string
+          description: Имя таблицы (типов вершин)
+          example: person
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/VertexInfo"
+    InsertEdgeRequest:
+      type: object
+      required: [table, edge]
+      properties:
+        table:
+          type: string
+          description: Имя таблицы ребра (типа ребра)
+          example: knows
+        edge:
+          $ref: "#/components/schemas/EdgeInfo"
+    InsertEdgesRequest:
+      type: object
+      required: [table, edges]
+      properties:
+        table:
+          type: string
+          description: Имя таблицы рёбер (типа рёбер)
+          example: knows
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/EdgeInfo"
+
+    VertexInfo:
+      type: object
+      properties:
+        label:
+          type: string
+          description: Необязательная метка типа вершины
+        properties:
+          type: object
+          additionalProperties: true
+
+    EdgeInfo:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          $ref: "#/components/schemas/UUID"
+        to:
+          $ref: "#/components/schemas/UUID"
+        properties:
+          type: object
+          additionalProperties: true
+          description: Необязательные свойства ребра
+
+    UUID:
+      type: string
+      format: uuid
+      example: "7f3a1a0e-5b1a-4e3c-8b4a-4f2c6c9a1a1a"
+
+    VertexIDResponse:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+      required: [id]
+
+    VertexIDsResponse:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/UUID"
+      required: [ids]
+
+    EdgeIDResponse:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+      required: [id]
+
+    EdgeIDsResponse:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            $ref: "#/components/schemas/UUID"
+      required: [ids]
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          example: INTERNAL_SERVER_ERROR
+        message:
+          type: string
+          example: internal server error
+        details:
+          type: object
+          additionalProperties: true
+      required: [code, message]

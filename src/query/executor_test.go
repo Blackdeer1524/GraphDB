@@ -110,7 +110,7 @@ func Execute(
 	isReadOnly bool, // не будет писать логов -> немного получше скорость
 ) (err error) {
 	txnID := common.TxnID(ticker.Add(1))
-	defer executor.locker.Unlock(txnID)
+	defer executor.Locker.Unlock(txnID)
 
 	ctxLogger := logger.WithContext(txnID)
 	if !isReadOnly {

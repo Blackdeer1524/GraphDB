@@ -31,3 +31,6 @@ bin/
 # Go workspace files
 go.work
 go.work.sum
+
+# Config files
+*.env
