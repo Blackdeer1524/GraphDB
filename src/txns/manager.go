@@ -21,24 +21,24 @@ type txnDependencyGraph[LockModeType DatabaseLock[LockModeType], ID comparable] 
 type edgeInfo[LockModeType DatabaseLock[LockModeType], ID comparable] struct {
 	txnDst   common.TxnID
 	status   entryStatus
-	isPage   bool
+	isObject bool
 	lockMode LockModeType
-	pageDst  ID
+	objDst   ID
 }
 
 func newEdgeInfo[LockModeType DatabaseLock[LockModeType], ID comparable](
 	txnDst common.TxnID,
 	status entryStatus,
-	isPage bool,
+	isObject bool,
 	lockMode LockModeType,
-	pageDst ID,
+	objDst ID,
 ) edgeInfo[LockModeType, ID] {
 	return edgeInfo[LockModeType, ID]{
 		txnDst:   txnDst,
 		status:   status,
-		isPage:   isPage,
+		isObject: isObject,
 		lockMode: lockMode,
-		pageDst:  pageDst,
+		objDst:   objDst,
 	}
 }
 
@@ -60,7 +60,7 @@ func (g txnDependencyGraph[LockModeType, ID]) IsCyclic() bool {
 		recStack[txnID] = struct{}{}
 
 		for _, edge := range g[txnID] {
-			if !edge.isPage && dfs(edge.txnDst) {
+			if !edge.isObject && dfs(edge.txnDst) {
 				return true
 			}
 		}
@@ -91,8 +91,8 @@ func (g txnDependencyGraph[LockModeType, ID]) Dump() string {
 	objectNodes := make(map[ID]struct{})
 	for _, deps := range g {
 		for _, edge := range deps {
-			if edge.isPage {
-				objectNodes[edge.pageDst] = struct{}{}
+			if edge.isObject {
+				objectNodes[edge.objDst] = struct{}{}
 			}
 		}
 	}
@@ -145,13 +145,13 @@ func (g txnDependencyGraph[LockModeType, ID]) Dump() string {
 				lock2color[lockModeStr] = edgeColor
 			}
 
-			if !edge.isPage {
+			if !edge.isObject {
 				result.WriteString(
 					fmt.Sprintf(
 						"\t\"txn_%d\" -> \"txn_%d\" [label=\"Object %+v [%s:%s]\", color=\"%s\"];\n",
 						txnID,
 						edge.txnDst,
-						edge.pageDst,
+						edge.objDst,
 						lockModeStr,
 						edge.status,
 						edgeColor,
@@ -162,7 +162,7 @@ func (g txnDependencyGraph[LockModeType, ID]) Dump() string {
 					fmt.Sprintf(
 						"\t\"txn_%d\" -> \"object_%+v\" [label=\"[%s:%s]\", color=\"%s\"];\n",
 						txnID,
-						edge.pageDst,
+						edge.objDst,
 						lockModeStr,
 						edge.status,
 						edgeColor,
