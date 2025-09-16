@@ -3,73 +3,97 @@ package delivery
 import (
 	"context"
 	"github.com/Blackdeer1524/GraphDB/src"
-	"github.com/Blackdeer1524/GraphDB/src/raft"
-	"github.com/Blackdeer1524/GraphDB/src/storage"
+	"github.com/Blackdeer1524/GraphDB/src/generated/api"
+	"github.com/Blackdeer1524/GraphDB/src/generated/proto"
 	"go.uber.org/zap"
-
-	api "github.com/Blackdeer1524/GraphDB/src/generated"
 )
 
 type APIHandler struct {
-	Node   Node
+	Client proto.RaftServiceClient
 	Logger src.Logger
 }
 
 func (h *APIHandler) RaftInsertVertex(ctx context.Context, req *api.InsertVertexRequest) (api.RaftInsertVertexRes, error) {
-	id, err := h.Node.InsertVertex(req.Table, toProps(req.Record))
+	body := &proto.InsertVertexRequest{
+		TableName: req.Table,
+		Vertex:    h.toVertex(req.Record),
+	}
+
+	resp, err := h.Client.InsertVertex(ctx, body)
 	if err != nil {
 		return &api.RaftInsertVertexServiceUnavailable{
 			Code:    "NOT_LEADER",
 			Message: err.Error(),
 		}, nil
 	}
+
 	return &api.VertexIDResponse{
-		ID: api.UUID(id),
+		ID: api.UUID([]byte(resp.GetVertexId())),
 	}, nil
 }
 
 func (h *APIHandler) RaftInsertVertices(ctx context.Context, req *api.InsertVerticesRequest) (api.RaftInsertVerticesRes, error) {
-	ids, err := h.Node.InsertVertices(req.Table, toPropsSlice(req.Records))
+	body := &proto.InsertVerticesRequest{
+		TableName: req.Table,
+		Vertices:  h.toVertexSlice(req.Records),
+	}
+
+	resp, err := h.Client.InsertVertices(ctx, body)
 	if err != nil {
 		return &api.RaftInsertVerticesServiceUnavailable{
 			Code:    "NOT_LEADER",
 			Message: err.Error(),
 		}, nil
 	}
-	out := make([]api.UUID, len(ids))
-	for i, id := range ids {
-		out[i] = api.UUID(id)
+
+	out := make([]api.UUID, 0, len(resp.GetVertexIds()))
+	for _, id := range resp.GetVertexIds() {
+		out = append(out, api.UUID([]byte(id)))
 	}
+
 	return &api.VertexIDsResponse{
 		Ids: out,
 	}, nil
 }
 
 func (h *APIHandler) RaftInsertEdge(ctx context.Context, req *api.InsertEdgeRequest) (api.RaftInsertEdgeRes, error) {
-	edgeID, err := h.Node.InsertEdge(req.Table, toEdgeInfo(req.Edge))
+	body := &proto.InsertEdgeRequest{
+		TableName: req.Table,
+		Edge:      h.toEdgeInfo(req.Edge),
+	}
+
+	resp, err := h.Client.InsertEdge(ctx, body)
 	if err != nil {
 		return &api.RaftInsertEdgeServiceUnavailable{
 			Code:    "NOT_LEADER",
 			Message: err.Error(),
 		}, nil
 	}
+
 	return &api.EdgeIDResponse{
-		ID: api.UUID(edgeID),
+		ID: api.UUID([]byte(resp.GetEdgeId())),
 	}, nil
 }
 
 func (h *APIHandler) RaftInsertEdges(ctx context.Context, req *api.InsertEdgesRequest) (api.RaftInsertEdgesRes, error) {
-	edgeIDs, err := h.Node.InsertEdges(req.Table, toEdgeInfoSlice(req.Edges))
+	body := &proto.InsertEdgesRequest{
+		TableName: req.Table,
+		Edges:     h.toEdgeInfoSlice(req.Edges),
+	}
+
+	resp, err := h.Client.InsertEdges(ctx, body)
 	if err != nil {
 		return &api.RaftInsertEdgesServiceUnavailable{
 			Code:    "NOT_LEADER",
 			Message: err.Error(),
 		}, nil
 	}
-	out := make([]api.UUID, len(edgeIDs))
-	for i, id := range edgeIDs {
-		out[i] = api.UUID(id)
+
+	out := make([]api.UUID, 0, len(resp.GetEdgeIds()))
+	for _, id := range resp.GetEdgeIds() {
+		out = append(out, api.UUID([]byte(id)))
 	}
+
 	return &api.EdgeIDsResponse{
 		Ids: out,
 	}, nil
@@ -87,49 +111,4 @@ func (h *APIHandler) NewError(ctx context.Context, err error) *api.ErrorStatusCo
 			},
 		},
 	}
-}
-
-func toProps(in api.VertexDocument) map[string]any {
-	m := make(map[string]any)
-	for k, v := range in.AdditionalProps {
-		m[k] = v
-	}
-	if in.Label.Set {
-		m["label"] = in.Label.Value
-	}
-	if props := in.Properties; props.Set {
-		m["properties"] = props
-	}
-	return m
-}
-
-func toPropsSlice(in []api.VertexDocument) []map[string]any {
-	out := make([]map[string]any, len(in))
-	for i := range in {
-		out[i] = toProps(in[i])
-	}
-	return out
-}
-
-func toEdgeInfo(e api.EdgeInfo) (out raft.InsertEdgeDTO) {
-	m := make(map[string]any)
-	if e.Properties.Set {
-		for k, v := range e.Properties.Value {
-			m[k] = v
-		}
-	}
-
-	return raft.InsertEdgeDTO{
-		SrcVertexID: storage.VertexSystemID(e.From),
-		DstVertexID: storage.VertexSystemID(e.To),
-		Data:        m,
-	}
-}
-
-func toEdgeInfoSlice(in []api.EdgeInfo) (out []raft.InsertEdgeDTO) {
-	out = make([]raft.InsertEdgeDTO, len(in))
-	for i := range in {
-		out[i] = toEdgeInfo(in[i])
-	}
-	return out
 }

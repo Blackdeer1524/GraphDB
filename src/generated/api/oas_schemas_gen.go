@@ -228,8 +228,8 @@ func (s *InsertEdgesRequest) SetEdges(val []EdgeInfo) {
 // Ref: #/components/schemas/InsertVertexRequest
 type InsertVertexRequest struct {
 	// Имя таблицы (типа вершины).
-	Table  string         `json:"table"`
-	Record VertexDocument `json:"record"`
+	Table  string     `json:"table"`
+	Record VertexInfo `json:"record"`
 }
 
 // GetTable returns the value of Table.
@@ -238,7 +238,7 @@ func (s *InsertVertexRequest) GetTable() string {
 }
 
 // GetRecord returns the value of Record.
-func (s *InsertVertexRequest) GetRecord() VertexDocument {
+func (s *InsertVertexRequest) GetRecord() VertexInfo {
 	return s.Record
 }
 
@@ -248,15 +248,15 @@ func (s *InsertVertexRequest) SetTable(val string) {
 }
 
 // SetRecord sets the value of Record.
-func (s *InsertVertexRequest) SetRecord(val VertexDocument) {
+func (s *InsertVertexRequest) SetRecord(val VertexInfo) {
 	s.Record = val
 }
 
 // Ref: #/components/schemas/InsertVerticesRequest
 type InsertVerticesRequest struct {
 	// Имя таблицы (типов вершин).
-	Table   string           `json:"table"`
-	Records []VertexDocument `json:"records"`
+	Table   string       `json:"table"`
+	Records []VertexInfo `json:"records"`
 }
 
 // GetTable returns the value of Table.
@@ -265,7 +265,7 @@ func (s *InsertVerticesRequest) GetTable() string {
 }
 
 // GetRecords returns the value of Records.
-func (s *InsertVerticesRequest) GetRecords() []VertexDocument {
+func (s *InsertVerticesRequest) GetRecords() []VertexInfo {
 	return s.Records
 }
 
@@ -275,7 +275,7 @@ func (s *InsertVerticesRequest) SetTable(val string) {
 }
 
 // SetRecords sets the value of Records.
-func (s *InsertVerticesRequest) SetRecords(val []VertexDocument) {
+func (s *InsertVerticesRequest) SetRecords(val []VertexInfo) {
 	s.Records = val
 }
 
@@ -417,38 +417,38 @@ func (o OptString) Or(d string) string {
 	return d
 }
 
-// NewOptVertexDocumentProperties returns new OptVertexDocumentProperties with value set to v.
-func NewOptVertexDocumentProperties(v VertexDocumentProperties) OptVertexDocumentProperties {
-	return OptVertexDocumentProperties{
+// NewOptVertexInfoProperties returns new OptVertexInfoProperties with value set to v.
+func NewOptVertexInfoProperties(v VertexInfoProperties) OptVertexInfoProperties {
+	return OptVertexInfoProperties{
 		Value: v,
 		Set:   true,
 	}
 }
 
-// OptVertexDocumentProperties is optional VertexDocumentProperties.
-type OptVertexDocumentProperties struct {
-	Value VertexDocumentProperties
+// OptVertexInfoProperties is optional VertexInfoProperties.
+type OptVertexInfoProperties struct {
+	Value VertexInfoProperties
 	Set   bool
 }
 
-// IsSet returns true if OptVertexDocumentProperties was set.
-func (o OptVertexDocumentProperties) IsSet() bool { return o.Set }
+// IsSet returns true if OptVertexInfoProperties was set.
+func (o OptVertexInfoProperties) IsSet() bool { return o.Set }
 
 // Reset unsets value.
-func (o *OptVertexDocumentProperties) Reset() {
-	var v VertexDocumentProperties
+func (o *OptVertexInfoProperties) Reset() {
+	var v VertexInfoProperties
 	o.Value = v
 	o.Set = false
 }
 
 // SetTo sets value to v.
-func (o *OptVertexDocumentProperties) SetTo(v VertexDocumentProperties) {
+func (o *OptVertexInfoProperties) SetTo(v VertexInfoProperties) {
 	o.Set = true
 	o.Value = v
 }
 
 // Get returns value and boolean that denotes whether value was set.
-func (o OptVertexDocumentProperties) Get() (v VertexDocumentProperties, ok bool) {
+func (o OptVertexInfoProperties) Get() (v VertexInfoProperties, ok bool) {
 	if !o.Set {
 		return v, false
 	}
@@ -456,7 +456,7 @@ func (o OptVertexDocumentProperties) Get() (v VertexDocumentProperties, ok bool)
 }
 
 // Or returns value if set, or given parameter if does not.
-func (o OptVertexDocumentProperties) Or(d VertexDocumentProperties) VertexDocumentProperties {
+func (o OptVertexInfoProperties) Or(d VertexInfoProperties) VertexInfoProperties {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -513,66 +513,6 @@ func (*RaftInsertVerticesServiceUnavailable) raftInsertVerticesRes() {}
 
 type UUID uuid.UUID
 
-// Ref: #/components/schemas/VertexDocument
-type VertexDocument struct {
-	// Необязательная метка типа вершины.
-	Label           OptString                   `json:"label"`
-	Properties      OptVertexDocumentProperties `json:"properties"`
-	AdditionalProps VertexDocumentAdditional
-}
-
-// GetLabel returns the value of Label.
-func (s *VertexDocument) GetLabel() OptString {
-	return s.Label
-}
-
-// GetProperties returns the value of Properties.
-func (s *VertexDocument) GetProperties() OptVertexDocumentProperties {
-	return s.Properties
-}
-
-// GetAdditionalProps returns the value of AdditionalProps.
-func (s *VertexDocument) GetAdditionalProps() VertexDocumentAdditional {
-	return s.AdditionalProps
-}
-
-// SetLabel sets the value of Label.
-func (s *VertexDocument) SetLabel(val OptString) {
-	s.Label = val
-}
-
-// SetProperties sets the value of Properties.
-func (s *VertexDocument) SetProperties(val OptVertexDocumentProperties) {
-	s.Properties = val
-}
-
-// SetAdditionalProps sets the value of AdditionalProps.
-func (s *VertexDocument) SetAdditionalProps(val VertexDocumentAdditional) {
-	s.AdditionalProps = val
-}
-
-type VertexDocumentAdditional map[string]jx.Raw
-
-func (s *VertexDocumentAdditional) init() VertexDocumentAdditional {
-	m := *s
-	if m == nil {
-		m = map[string]jx.Raw{}
-		*s = m
-	}
-	return m
-}
-
-type VertexDocumentProperties map[string]jx.Raw
-
-func (s *VertexDocumentProperties) init() VertexDocumentProperties {
-	m := *s
-	if m == nil {
-		m = map[string]jx.Raw{}
-		*s = m
-	}
-	return m
-}
-
 // Ref: #/components/schemas/VertexIDResponse
 type VertexIDResponse struct {
 	ID UUID `json:"id"`
@@ -606,3 +546,41 @@ func (s *VertexIDsResponse) SetIds(val []UUID) {
 }
 
 func (*VertexIDsResponse) raftInsertVerticesRes() {}
+
+// Ref: #/components/schemas/VertexInfo
+type VertexInfo struct {
+	// Необязательная метка типа вершины.
+	Label      OptString               `json:"label"`
+	Properties OptVertexInfoProperties `json:"properties"`
+}
+
+// GetLabel returns the value of Label.
+func (s *VertexInfo) GetLabel() OptString {
+	return s.Label
+}
+
+// GetProperties returns the value of Properties.
+func (s *VertexInfo) GetProperties() OptVertexInfoProperties {
+	return s.Properties
+}
+
+// SetLabel sets the value of Label.
+func (s *VertexInfo) SetLabel(val OptString) {
+	s.Label = val
+}
+
+// SetProperties sets the value of Properties.
+func (s *VertexInfo) SetProperties(val OptVertexInfoProperties) {
+	s.Properties = val
+}
+
+type VertexInfoProperties map[string]jx.Raw
+
+func (s *VertexInfoProperties) init() VertexInfoProperties {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
+}

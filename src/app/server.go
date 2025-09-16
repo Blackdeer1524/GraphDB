@@ -38,7 +38,7 @@ func (e *ServerEntrypoint) Init(_ context.Context) error {
 
 	e.Log = log
 
-	e.server = delivery.NewServer(e.Env.ServerHost, e.Env.ServerPort, log)
+	e.server = delivery.NewServer(e.Env.ServerHost, e.Env.ServerPort, e.Env.NodesAddr, log)
 
 	return nil
 }

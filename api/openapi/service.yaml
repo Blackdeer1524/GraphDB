@@ -260,7 +260,7 @@ components:
           description: Имя таблицы (типа вершины)
           example: person
         record:
-          $ref: "#/components/schemas/VertexDocument"
+          $ref: "#/components/schemas/VertexInfo"
     InsertVerticesRequest:
       type: object
       required: [table, records]
@@ -272,7 +272,7 @@ components:
         records:
           type: array
           items:
-            $ref: "#/components/schemas/VertexDocument"
+            $ref: "#/components/schemas/VertexInfo"
     InsertEdgeRequest:
       type: object
       required: [table, edge]
@@ -296,7 +296,7 @@ components:
           items:
             $ref: "#/components/schemas/EdgeInfo"
 
-    VertexDocument:
+    VertexInfo:
       type: object
       properties:
         label:
@@ -305,7 +305,6 @@ components:
         properties:
           type: object
           additionalProperties: true
-      additionalProperties: true
 
     EdgeInfo:
       type: object
@@ -319,7 +318,6 @@ components:
           type: object
           additionalProperties: true
           description: Необязательные свойства ребра
-      additionalProperties: false
 
     UUID:
       type: string

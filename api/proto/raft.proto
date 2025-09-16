@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+option go_package = "github.com/Blackdeer1524/GraphDB/src/generated/proto";
+
+import "google/protobuf/any.proto";
+
+service RaftService {
+  rpc InsertVertex(InsertVertexRequest) returns (InsertVertexResponse) {}
+  rpc InsertVertices(InsertVerticesRequest) returns (InsertVerticesResponse) {}
+  rpc InsertEdge(InsertEdgeRequest) returns (InsertEdgeResponse) {}
+  rpc InsertEdges(InsertEdgesRequest) returns (InsertEdgesResponse) {}
+}
+
+message Properties {
+  map<string, google.protobuf.Any> data = 1;
+}
+
+message VertexInfo {
+  optional string label = 1;
+  optional Properties properties = 2;
+}
+
+message InsertVertexRequest {
+  string table_name = 1;
+  VertexInfo vertex = 2;
+}
+
+message InsertVertexResponse {
+  string vertex_id = 1;
+}
+
+message InsertVerticesRequest {
+  string table_name = 1;
+  repeated VertexInfo vertices = 2;
+}
+
+message InsertVerticesResponse {
+  repeated string vertex_ids = 1;
+}
+
+message EdgeInfo {
+  string source_vertex_id = 1;
+  string target_vertex_id = 2;
+  optional Properties properties = 3;
+}
+
+message InsertEdgeRequest {
+  string table_name = 1;
+  EdgeInfo edge = 2;
+}
+
+message InsertEdgeResponse {
+  string edge_id = 1;
+}
+
+message InsertEdgesRequest {
+  string table_name = 1;
+  repeated EdgeInfo edges = 2;
+}
+
+message InsertEdgesResponse {
+  repeated string edge_ids = 1;
+}

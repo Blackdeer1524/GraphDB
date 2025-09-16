@@ -28,6 +28,10 @@ const (
 	DirItemSystemIDSize = uint64(unsafe.Sizeof(DirItemSystemID{}))
 )
 
+func (v VertexSystemID) String() string {
+	return uuid.UUID(v).String()
+}
+
 func (v VertexSystemID) IsNil() bool {
 	return v == NilVertexID
 }
@@ -40,8 +44,12 @@ func (v *VertexSystemID) UnmarshalBinary(data []byte) error {
 	return (*uuid.UUID)(v).UnmarshalBinary(data)
 }
 
-func (e EdgeSystemID) IsNil() bool {
-	return e == NilEdgeID
+func (v EdgeSystemID) String() string {
+	return uuid.UUID(v).String()
+}
+
+func (v EdgeSystemID) IsNil() bool {
+	return v == NilEdgeID
 }
 
 func (v EdgeSystemID) MarshalBinary() ([]byte, error) {
@@ -52,8 +60,8 @@ func (v *EdgeSystemID) UnmarshalBinary(data []byte) error {
 	return (*uuid.UUID)(v).UnmarshalBinary(data)
 }
 
-func (d DirItemSystemID) IsNil() bool {
-	return d == NilDirItemID
+func (v DirItemSystemID) IsNil() bool {
+	return v == NilDirItemID
 }
 
 func (v DirItemSystemID) MarshalBinary() ([]byte, error) {

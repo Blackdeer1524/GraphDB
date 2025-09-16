@@ -2,6 +2,7 @@ package raft
 
 import (
 	"fmt"
+	"github.com/Blackdeer1524/GraphDB/src/generated/proto"
 	hraft "github.com/hashicorp/raft"
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
@@ -123,6 +124,8 @@ func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node,
 	}
 
 	s := grpc.NewServer()
+
+	proto.RegisterRaftServiceServer(s, New(r))
 	tr.Register(s)
 	leaderhealth.Setup(r, s, []string{"graphdb"})
 
@@ -145,4 +148,12 @@ func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node,
 	}()
 
 	return node, nil
+}
+
+func (n *Node) Close() {
+	if err := n.raft.Shutdown().Error(); err != nil {
+		n.logger.Errorw("raft node failed to close raft", zap.Error(err))
+	}
+	n.grpc.GracefulStop()
+	n.logger.Infow("raft node gracefully stopped", zap.String("address", n.addr))
 }

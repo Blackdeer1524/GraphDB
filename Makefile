@@ -15,7 +15,7 @@ PROTOC_GEN_GO_GRPC    := $(GOBIN)/protoc-gen-go-grpc
 PKG := `go list -mod=mod -f {{.Dir}} ./...`
 
 all: gen build
-init: mod-tidy install-gci install-lint mockery
+init: mod-tidy install-gci install-lint
 
 run: build
 	@echo "Starting app..."
@@ -26,7 +26,12 @@ mockery:
 	@mockery
 
 .PHONY: build
-build: init
+build: init mockery
+	@mkdir -p bin
+	@go build -mod=mod -o bin/$(NAME) $(MAIN)
+
+.PHONY: build-fast
+build-fast:
 	@mkdir -p bin
 	@go build -mod=mod -o bin/$(NAME) $(MAIN)
 
