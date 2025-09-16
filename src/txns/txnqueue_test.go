@@ -562,7 +562,7 @@ func TestLockUpgradeIdempotentWithGranularLocks(t *testing.T) {
 	)
 }
 
-func assertQueueConsistency[LockModeType GranularLock[LockModeType], ObjectIDType comparable](
+func assertQueueConsistency[LockModeType DatabaseLock[LockModeType], ObjectIDType comparable](
 	t *testing.T,
 	q *txnQueue[LockModeType, ObjectIDType],
 ) {
