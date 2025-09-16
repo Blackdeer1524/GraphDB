@@ -12,7 +12,7 @@ type TaggedType[T any] struct{ v T } // this trick forbids casting one lock mode
 type PageLockMode TaggedType[uint8]
 type GranularLockMode TaggedType[uint16]
 
-type GranularLock[Lock any] interface {
+type DatabaseLock[Lock any] interface {
 	fmt.Stringer
 	Compatible(Lock) bool
 	Combine(Lock) Lock
@@ -33,8 +33,8 @@ var (
 )
 
 var (
-	_ GranularLock[PageLockMode]     = PageLockMode{0}
-	_ GranularLock[GranularLockMode] = GranularLockMode{0}
+	_ DatabaseLock[PageLockMode]     = PageLockMode{0}
+	_ DatabaseLock[GranularLockMode] = GranularLockMode{0}
 )
 
 func (m PageLockMode) String() string {
@@ -312,13 +312,13 @@ func (m GranularLockMode) WeakerOrEqual(other GranularLockMode) bool {
 	panic("unreachable")
 }
 
-type TxnLockRequest[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {
+type TxnLockRequest[LockModeType DatabaseLock[LockModeType], ObjectIDType comparable] struct {
 	txnID    common.TxnID
 	objectId ObjectIDType
 	lockMode LockModeType
 }
 
-func NewTxnLockRequest[LockModeType GranularLock[LockModeType], ObjectIDType comparable](
+func NewTxnLockRequest[LockModeType DatabaseLock[LockModeType], ObjectIDType comparable](
 	txnID common.TxnID,
 	objectId ObjectIDType,
 	lockMode LockModeType,

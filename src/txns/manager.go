@@ -9,16 +9,16 @@ import (
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 )
 
-type lockGranularityManager[LockModeType GranularLock[LockModeType], ID comparable] struct {
+type lockGranularityManager[LockModeType DatabaseLock[LockModeType], ID comparable] struct {
 	qs sync.Map // map[ID]*txnQueue[LockModeType, ID]
 
 	lockedRecordsGuard sync.Mutex
 	lockedRecords      map[common.TxnID]map[ID]struct{}
 }
 
-type txnDependencyGraph[LockModeType GranularLock[LockModeType], ID comparable] map[common.TxnID][]edgeInfo[LockModeType, ID]
+type txnDependencyGraph[LockModeType DatabaseLock[LockModeType], ID comparable] map[common.TxnID][]edgeInfo[LockModeType, ID]
 
-type edgeInfo[LockModeType GranularLock[LockModeType], ID comparable] struct {
+type edgeInfo[LockModeType DatabaseLock[LockModeType], ID comparable] struct {
 	txnDst   common.TxnID
 	status   entryStatus
 	isPage   bool
@@ -26,7 +26,7 @@ type edgeInfo[LockModeType GranularLock[LockModeType], ID comparable] struct {
 	pageDst  ID
 }
 
-func newEdgeInfo[LockModeType GranularLock[LockModeType], ID comparable](
+func newEdgeInfo[LockModeType DatabaseLock[LockModeType], ID comparable](
 	txnDst common.TxnID,
 	status entryStatus,
 	isPage bool,
@@ -250,7 +250,7 @@ func (m *lockGranularityManager[LockModeType, ID]) GetGraphSnaphot() txnDependen
 	return graph
 }
 
-func NewManager[LockModeType GranularLock[LockModeType], ObjectID comparable]() *lockGranularityManager[LockModeType, ObjectID] {
+func NewManager[LockModeType DatabaseLock[LockModeType], ObjectID comparable]() *lockGranularityManager[LockModeType, ObjectID] {
 	return &lockGranularityManager[LockModeType, ObjectID]{
 		qs:                 sync.Map{},
 		lockedRecordsGuard: sync.Mutex{},
