@@ -5155,7 +5155,7 @@ func ExecuteWithRetry(
 	txnID := common.TxnID(ticker.Add(1))
 
 	job := func() error {
-		defer executor.locker.Unlock(txnID)
+		defer executor.Locker.Unlock(txnID)
 		ctxLogger := logger.WithContext(txnID)
 
 		if err := ctxLogger.AppendBegin(); err != nil {

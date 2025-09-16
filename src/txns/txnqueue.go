@@ -75,6 +75,8 @@ func (lockedEntry *txnQueueEntry[LockModeType, ObjectIDType]) SafeInsert(
 	lockedEntry.next = n
 }
 
+// Is thread-safe across multiple transactions
+// Note: you should NOT create multiple goroutines within a single transactions
 type txnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {
 	head *txnQueueEntry[LockModeType, ObjectIDType]
 	tail *txnQueueEntry[LockModeType, ObjectIDType]
