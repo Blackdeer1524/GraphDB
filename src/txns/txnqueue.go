@@ -28,7 +28,7 @@ func (s entryStatus) String() string {
 	panic("invalid entry status")
 }
 
-type txnQueueEntry[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {
+type txnQueueEntry[LockModeType DatabaseLock[LockModeType], ObjectIDType comparable] struct {
 	r        TxnLockRequest[LockModeType, ObjectIDType]
 	notifier chan struct{}
 	status   entryStatus
@@ -75,7 +75,7 @@ func (lockedEntry *txnQueueEntry[LockModeType, ObjectIDType]) SafeInsert(
 	lockedEntry.next = n
 }
 
-type txnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparable] struct {
+type txnQueue[LockModeType DatabaseLock[LockModeType], ObjectIDType comparable] struct {
 	head *txnQueueEntry[LockModeType, ObjectIDType]
 	tail *txnQueueEntry[LockModeType, ObjectIDType]
 
@@ -113,7 +113,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) processBatch(
 		return
 	}
 
-	seenLockModes := make(map[GranularLock[LockModeType]]struct{})
+	seenLockModes := make(map[DatabaseLock[LockModeType]]struct{})
 outer:
 	for {
 		for seenMode := range seenLockModes {
@@ -136,7 +136,7 @@ outer:
 	}
 }
 
-func newTxnQueue[LockModeType GranularLock[LockModeType], ObjectIDType comparable]() *txnQueue[LockModeType, ObjectIDType] {
+func newTxnQueue[LockModeType DatabaseLock[LockModeType], ObjectIDType comparable]() *txnQueue[LockModeType, ObjectIDType] {
 	head := &txnQueueEntry[LockModeType, ObjectIDType]{
 		r: TxnLockRequest[LockModeType, ObjectIDType]{
 			txnID: math.MaxUint64, // Needed for the deadlock prevention policy
