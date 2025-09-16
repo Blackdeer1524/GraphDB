@@ -855,7 +855,7 @@ func TestLoggerRollback(t *testing.T) {
 				ptoken := locker.LockPage(
 					tToken,
 					common.PageID(info.key.PageID),
-					txns.PageLockExclusive,
+					txns.SimpleLockExclusive,
 				)
 				if ptoken == nil {
 					assert.NoError(t, logger.AppendAbort())
@@ -903,7 +903,7 @@ func TestLoggerRollback(t *testing.T) {
 				ptoken := locker.LockPage(
 					tToken,
 					common.PageID(info.key.PageID),
-					txns.PageLockExclusive,
+					txns.SimpleLockExclusive,
 				)
 				if ptoken == nil {
 					assert.NoError(t, logger.AppendAbort())

@@ -20,8 +20,8 @@ type DatabaseLock[Lock any] interface {
 }
 
 var (
-	PageLockShared    SimpleLockMode = SimpleLockMode{0}
-	PageLockExclusive SimpleLockMode = SimpleLockMode{1}
+	SimpleLockShared    SimpleLockMode = SimpleLockMode{0}
+	SimpleLockExclusive SimpleLockMode = SimpleLockMode{1}
 )
 
 var (
@@ -39,12 +39,12 @@ var (
 
 func (m SimpleLockMode) String() string {
 	switch m {
-	case PageLockShared:
+	case SimpleLockShared:
 		return "SHARED"
-	case PageLockExclusive:
+	case SimpleLockExclusive:
 		return "EXCLUSIVE"
 	default:
-		return fmt.Sprintf("PageLockMode(%d)", m.v)
+		return fmt.Sprintf("SimpleLockMode(%d)", m.v)
 	}
 }
 
@@ -66,7 +66,7 @@ func (m GranularLockMode) String() string {
 }
 
 func (m SimpleLockMode) Compatible(other SimpleLockMode) bool {
-	if m == PageLockShared && other == PageLockShared {
+	if m == SimpleLockShared && other == SimpleLockShared {
 		return true
 	}
 	return false
@@ -74,33 +74,33 @@ func (m SimpleLockMode) Compatible(other SimpleLockMode) bool {
 
 func (m SimpleLockMode) Combine(to SimpleLockMode) SimpleLockMode {
 	switch m {
-	case PageLockShared:
+	case SimpleLockShared:
 		switch to {
-		case PageLockShared:
-			return PageLockShared
-		case PageLockExclusive:
-			return PageLockExclusive
+		case SimpleLockShared:
+			return SimpleLockShared
+		case SimpleLockExclusive:
+			return SimpleLockExclusive
 		}
-	case PageLockExclusive:
-		return PageLockExclusive
+	case SimpleLockExclusive:
+		return SimpleLockExclusive
 	}
 	panic("unreachable")
 }
 
 func (m SimpleLockMode) WeakerOrEqual(other SimpleLockMode) bool {
 	switch m {
-	case PageLockShared:
+	case SimpleLockShared:
 		switch other {
-		case PageLockShared:
+		case SimpleLockShared:
 			return true
-		case PageLockExclusive:
+		case SimpleLockExclusive:
 			return true
 		}
-	case PageLockExclusive:
+	case SimpleLockExclusive:
 		switch other {
-		case PageLockShared:
+		case SimpleLockShared:
 			return false
-		case PageLockExclusive:
+		case SimpleLockExclusive:
 			return true
 		}
 	}

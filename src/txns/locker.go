@@ -68,7 +68,7 @@ func NewNilCatalogLockToken(txnID common.TxnID) *CatalogLockToken {
 	return &CatalogLockToken{
 		wasSetUp: false,
 		txnID:    txnID,
-		lockMode: PageLockShared,
+		lockMode: SimpleLockShared,
 	}
 }
 
@@ -197,7 +197,7 @@ func NewNilPageLockToken(ft *FileLockToken, pageIdent common.PageIdentity) *Page
 	return &PageLockToken{
 		wasSetUp: false,
 		txnID:    ft.txnID,
-		lockMode: PageLockShared,
+		lockMode: SimpleLockShared,
 		ft:       ft,
 		pageID:   pageIdent,
 	}
@@ -243,7 +243,7 @@ func (l *LockManager) LockFile(
 	fileID common.FileID,
 	lockMode GranularLockMode,
 ) *FileLockToken {
-	if !l.UpgradeCatalogLock(ct, PageLockShared) {
+	if !l.UpgradeCatalogLock(ct, SimpleLockShared) {
 		return nil
 	}
 
@@ -265,7 +265,7 @@ func (l *LockManager) LockPage(
 	lockMode SimpleLockMode,
 ) *PageLockToken {
 	switch lockMode {
-	case PageLockShared:
+	case SimpleLockShared:
 		if !l.UpgradeFileLock(ft, GranularLockIntentionShared) {
 			return nil
 		}
@@ -273,26 +273,26 @@ func (l *LockManager) LockPage(
 		case GranularLockExclusive:
 			res := NewPageLockToken(
 				common.PageIdentity{FileID: ft.fileID, PageID: pageID},
-				PageLockExclusive,
+				SimpleLockExclusive,
 				ft,
 			)
 			return res
 		case GranularLockShared:
 			res := NewPageLockToken(
 				common.PageIdentity{FileID: ft.fileID, PageID: pageID},
-				PageLockShared,
+				SimpleLockShared,
 				ft,
 			)
 			return res
 		}
-	case PageLockExclusive:
+	case SimpleLockExclusive:
 		if !l.UpgradeFileLock(ft, GranularLockIntentionExclusive) {
 			return nil
 		}
 		if ft.lockMode == GranularLockExclusive {
 			res := NewPageLockToken(
 				common.PageIdentity{FileID: ft.fileID, PageID: pageID},
-				PageLockExclusive,
+				SimpleLockExclusive,
 				ft,
 			)
 			return res
@@ -360,7 +360,7 @@ func (l *LockManager) UpgradeFileLock(
 	ft *FileLockToken,
 	reqLockMode GranularLockMode,
 ) bool {
-	if !l.UpgradeCatalogLock(ft.ct, PageLockShared) {
+	if !l.UpgradeCatalogLock(ft.ct, SimpleLockShared) {
 		return false
 	}
 
@@ -373,7 +373,7 @@ func (l *LockManager) UpgradeFileLock(
 		return true
 	}
 
-	if ft.ct.lockMode == PageLockExclusive {
+	if ft.ct.lockMode == SimpleLockExclusive {
 		ft.lockMode = ft.lockMode.Combine(GranularLockExclusive)
 	}
 
@@ -398,11 +398,11 @@ func (l *LockManager) UpgradeFileLock(
 
 func (l *LockManager) UpgradePageLock(pt *PageLockToken, lockMode SimpleLockMode) bool {
 	switch lockMode {
-	case PageLockShared:
+	case SimpleLockShared:
 		if !l.UpgradeFileLock(pt.ft, GranularLockIntentionShared) {
 			return false
 		}
-	case PageLockExclusive:
+	case SimpleLockExclusive:
 		if !l.UpgradeFileLock(pt.ft, GranularLockIntentionExclusive) {
 			return false
 		}
@@ -419,11 +419,11 @@ func (l *LockManager) UpgradePageLock(pt *PageLockToken, lockMode SimpleLockMode
 
 	switch pt.ft.lockMode {
 	case GranularLockExclusive:
-		pt.lockMode = pt.lockMode.Combine(PageLockExclusive)
+		pt.lockMode = pt.lockMode.Combine(SimpleLockExclusive)
 	case GranularLockShared:
-		pt.lockMode = pt.lockMode.Combine(PageLockShared)
+		pt.lockMode = pt.lockMode.Combine(SimpleLockShared)
 	case GranularLockSharedIntentionExclusive:
-		pt.lockMode = pt.lockMode.Combine(PageLockShared)
+		pt.lockMode = pt.lockMode.Combine(SimpleLockShared)
 	}
 
 	if lockMode.WeakerOrEqual(pt.lockMode) {

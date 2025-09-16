@@ -276,7 +276,7 @@ func (i *neighboursEdgesIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 	if err != nil {
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
 	}
-	pToken := i.se.locker.LockPage(i.vertTableToken, vertRID.R.PageID, txns.PageLockShared)
+	pToken := i.se.locker.LockPage(i.vertTableToken, vertRID.R.PageID, txns.SimpleLockShared)
 	if pToken == nil {
 		err := fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
 		return iterWithErrorTriple[common.RecordID, storage.Edge](err)
@@ -581,7 +581,7 @@ func (i *neighbourVertexIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 				pToken := i.locker.LockPage(
 					dstVertexFileToken,
 					vertexIDWithRID.R.PageID,
-					txns.PageLockShared,
+					txns.SimpleLockShared,
 				)
 				assert.Assert(
 					pToken != nil,
@@ -696,7 +696,7 @@ func (iter *vertexTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, st
 				pToken := iter.locker.LockPage(
 					iter.tableToken,
 					common.PageID(pageID),
-					txns.PageLockShared,
+					txns.SimpleLockShared,
 				)
 				assert.Assert(
 					pToken != nil,
@@ -825,7 +825,7 @@ func (iter *edgeTableScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, stor
 				pToken := iter.locker.LockPage(
 					iter.tableToken,
 					common.PageID(pageID),
-					txns.PageLockShared,
+					txns.SimpleLockShared,
 				)
 				assert.Assert(
 					pToken != nil,
@@ -945,7 +945,7 @@ func (iter *dirItemsScanIter) Seq() iter.Seq[utils.Triple[common.RecordID, stora
 				pToken := iter.locker.LockPage(
 					iter.dirTableToken,
 					common.PageID(pageID),
-					txns.PageLockShared,
+					txns.SimpleLockShared,
 				)
 				assert.Assert(
 					pToken != nil,
