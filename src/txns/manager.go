@@ -302,7 +302,7 @@ func (m *lockGranularityManager[LockModeType, ObjectID]) Lock(
 		}
 	}()
 
-	notifier := q.Lock(r)
+	notifier := q.lock(r)
 	if notifier == nil {
 		return nil
 	}
@@ -345,7 +345,7 @@ func (m *lockGranularityManager[LockModeType, ObjectID]) Upgrade(
 		return q
 	}()
 
-	n := q.Upgrade(r)
+	n := q.upgrade(r)
 	return n
 }
 
