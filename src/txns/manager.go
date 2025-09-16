@@ -195,7 +195,7 @@ func (m *lockGranularityManager[LockModeType, ID]) GetGraphSnaphot() txnDependen
 		cur := q.head.next
 		cur.mu.Lock()
 		runningSet := map[common.TxnID]struct{}{}
-		for ; cur != q.tail && cur.status == entryStatusAcquired; cur = cur.SafeNext() {
+		for ; cur != q.tail && cur.status == entryStatusAquired; cur = cur.SafeNext() {
 			runningSet[cur.r.txnID] = struct{}{}
 			graph[cur.r.txnID] = append(
 				graph[cur.r.txnID],
@@ -220,7 +220,7 @@ func (m *lockGranularityManager[LockModeType, ID]) GetGraphSnaphot() txnDependen
 			cur.r.txnID,
 		)
 		assert.Assert(
-			cur.status != entryStatusAcquired,
+			cur.status != entryStatusAquired,
 			"only queue prefix can be running. txnID: %d, status: %s",
 			cur.r.txnID,
 			cur.status,
@@ -244,7 +244,7 @@ func (m *lockGranularityManager[LockModeType, ID]) GetGraphSnaphot() txnDependen
 		cur.mu.Lock()
 		for cur != q.tail {
 			assert.Assert(
-				cur.status != entryStatusAcquired,
+				cur.status != entryStatusAquired,
 				"only queue prefix can be running",
 			)
 			graph[cur.r.txnID] = append(

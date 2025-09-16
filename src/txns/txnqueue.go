@@ -11,19 +11,19 @@ import (
 type entryStatus byte
 
 const (
-	entryStatusAcquired entryStatus = iota
+	entryStatusAquired entryStatus = iota
 	entryStatusWaitUpgrade
-	entryStatusWaitAcquire
+	entryStatusWaitAquire
 )
 
 func (s entryStatus) String() string {
 	switch s {
-	case entryStatusAcquired:
-		return "acquired"
+	case entryStatusAquired:
+		return "aquired"
 	case entryStatusWaitUpgrade:
 		return "wait-upgrade"
-	case entryStatusWaitAcquire:
-		return "wait-acquire"
+	case entryStatusWaitAquire:
+		return "wait-aquire"
 	}
 	panic("invalid entry status")
 }
@@ -104,7 +104,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) processBatch(
 	muGuardedHead *txnQueueEntry[LockModeType, ObjectIDType],
 ) {
 	assert.Assert(
-		muGuardedHead.status != entryStatusAcquired,
+		muGuardedHead.status != entryStatusAquired,
 		"processBatch contract is violated",
 	)
 
@@ -126,7 +126,7 @@ outer:
 
 		seenLockModes[cur.r.lockMode] = struct{}{}
 
-		cur.status = entryStatusAcquired
+		cur.status = entryStatusAquired
 		close(cur.notifier) // grants the lock to the transaction
 
 		if cur.next == q.tail {
@@ -134,7 +134,7 @@ outer:
 		}
 
 		cur = cur.SafeNext()
-		assert.Assert(cur.status == entryStatusWaitAcquire, "only list prefix is allowed to be in the locked state")
+		assert.Assert(cur.status == entryStatusWaitAquire, "only list prefix is allowed to be in the locked state")
 	}
 }
 
@@ -188,7 +188,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) lock(
 		upgradingEntry := upgradingEntry.(*txnQueueEntry[LockModeType, ObjectIDType])
 		upgradingEntry.mu.Lock()
 		assert.Assert(
-			upgradingEntry.status == entryStatusAcquired,
+			upgradingEntry.status == entryStatusAquired,
 			"can only upgrade acquired transactions",
 		)
 		upgradingEntry.mu.Unlock()
@@ -205,7 +205,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) lock(
 		newNode := &txnQueueEntry[LockModeType, ObjectIDType]{
 			r:        r,
 			notifier: notifier,
-			status:   entryStatusAcquired,
+			status:   entryStatusAquired,
 		}
 		cur.SafeInsert(newNode)
 
@@ -216,7 +216,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) lock(
 	cur = cur.SafeNext()
 	locksAreCompatible := true
 	deadlock := false
-	for cur.status == entryStatusAcquired {
+	for cur.status == entryStatusAquired {
 		assert.Assert(
 			cur.r.txnID != r.txnID,
 			"impossible, because it should have been upgraded earlier. request: %+v",
@@ -235,7 +235,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) lock(
 			newNode := &txnQueueEntry[LockModeType, ObjectIDType]{
 				r:        r,
 				notifier: notifier,
-				status:   entryStatusAcquired,
+				status:   entryStatusAquired,
 			}
 			cur.SafeInsert(newNode)
 
@@ -267,7 +267,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) lock(
 	newNode := &txnQueueEntry[LockModeType, ObjectIDType]{
 		r:        r,
 		notifier: notifier,
-		status:   entryStatusWaitAcquire,
+		status:   entryStatusWaitAquire,
 	}
 	cur.SafeInsert(newNode)
 	q.txnNodes.Store(r.txnID, newNode)
@@ -283,7 +283,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) upgrade(
 
 	upgradingEntry.mu.Lock()
 	assert.Assert(
-		upgradingEntry.status == entryStatusAcquired,
+		upgradingEntry.status == entryStatusAquired,
 		"can only upgrade acquired transactions",
 	)
 	acquiredLockMode := upgradingEntry.r.lockMode
@@ -323,7 +323,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) upgrade(
 
 	var next = cur.next
 	next.mu.Lock()
-	for next != q.tail && next.status == entryStatusAcquired {
+	for next != q.tail && next.status == entryStatusAquired {
 		deadlock = deadlock || checkDeadlockCondition(next.r.txnID, r.txnID)
 		compatible = compatible && next.r.lockMode.Compatible(r.lockMode)
 
@@ -333,8 +333,8 @@ func (q *txnQueue[LockModeType, ObjectIDType]) upgrade(
 		next.mu.Lock()
 	}
 
-	assert.Assert(cur.status == entryStatusAcquired)
-	if next == q.tail || next.status == entryStatusWaitAcquire {
+	assert.Assert(cur.status == entryStatusAquired)
+	if next == q.tail || next.status == entryStatusWaitAquire {
 		// no upgrades pending
 		if compatible {
 			cur.mu.Unlock()
@@ -390,7 +390,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) upgrade(
 		next = cur.next
 		next.mu.Lock()
 
-		if next == q.tail || next.status == entryStatusWaitAcquire {
+		if next == q.tail || next.status == entryStatusWaitAquire {
 			newEntry := &txnQueueEntry[LockModeType, ObjectIDType]{
 				r:        r,
 				notifier: make(chan struct{}),
@@ -433,8 +433,8 @@ func (q *txnQueue[LockModeType, ObjectIDType]) unlock(
 	q.txnNodes.Delete(r.txnID)
 
 	after.mu.Lock()
-	if cur == q.head && deletingNodeStatus == entryStatusAcquired &&
-		after.status != entryStatusAcquired {
+	if cur == q.head && deletingNodeStatus == entryStatusAquired &&
+		after.status != entryStatusAquired {
 		q.processBatch(after)
 		return
 	}
