@@ -84,13 +84,35 @@ func (g txnDependencyGraph[LockModeType, ID]) Dump() string {
 	var result strings.Builder
 
 	result.WriteString("digraph TransactionDependencyGraph {\n")
-	result.WriteString("\trankdir=LR;\n")
+	result.WriteString("\trankdir=RL;\n")
 	result.WriteString("\tnode [shape=box];\n")
 
+	// Define object nodes with same rank
+	objectNodes := make(map[ID]struct{})
+	for _, deps := range g {
+		for _, edge := range deps {
+			if edge.isPage {
+				objectNodes[edge.pageDst] = struct{}{}
+			}
+		}
+	}
+
+	// Add transaction nodes
 	for txnID := range g {
 		result.WriteString(
 			fmt.Sprintf("\t\"txn_%d\" [label=\"Txn %d\"];\n", txnID, txnID),
 		)
+	}
+
+	// Add object nodes with same rank
+	if len(objectNodes) > 0 {
+		result.WriteString("\t{rank=same;\n")
+		for objectID := range objectNodes {
+			result.WriteString(
+				fmt.Sprintf("\t\t\"object_%+v\" [label=\"Object %+v\"];\n", objectID, objectID),
+			)
+		}
+		result.WriteString("\t}\n")
 	}
 	result.WriteString("\n")
 
@@ -126,7 +148,7 @@ func (g txnDependencyGraph[LockModeType, ID]) Dump() string {
 			if !edge.isPage {
 				result.WriteString(
 					fmt.Sprintf(
-						"\t\"txn_%d\" -> \"txn_%d\" [label=\"%+v [%s:%s]\", color=\"%s\"];\n",
+						"\t\"txn_%d\" -> \"txn_%d\" [label=\"Object %+v [%s:%s]\", color=\"%s\"];\n",
 						txnID,
 						edge.txnDst,
 						edge.pageDst,
