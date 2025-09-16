@@ -471,9 +471,9 @@ type RaftInsertEdgeConflict Error
 
 func (*RaftInsertEdgeConflict) raftInsertEdgeRes() {}
 
-type RaftInsertEdgeServiceUnavailable Error
+type RaftInsertEdgeInternalServerError Error
 
-func (*RaftInsertEdgeServiceUnavailable) raftInsertEdgeRes() {}
+func (*RaftInsertEdgeInternalServerError) raftInsertEdgeRes() {}
 
 type RaftInsertEdgesBadRequest Error
 
@@ -483,9 +483,9 @@ type RaftInsertEdgesConflict Error
 
 func (*RaftInsertEdgesConflict) raftInsertEdgesRes() {}
 
-type RaftInsertEdgesServiceUnavailable Error
+type RaftInsertEdgesInternalServerError Error
 
-func (*RaftInsertEdgesServiceUnavailable) raftInsertEdgesRes() {}
+func (*RaftInsertEdgesInternalServerError) raftInsertEdgesRes() {}
 
 type RaftInsertVertexBadRequest Error
 
@@ -495,9 +495,9 @@ type RaftInsertVertexConflict Error
 
 func (*RaftInsertVertexConflict) raftInsertVertexRes() {}
 
-type RaftInsertVertexServiceUnavailable Error
+type RaftInsertVertexInternalServerError Error
 
-func (*RaftInsertVertexServiceUnavailable) raftInsertVertexRes() {}
+func (*RaftInsertVertexInternalServerError) raftInsertVertexRes() {}
 
 type RaftInsertVerticesBadRequest Error
 
@@ -507,9 +507,9 @@ type RaftInsertVerticesConflict Error
 
 func (*RaftInsertVerticesConflict) raftInsertVerticesRes() {}
 
-type RaftInsertVerticesServiceUnavailable Error
+type RaftInsertVerticesInternalServerError Error
 
-func (*RaftInsertVerticesServiceUnavailable) raftInsertVerticesRes() {}
+func (*RaftInsertVerticesInternalServerError) raftInsertVerticesRes() {}
 
 type UUID uuid.UUID
 

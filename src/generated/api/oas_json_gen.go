@@ -1267,17 +1267,17 @@ func (s *RaftInsertEdgeConflict) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
-// Encode encodes RaftInsertEdgeServiceUnavailable as json.
-func (s *RaftInsertEdgeServiceUnavailable) Encode(e *jx.Encoder) {
+// Encode encodes RaftInsertEdgeInternalServerError as json.
+func (s *RaftInsertEdgeInternalServerError) Encode(e *jx.Encoder) {
 	unwrapped := (*Error)(s)
 
 	unwrapped.Encode(e)
 }
 
-// Decode decodes RaftInsertEdgeServiceUnavailable from json.
-func (s *RaftInsertEdgeServiceUnavailable) Decode(d *jx.Decoder) error {
+// Decode decodes RaftInsertEdgeInternalServerError from json.
+func (s *RaftInsertEdgeInternalServerError) Decode(d *jx.Decoder) error {
 	if s == nil {
-		return errors.New("invalid: unable to decode RaftInsertEdgeServiceUnavailable to nil")
+		return errors.New("invalid: unable to decode RaftInsertEdgeInternalServerError to nil")
 	}
 	var unwrapped Error
 	if err := func() error {
@@ -1288,19 +1288,19 @@ func (s *RaftInsertEdgeServiceUnavailable) Decode(d *jx.Decoder) error {
 	}(); err != nil {
 		return errors.Wrap(err, "alias")
 	}
-	*s = RaftInsertEdgeServiceUnavailable(unwrapped)
+	*s = RaftInsertEdgeInternalServerError(unwrapped)
 	return nil
 }
 
 // MarshalJSON implements stdjson.Marshaler.
-func (s *RaftInsertEdgeServiceUnavailable) MarshalJSON() ([]byte, error) {
+func (s *RaftInsertEdgeInternalServerError) MarshalJSON() ([]byte, error) {
 	e := jx.Encoder{}
 	s.Encode(&e)
 	return e.Bytes(), nil
 }
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *RaftInsertEdgeServiceUnavailable) UnmarshalJSON(data []byte) error {
+func (s *RaftInsertEdgeInternalServerError) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -1381,17 +1381,17 @@ func (s *RaftInsertEdgesConflict) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
-// Encode encodes RaftInsertEdgesServiceUnavailable as json.
-func (s *RaftInsertEdgesServiceUnavailable) Encode(e *jx.Encoder) {
+// Encode encodes RaftInsertEdgesInternalServerError as json.
+func (s *RaftInsertEdgesInternalServerError) Encode(e *jx.Encoder) {
 	unwrapped := (*Error)(s)
 
 	unwrapped.Encode(e)
 }
 
-// Decode decodes RaftInsertEdgesServiceUnavailable from json.
-func (s *RaftInsertEdgesServiceUnavailable) Decode(d *jx.Decoder) error {
+// Decode decodes RaftInsertEdgesInternalServerError from json.
+func (s *RaftInsertEdgesInternalServerError) Decode(d *jx.Decoder) error {
 	if s == nil {
-		return errors.New("invalid: unable to decode RaftInsertEdgesServiceUnavailable to nil")
+		return errors.New("invalid: unable to decode RaftInsertEdgesInternalServerError to nil")
 	}
 	var unwrapped Error
 	if err := func() error {
@@ -1402,19 +1402,19 @@ func (s *RaftInsertEdgesServiceUnavailable) Decode(d *jx.Decoder) error {
 	}(); err != nil {
 		return errors.Wrap(err, "alias")
 	}
-	*s = RaftInsertEdgesServiceUnavailable(unwrapped)
+	*s = RaftInsertEdgesInternalServerError(unwrapped)
 	return nil
 }
 
 // MarshalJSON implements stdjson.Marshaler.
-func (s *RaftInsertEdgesServiceUnavailable) MarshalJSON() ([]byte, error) {
+func (s *RaftInsertEdgesInternalServerError) MarshalJSON() ([]byte, error) {
 	e := jx.Encoder{}
 	s.Encode(&e)
 	return e.Bytes(), nil
 }
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *RaftInsertEdgesServiceUnavailable) UnmarshalJSON(data []byte) error {
+func (s *RaftInsertEdgesInternalServerError) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -1495,17 +1495,17 @@ func (s *RaftInsertVertexConflict) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
-// Encode encodes RaftInsertVertexServiceUnavailable as json.
-func (s *RaftInsertVertexServiceUnavailable) Encode(e *jx.Encoder) {
+// Encode encodes RaftInsertVertexInternalServerError as json.
+func (s *RaftInsertVertexInternalServerError) Encode(e *jx.Encoder) {
 	unwrapped := (*Error)(s)
 
 	unwrapped.Encode(e)
 }
 
-// Decode decodes RaftInsertVertexServiceUnavailable from json.
-func (s *RaftInsertVertexServiceUnavailable) Decode(d *jx.Decoder) error {
+// Decode decodes RaftInsertVertexInternalServerError from json.
+func (s *RaftInsertVertexInternalServerError) Decode(d *jx.Decoder) error {
 	if s == nil {
-		return errors.New("invalid: unable to decode RaftInsertVertexServiceUnavailable to nil")
+		return errors.New("invalid: unable to decode RaftInsertVertexInternalServerError to nil")
 	}
 	var unwrapped Error
 	if err := func() error {
@@ -1516,19 +1516,19 @@ func (s *RaftInsertVertexServiceUnavailable) Decode(d *jx.Decoder) error {
 	}(); err != nil {
 		return errors.Wrap(err, "alias")
 	}
-	*s = RaftInsertVertexServiceUnavailable(unwrapped)
+	*s = RaftInsertVertexInternalServerError(unwrapped)
 	return nil
 }
 
 // MarshalJSON implements stdjson.Marshaler.
-func (s *RaftInsertVertexServiceUnavailable) MarshalJSON() ([]byte, error) {
+func (s *RaftInsertVertexInternalServerError) MarshalJSON() ([]byte, error) {
 	e := jx.Encoder{}
 	s.Encode(&e)
 	return e.Bytes(), nil
 }
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *RaftInsertVertexServiceUnavailable) UnmarshalJSON(data []byte) error {
+func (s *RaftInsertVertexInternalServerError) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -1609,17 +1609,17 @@ func (s *RaftInsertVerticesConflict) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
-// Encode encodes RaftInsertVerticesServiceUnavailable as json.
-func (s *RaftInsertVerticesServiceUnavailable) Encode(e *jx.Encoder) {
+// Encode encodes RaftInsertVerticesInternalServerError as json.
+func (s *RaftInsertVerticesInternalServerError) Encode(e *jx.Encoder) {
 	unwrapped := (*Error)(s)
 
 	unwrapped.Encode(e)
 }
 
-// Decode decodes RaftInsertVerticesServiceUnavailable from json.
-func (s *RaftInsertVerticesServiceUnavailable) Decode(d *jx.Decoder) error {
+// Decode decodes RaftInsertVerticesInternalServerError from json.
+func (s *RaftInsertVerticesInternalServerError) Decode(d *jx.Decoder) error {
 	if s == nil {
-		return errors.New("invalid: unable to decode RaftInsertVerticesServiceUnavailable to nil")
+		return errors.New("invalid: unable to decode RaftInsertVerticesInternalServerError to nil")
 	}
 	var unwrapped Error
 	if err := func() error {
@@ -1630,19 +1630,19 @@ func (s *RaftInsertVerticesServiceUnavailable) Decode(d *jx.Decoder) error {
 	}(); err != nil {
 		return errors.Wrap(err, "alias")
 	}
-	*s = RaftInsertVerticesServiceUnavailable(unwrapped)
+	*s = RaftInsertVerticesInternalServerError(unwrapped)
 	return nil
 }
 
 // MarshalJSON implements stdjson.Marshaler.
-func (s *RaftInsertVerticesServiceUnavailable) MarshalJSON() ([]byte, error) {
+func (s *RaftInsertVerticesInternalServerError) MarshalJSON() ([]byte, error) {
 	e := jx.Encoder{}
 	s.Encode(&e)
 	return e.Bytes(), nil
 }
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *RaftInsertVerticesServiceUnavailable) UnmarshalJSON(data []byte) error {
+func (s *RaftInsertVerticesInternalServerError) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

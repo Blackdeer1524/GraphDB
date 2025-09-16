@@ -54,10 +54,10 @@ func encodeRaftInsertEdgeResponse(response RaftInsertEdgeRes, w http.ResponseWri
 
 		return nil
 
-	case *RaftInsertEdgeServiceUnavailable:
+	case *RaftInsertEdgeInternalServerError:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(503)
-		span.SetStatus(codes.Error, http.StatusText(503))
+		w.WriteHeader(500)
+		span.SetStatus(codes.Error, http.StatusText(500))
 
 		e := new(jx.Encoder)
 		response.Encode(e)
@@ -113,10 +113,10 @@ func encodeRaftInsertEdgesResponse(response RaftInsertEdgesRes, w http.ResponseW
 
 		return nil
 
-	case *RaftInsertEdgesServiceUnavailable:
+	case *RaftInsertEdgesInternalServerError:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(503)
-		span.SetStatus(codes.Error, http.StatusText(503))
+		w.WriteHeader(500)
+		span.SetStatus(codes.Error, http.StatusText(500))
 
 		e := new(jx.Encoder)
 		response.Encode(e)
@@ -172,10 +172,10 @@ func encodeRaftInsertVertexResponse(response RaftInsertVertexRes, w http.Respons
 
 		return nil
 
-	case *RaftInsertVertexServiceUnavailable:
+	case *RaftInsertVertexInternalServerError:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(503)
-		span.SetStatus(codes.Error, http.StatusText(503))
+		w.WriteHeader(500)
+		span.SetStatus(codes.Error, http.StatusText(500))
 
 		e := new(jx.Encoder)
 		response.Encode(e)
@@ -231,10 +231,10 @@ func encodeRaftInsertVerticesResponse(response RaftInsertVerticesRes, w http.Res
 
 		return nil
 
-	case *RaftInsertVerticesServiceUnavailable:
+	case *RaftInsertVerticesInternalServerError:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(503)
-		span.SetStatus(codes.Error, http.StatusText(503))
+		w.WriteHeader(500)
+		span.SetStatus(codes.Error, http.StatusText(500))
 
 		e := new(jx.Encoder)
 		response.Encode(e)

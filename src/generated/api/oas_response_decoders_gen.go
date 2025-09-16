@@ -121,8 +121,8 @@ func decodeRaftInsertEdgeResponse(resp *http.Response) (res RaftInsertEdgeRes, _
 		default:
 			return res, validate.InvalidContentType(ct)
 		}
-	case 503:
-		// Code 503.
+	case 500:
+		// Code 500.
 		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil {
 			return res, errors.Wrap(err, "parse media type")
@@ -135,7 +135,7 @@ func decodeRaftInsertEdgeResponse(resp *http.Response) (res RaftInsertEdgeRes, _
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response RaftInsertEdgeServiceUnavailable
+			var response RaftInsertEdgeInternalServerError
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -318,8 +318,8 @@ func decodeRaftInsertEdgesResponse(resp *http.Response) (res RaftInsertEdgesRes,
 		default:
 			return res, validate.InvalidContentType(ct)
 		}
-	case 503:
-		// Code 503.
+	case 500:
+		// Code 500.
 		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil {
 			return res, errors.Wrap(err, "parse media type")
@@ -332,7 +332,7 @@ func decodeRaftInsertEdgesResponse(resp *http.Response) (res RaftInsertEdgesRes,
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response RaftInsertEdgesServiceUnavailable
+			var response RaftInsertEdgesInternalServerError
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -506,8 +506,8 @@ func decodeRaftInsertVertexResponse(resp *http.Response) (res RaftInsertVertexRe
 		default:
 			return res, validate.InvalidContentType(ct)
 		}
-	case 503:
-		// Code 503.
+	case 500:
+		// Code 500.
 		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil {
 			return res, errors.Wrap(err, "parse media type")
@@ -520,7 +520,7 @@ func decodeRaftInsertVertexResponse(resp *http.Response) (res RaftInsertVertexRe
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response RaftInsertVertexServiceUnavailable
+			var response RaftInsertVertexInternalServerError
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -703,8 +703,8 @@ func decodeRaftInsertVerticesResponse(resp *http.Response) (res RaftInsertVertic
 		default:
 			return res, validate.InvalidContentType(ct)
 		}
-	case 503:
-		// Code 503.
+	case 500:
+		// Code 500.
 		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil {
 			return res, errors.Wrap(err, "parse media type")
@@ -717,7 +717,7 @@ func decodeRaftInsertVerticesResponse(resp *http.Response) (res RaftInsertVertic
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response RaftInsertVerticesServiceUnavailable
+			var response RaftInsertVerticesInternalServerError
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err

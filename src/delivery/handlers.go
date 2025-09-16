@@ -21,9 +21,10 @@ func (h *APIHandler) RaftInsertVertex(ctx context.Context, req *api.InsertVertex
 
 	resp, err := h.Client.InsertVertex(ctx, body)
 	if err != nil {
-		return &api.RaftInsertVertexServiceUnavailable{
-			Code:    "NOT_LEADER",
-			Message: err.Error(),
+		h.Logger.Errorw("internal server error", zap.Error(err))
+		return &api.RaftInsertVertexInternalServerError{
+			Code:    "INTERNAL_SERVER_ERROR",
+			Message: "Internal Server Error",
 		}, nil
 	}
 
@@ -40,9 +41,10 @@ func (h *APIHandler) RaftInsertVertices(ctx context.Context, req *api.InsertVert
 
 	resp, err := h.Client.InsertVertices(ctx, body)
 	if err != nil {
-		return &api.RaftInsertVerticesServiceUnavailable{
-			Code:    "NOT_LEADER",
-			Message: err.Error(),
+		h.Logger.Errorw("internal server error", zap.Error(err))
+		return &api.RaftInsertVerticesInternalServerError{
+			Code:    "INTERNAL_SERVER_ERROR",
+			Message: "Internal Server Error",
 		}, nil
 	}
 
@@ -64,9 +66,10 @@ func (h *APIHandler) RaftInsertEdge(ctx context.Context, req *api.InsertEdgeRequ
 
 	resp, err := h.Client.InsertEdge(ctx, body)
 	if err != nil {
-		return &api.RaftInsertEdgeServiceUnavailable{
-			Code:    "NOT_LEADER",
-			Message: err.Error(),
+		h.Logger.Errorw("internal server error", zap.Error(err))
+		return &api.RaftInsertEdgeInternalServerError{
+			Code:    "INTERNAL_SERVER_ERROR",
+			Message: "Internal Server Error",
 		}, nil
 	}
 
@@ -83,9 +86,10 @@ func (h *APIHandler) RaftInsertEdges(ctx context.Context, req *api.InsertEdgesRe
 
 	resp, err := h.Client.InsertEdges(ctx, body)
 	if err != nil {
-		return &api.RaftInsertEdgesServiceUnavailable{
-			Code:    "NOT_LEADER",
-			Message: err.Error(),
+		h.Logger.Errorw("internal server error", zap.Error(err))
+		return &api.RaftInsertEdgesInternalServerError{
+			Code:    "INTERNAL_SERVER_ERROR",
+			Message: "Internal Server Error",
 		}, nil
 	}
 
@@ -104,7 +108,7 @@ func (h *APIHandler) NewError(ctx context.Context, err error) *api.ErrorStatusCo
 	return &api.ErrorStatusCode{
 		StatusCode: 500,
 		Response: api.Error{
-			Code:    "500",
+			Code:    "INTERNAL_SERVER_ERROR",
 			Message: "Internal Server Error",
 			Details: api.OptErrorDetails{
 				Set: false,
