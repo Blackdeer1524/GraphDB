@@ -97,7 +97,7 @@ func (s *StorageEngine) getSerializedVertex(
 		return nil, fmt.Errorf("failed to get vertex RID: %w", err)
 	}
 	
-	pToken := s.locker.LockPage(vertexFileToken, vertexRID.R.PageIdentity().PageID, txns.PageLockShared)
+	pToken := s.locker.LockPage(vertexFileToken, vertexRID.R.PageIdentity().PageID, txns.SimpleLockShared)
 	if pToken == nil {
 		return nil, fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
 	}
@@ -166,7 +166,7 @@ func (s *StorageEngine) InsertVertex(
 		return fmt.Errorf("failed to get free page: %w", err)
 	}
 	for {
-		if s.locker.LockPage(vertexFileToken, pageID, txns.PageLockExclusive) == nil {
+		if s.locker.LockPage(vertexFileToken, pageID, txns.SimpleLockExclusive) == nil {
 			return fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
 		}
 
@@ -246,7 +246,7 @@ func (s *StorageEngine) DeleteVertex(
 	}
 
 	pageIdent := vertexRID.R.PageIdentity()
-	pToken := s.locker.LockPage(vertexFileToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(vertexFileToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
@@ -296,7 +296,7 @@ func (s *StorageEngine) UpdateVertex(
 	}
 
 	pageIdent := vertexRID.R.PageIdentity()
-	pToken := s.locker.LockPage(vertexFileToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(vertexFileToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
@@ -361,7 +361,7 @@ func (s *StorageEngine) updateVertexDirItemID(
 	vToken := s.locker.LockPage(
 		srcVertToken,
 		vertexRID.R.PageIdentity().PageID,
-		txns.PageLockExclusive,
+		txns.SimpleLockExclusive,
 	)
 	if vToken == nil {
 		return fmt.Errorf(
@@ -421,7 +421,7 @@ func (s *StorageEngine) SelectEdge(
 	pToken := s.locker.LockPage(
 		edgeFileToken,
 		edgeRID.R.PageIdentity().PageID,
-		txns.PageLockShared,
+		txns.SimpleLockShared,
 	)
 	if pToken == nil {
 		err = fmt.Errorf(
@@ -466,7 +466,7 @@ func (s *StorageEngine) insertEdgeHelper(
 		return fmt.Errorf("failed to get free page: %w", err)
 	}
 	for {
-		if s.locker.LockPage(edgesFileToken, pageID, txns.PageLockExclusive) == nil {
+		if s.locker.LockPage(edgesFileToken, pageID, txns.SimpleLockExclusive) == nil {
 			return fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
 		}
 
@@ -812,7 +812,7 @@ func (s *StorageEngine) selectDirectoryItem(
 	}
 
 	pageIdent := dirRID.R.PageIdentity()
-	pToken := s.locker.LockPage(dirToken, pageIdent.PageID, txns.PageLockShared)
+	pToken := s.locker.LockPage(dirToken, pageIdent.PageID, txns.SimpleLockShared)
 	if pToken == nil {
 		return storage.DirectoryItem{}, fmt.Errorf(
 			"failed to lock page %v: %w",
@@ -868,7 +868,7 @@ func (s *StorageEngine) insertDirectoryItem(
 	}
 
 	for {
-		if s.locker.LockPage(dirFileToken, pageID, txns.PageLockExclusive) == nil {
+		if s.locker.LockPage(dirFileToken, pageID, txns.SimpleLockExclusive) == nil {
 			return fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
 		}
 
@@ -945,7 +945,7 @@ func (s *StorageEngine) updateDirItemEdgeID(
 	}
 
 	pageIdent := dirRID.R.PageIdentity()
-	pToken := s.locker.LockPage(dirFileToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(dirFileToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
@@ -991,7 +991,7 @@ func (s *StorageEngine) updateDirectoryItemNextID(
 		return fmt.Errorf("failed to get directory RID: %w", err)
 	}
 
-	pToken := s.locker.LockPage(dirToken, dirRID.R.PageIdentity().PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(dirToken, dirRID.R.PageIdentity().PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf(
 			"failed to lock page %v: %w",
@@ -1047,7 +1047,7 @@ func (s *StorageEngine) updateDirectoryItem(
 	}
 
 	pageIdent := dirRID.R.PageIdentity()
-	pToken := s.locker.LockPage(dirToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(dirToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
@@ -1083,7 +1083,7 @@ func (s *StorageEngine) UpdateEdge(
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
-	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
@@ -1131,7 +1131,7 @@ func (s *StorageEngine) updateEdgePrevID(
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
-	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
@@ -1178,7 +1178,7 @@ func (s *StorageEngine) updateEdgeNextID(
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
-	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
@@ -1225,7 +1225,7 @@ func (s *StorageEngine) updateEdgeDirItemID(
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
-	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
@@ -1273,7 +1273,7 @@ func (s *StorageEngine) DeleteEdge(
 	}
 
 	pageIdent := edgeRID.R.PageIdentity()
-	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.PageLockExclusive)
+	pToken := s.locker.LockPage(edgesFileToken, pageIdent.PageID, txns.SimpleLockExclusive)
 	if pToken == nil {
 		return fmt.Errorf("failed to lock page %v: %w", pageIdent, txns.ErrDeadlockPrevention)
 	}
