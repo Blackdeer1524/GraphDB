@@ -882,6 +882,7 @@ func TestConcurrentIndexGrowth(t *testing.T) {
 
 			ctxLogger := logger.WithContext(txnID)
 			require.NoError(t, ctxLogger.AppendBegin())
+
 			index, err := NewLinearProbingIndex(indexMeta, pool, locker, ctxLogger, true, 42)
 			if errors.Is(err, txns.ErrDeadlockPrevention) {
 				require.NoError(t, ctxLogger.AppendAbort())
