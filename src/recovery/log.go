@@ -231,7 +231,7 @@ func (l *TxnLogger) Dump(start common.FileLocation) (string, error) {
 			return "", err
 		}
 		loc := iter.Location()
-		fmt.Fprintf(b, "[page:%d, slot:%d]: ", loc.PageID, loc.SlotNum)
+		fmt.Fprintf(b, "[%d@%d]: ", loc.PageID, loc.SlotNum)
 		b.WriteString(logRecordToString(tag, record))
 		b.WriteString("\n")
 		success, err := iter.MoveForward()

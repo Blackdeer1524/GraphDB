@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"math/rand"
 	"strings"
@@ -4943,9 +4944,12 @@ func (g *GraphGenerator) countTriangles() int {
 }
 
 func (g *GraphGenerator) hasEdge(u, v storage.VertexSystemID) bool {
-	_, exists := g.edges[makeUndirectedEdge(u, v)]
+	if bytes.Compare(u[:], v[:]) < 0 {
+		_, exists := g.edges[makeUndirectedEdge(u, v)]
+		return exists
+	}
 
-	return exists
+	return false
 }
 
 func (g *GraphGenerator) getVertexIndex(systemID storage.VertexSystemID) int {
@@ -5111,8 +5115,6 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 				trCnt := uint64(len(graphCountTriangles(g)))
 				mu.RUnlock()
 
-				// require.GreaterOrEqual(t, trCnt, uint64(test.minTriangleCnt))
-
 				err = Execute(
 					&ticker,
 					e,
@@ -5154,8 +5156,8 @@ func ExecuteWithRetry(
 
 	job := func() error {
 		defer executor.locker.Unlock(txnID)
-
 		ctxLogger := logger.WithContext(txnID)
+
 		if err := ctxLogger.AppendBegin(); err != nil {
 			return fmt.Errorf("failed to append begin: %w", err)
 		}
@@ -5286,6 +5288,264 @@ func TestRepeatableRead(t *testing.T) {
 			vert, err := e.SelectVertex(txnID, vertTableName, vertex.SystemID, logger)
 			require.NoError(t, err)
 			require.Equal(t, int64(jobsCount), vert.Data[vertFieldName].(int64))
+			return nil
+		},
+		true,
+	)
+	require.NoError(t, err)
+}
+
+func TestBankTransactions(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
+	poolPageCount := uint64(50)
+	debugMode := false
+
+	e, debugPool, locker, logger, err := setupExecutor(
+		fs,
+		catalogBasePath,
+		poolPageCount,
+		debugMode,
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+	defer func() { require.True(t, locker.AreAllQueuesEmpty()) }()
+
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	balanceField := "balance"
+	vertSchema := storage.Schema{
+		{Name: balanceField, Type: storage.ColumnTypeInt64},
+	}
+
+	edgeTableName := "transfer"
+	amountField := "amount"
+	timestampField := "timestamp"
+	edgeSchema := storage.Schema{
+		{Name: amountField, Type: storage.ColumnTypeInt64},
+		{Name: timestampField, Type: storage.ColumnTypeInt64},
+	}
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			err := e.CreateVertexType(txnID, vertTableName, vertSchema, logger)
+			require.NoError(t, err)
+			err = e.CreateEdgeType(
+				txnID,
+				edgeTableName,
+				edgeSchema,
+				vertTableName,
+				vertTableName,
+				logger,
+			)
+			require.NoError(t, err)
+			return nil
+		},
+		false,
+	)
+	require.NoError(t, err)
+
+	const (
+		nClients       = 1000
+		nTransactions  = 1000
+		initialBalance = 100
+		workerPoolSize = 10
+		totalMoney     = nClients * initialBalance
+	)
+
+	vertices := make([]storage.VertexInfo, 0, nClients)
+	for range nClients {
+		vertices = append(vertices, storage.VertexInfo{
+			SystemID: storage.VertexSystemID(uuid.New()),
+			Data:     map[string]any{balanceField: int64(initialBalance)},
+		})
+	}
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			return e.InsertVertices(txnID, vertTableName, vertices, logger)
+		},
+		false,
+	)
+	require.NoError(t, err)
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			s := int64(0)
+			for _, vert := range vertices {
+				vert, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+				if err != nil {
+					return err
+				}
+				s += vert.Data[balanceField].(int64)
+			}
+			require.Equal(t, int64(totalMoney), s)
+			return nil
+		},
+		true,
+	)
+	require.NoError(t, err)
+
+	workerPool, err := ants.NewPool(workerPoolSize)
+	require.NoError(t, err)
+	defer workerPool.Release()
+
+	wg := sync.WaitGroup{}
+	wg.Add(nClients)
+	for range nClients {
+		err := workerPool.Submit(func() {
+			defer wg.Done()
+
+			err := ExecuteWithRetry(
+				&ticker,
+				e,
+				logger,
+				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+					src := rand.Intn(nClients)
+					dst := rand.Intn(nClients)
+					for dst == src {
+						dst = rand.Intn(nClients)
+					}
+
+					srcVertID := vertices[src].SystemID
+					dstVertID := vertices[dst].SystemID
+
+					log.Printf(
+						"txnID: %d - Starting transfer from vertex %d to vertex %d",
+						txnID,
+						src,
+						dst,
+					)
+
+					srcVert, err := e.SelectVertex(txnID, vertTableName, srcVertID, logger)
+					if err != nil {
+						log.Printf("txnID: %d - Failed to select source vertex: %v", txnID, err)
+						return err
+					}
+					dstVert, err := e.SelectVertex(txnID, vertTableName, dstVertID, logger)
+					if err != nil {
+						log.Printf(
+							"txnID: %d - Failed to select destination vertex: %v",
+							txnID,
+							err,
+						)
+						return err
+					}
+
+					srcBalance := srcVert.Data[balanceField].(int64)
+					if srcBalance == 0 {
+						log.Printf(
+							"txnID: %d - Source vertex %d has zero balance, skipping transfer",
+							txnID,
+							src,
+						)
+						return nil
+					}
+					dstBalance := dstVert.Data[balanceField].(int64)
+
+					transferAmount := int64(rand.Intn(int(srcBalance)))
+					transferTimestamp := time.Now().Unix()
+					log.Printf(
+						"txnID: %d - Transferring amount %d from vertex %d (balance: %d) to vertex %d (balance: %d)",
+						txnID,
+						transferAmount,
+						src,
+						srcBalance,
+						dst,
+						dstBalance,
+					)
+
+					transferEdge := storage.EdgeInfo{
+						SystemID:    storage.EdgeSystemID(uuid.New()),
+						SrcVertexID: srcVertID,
+						DstVertexID: dstVertID,
+						Data: map[string]any{
+							amountField:    int64(transferAmount),
+							timestampField: int64(transferTimestamp),
+						},
+					}
+
+					err = e.UpdateVertex(
+						txnID,
+						vertTableName,
+						srcVertID,
+						map[string]any{
+							balanceField: int64(srcBalance - transferAmount),
+						},
+						logger,
+					)
+					if err != nil {
+						log.Printf(
+							"txnID: %d - Failed to update source vertex balance: %v",
+							txnID,
+							err,
+						)
+						return err
+					}
+
+					err = e.UpdateVertex(
+						txnID,
+						vertTableName,
+						dstVertID,
+						map[string]any{
+							balanceField: int64(dstBalance + transferAmount),
+						},
+						logger,
+					)
+					if err != nil {
+						log.Printf(
+							"txnID: %d - Failed to update destination vertex balance: %v",
+							txnID,
+							err,
+						)
+						return err
+					}
+
+					err = e.InsertEdge(txnID, edgeTableName, transferEdge, logger)
+					if err != nil {
+						log.Printf("txnID: %d - Failed to insert transfer edge: %v", txnID, err)
+						return err
+					}
+
+					log.Printf(
+						"txnID: %d - Successfully completed transfer of amount %d from vertex %d to vertex %d",
+						txnID,
+						transferAmount,
+						src,
+						dst,
+					)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		})
+		require.NoError(t, err)
+	}
+	wg.Wait()
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			s := int64(0)
+			for _, vert := range vertices {
+				vert, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+				if err != nil {
+					return err
+				}
+				s += vert.Data[balanceField].(int64)
+			}
+			require.Equal(t, int64(totalMoney), s)
 			return nil
 		},
 		true,

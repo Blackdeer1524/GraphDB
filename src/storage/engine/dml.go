@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Blackdeer1524/GraphDB/src/pkg/assert"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/storage"
 	"github.com/Blackdeer1524/GraphDB/src/storage/disk"
@@ -295,8 +296,8 @@ func (s *StorageEngine) UpdateVertex(
 		pageIdent,
 		pg,
 		func(lockedPage *page.SlottedPage) (common.LogRecordLocInfo, error) {
-			storedVertex := lockedPage.UnsafeRead(vertexRID.R.SlotNum)
-			vertexSystemFields, _, err := parseVertexRecord(storedVertex, schema)
+			storedVertexBytes := lockedPage.UnsafeRead(vertexRID.R.SlotNum)
+			vertexSystemFields, _, err := parseVertexRecord(storedVertexBytes, schema)
 			if err != nil {
 				return common.NewNilLogRecordLocation(), fmt.Errorf(
 					"failed to parse vertex record: %w",
@@ -304,18 +305,24 @@ func (s *StorageEngine) UpdateVertex(
 				)
 			}
 
-			serializedData, err := serializeVertexRecord(
+			serializedNewData, err := serializeVertexRecord(
 				vertexSystemFields,
 				newData,
 				schema,
 			)
 
+			assert.Assert(
+				len(serializedNewData) == len(storedVertexBytes),
+				"serialized new data length mismatch. old: %d, new: %d",
+				len(storedVertexBytes),
+				len(serializedNewData),
+			)
 			if err != nil {
 				err = fmt.Errorf("failed to serialize vertex record: %w", err)
 				return common.NewNilLogRecordLocation(), err
 			}
 
-			return lockedPage.UpdateWithLogs(serializedData, vertexRID.R, ctxLogger)
+			return lockedPage.UpdateWithLogs(serializedNewData, vertexRID.R, ctxLogger)
 		},
 	)
 }
@@ -428,7 +435,7 @@ func (s *StorageEngine) insertEdgeHelper(
 	dirItemID storage.DirItemSystemID,
 	nextEdgeID storage.EdgeSystemID,
 	edgeFields map[string]any,
-	schema storage.Schema,
+	edgeSchema storage.Schema,
 	edgesFileToken *txns.FileLockToken,
 	edgeSystemIndex storage.Index,
 	ctxLogger common.ITxnLoggerWithContext,
@@ -469,7 +476,7 @@ func (s *StorageEngine) insertEdgeHelper(
 		serializedData, err := serializeEdgeRecord(
 			edgeSystemFields,
 			edgeFields,
-			schema,
+			edgeSchema,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to serialize edge record: %w", err)
@@ -522,7 +529,7 @@ func (s *StorageEngine) insertEdgeWithDirItem(
 	srcVertexID storage.VertexSystemID,
 	dstVertexID storage.VertexSystemID,
 	edgeFields map[string]any,
-	schema storage.Schema,
+	edgeSchema storage.Schema,
 	edgesFileToken *txns.FileLockToken,
 	edgeSystemIndex storage.Index,
 
@@ -541,7 +548,7 @@ func (s *StorageEngine) insertEdgeWithDirItem(
 		storage.NilDirItemID,
 		storage.NilEdgeID,
 		edgeFields,
-		schema,
+		edgeSchema,
 		edgesFileToken,
 		edgeSystemIndex,
 		ctxLogger,
@@ -594,8 +601,9 @@ func (s *StorageEngine) InsertEdge(
 	srcVertexID storage.VertexSystemID,
 	dstVertexID storage.VertexSystemID,
 	edgeFields map[string]any,
-	schema storage.Schema,
+	edgeSchema storage.Schema,
 
+	srcVertSchema storage.Schema,
 	srcVertToken *txns.FileLockToken,
 	srcVertSystemIndex storage.Index,
 
@@ -607,7 +615,7 @@ func (s *StorageEngine) InsertEdge(
 
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	srcVertSystemFields, _, err := s.SelectVertex(txnID, srcVertexID, srcVertSystemIndex, schema)
+	srcVertSystemFields, _, err := s.SelectVertex(txnID, srcVertexID, srcVertSystemIndex, srcVertSchema)
 	if err != nil {
 		return fmt.Errorf("failed to get serialized src vertex: %w", err)
 	}
@@ -620,7 +628,7 @@ func (s *StorageEngine) InsertEdge(
 			srcVertexID,
 			dstVertexID,
 			edgeFields,
-			schema,
+			edgeSchema,
 			edgesFileToken,
 			edgeSystemIndex,
 
@@ -690,7 +698,7 @@ func (s *StorageEngine) InsertEdge(
 			dirItem.ID,
 			dirItem.EdgeID,
 			edgeFields,
-			schema,
+			edgeSchema,
 
 			edgesFileToken,
 			edgeSystemIndex,
@@ -739,7 +747,7 @@ func (s *StorageEngine) InsertEdge(
 		srcVertexID,
 		dstVertexID,
 		edgeFields,
-		schema,
+		edgeSchema,
 
 		edgesFileToken,
 		edgeSystemIndex,
