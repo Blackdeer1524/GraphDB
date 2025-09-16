@@ -171,7 +171,7 @@ func checkDeadlockCondition(
 	return enqueuedTxnID < requestingTxnID
 }
 
-// Lock attempts to acquire a lock for the given transaction lock request `r` in
+// lock attempts to acquire a lock for the given transaction lock request `r` in
 // the transaction queue. It enforces a deadlock prevention policy where only
 // older transactions can wait for younger ones; if a younger transaction
 // attempts to wait for an older one, it is aborted (returns nil).
@@ -181,7 +181,7 @@ func checkDeadlockCondition(
 // request is queued and a channel is returned that will be closed when the lock
 // is eventually granted. The returned channel can be used to wait for
 // lock acquisition.
-func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
+func (q *txnQueue[LockModeType, ObjectIDType]) lock(
 	r TxnLockRequest[LockModeType, ObjectIDType],
 ) <-chan struct{} {
 	if upgradingEntry, ok := q.txnNodes.Load(r.txnID); ok {
@@ -192,7 +192,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 			"can only upgrade acquired transactions",
 		)
 		upgradingEntry.mu.Unlock()
-		return q.Upgrade(r)
+		return q.upgrade(r)
 	}
 
 	cur := q.head
@@ -274,7 +274,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	return notifier
 }
 
-func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
+func (q *txnQueue[LockModeType, ObjectIDType]) upgrade(
 	r TxnLockRequest[LockModeType, ObjectIDType],
 ) <-chan struct{} {
 	upgradingEntryAny, ok := q.txnNodes.Load(r.txnID)
