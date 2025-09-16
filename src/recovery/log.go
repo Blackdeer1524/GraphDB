@@ -1048,9 +1048,15 @@ func (l *TxnLogger) Rollback(abortLogRecord common.LogRecordLocInfo) {
 	revertingRecordlocation := record.parentLogLocation
 	lastInsertedRecordLocation := abortLogRecord
 
+	c := 0
 	clrsFound := 0
 outer:
 	for {
+		c++
+		assert.Assert(
+			revertingRecordlocation.Location.PageID != common.CheckpointInfoPageID,
+			"CheckpointInfoPageID is not a valid page ID, c: %d", c,
+		)
 		tag, record, err := l.readLogRecord(revertingRecordlocation.Location)
 		assert.NoError(err)
 		switch tag {
