@@ -107,22 +107,16 @@ func execute(
 	executor *Executor,
 	logger common.ITxnLogger,
 	fn Task,
-	isReadOnly bool, // не будет писать логов -> немного получше скорость
 ) (err error) {
 	txnID := common.TxnID(ticker.Add(1))
 	defer executor.Locker.Unlock(txnID)
 
 	ctxLogger := logger.WithContext(txnID)
-	if !isReadOnly {
-		if err := ctxLogger.AppendBegin(); err != nil {
-			return fmt.Errorf("failed to append begin: %w", err)
-		}
+	if err := ctxLogger.AppendBegin(); err != nil {
+		return fmt.Errorf("failed to append begin: %w", err)
 	}
 
 	defer func() {
-		if isReadOnly {
-			return
-		}
 		if err != nil {
 			myassert.NoError(ctxLogger.AppendAbort())
 			ctxLogger.Rollback()
@@ -160,7 +154,6 @@ func TestCreateVertexType(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 
 	require.NoError(t, err)
@@ -202,7 +195,6 @@ func TestCreateVertexSimpleInsert(t *testing.T) {
 			require.Equal(t, v.Data["money"], int64(100))
 			return nil
 		},
-		false,
 	)
 
 	require.NoError(t, err)
@@ -229,7 +221,6 @@ func TestVertexTableInserts(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -265,7 +256,6 @@ func TestVertexTableInserts(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 
 	require.NoError(t, err)
@@ -292,7 +282,6 @@ func TestCreateVertexRollback(t *testing.T) {
 			require.NoError(t, err)
 			return ErrRollback
 		},
-		false,
 	)
 	require.ErrorIs(t, err, ErrRollback)
 
@@ -308,7 +297,6 @@ func TestCreateVertexRollback(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 }
@@ -334,7 +322,6 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -369,7 +356,6 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 			}
 			return ErrRollback
 		},
-		false,
 	)
 	require.ErrorIs(t, err, ErrRollback)
 
@@ -384,7 +370,6 @@ func TestVertexTableInsertsRollback(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 
 	require.NoError(t, err)
@@ -431,7 +416,6 @@ func TestDropVertexTable(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -444,7 +428,6 @@ func TestDropVertexTable(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -473,7 +456,6 @@ func TestDropVertexTable(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 }
@@ -537,7 +519,6 @@ func TestCreateEdgeTable(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -551,7 +532,6 @@ func TestCreateEdgeTable(t *testing.T) {
 			require.Equal(t, edge.Data["debt_amount"], int64(40))
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -573,7 +553,6 @@ func TestCreateEdgeTable(t *testing.T) {
 			require.Equal(t, res[0].V, v2Record.SystemID)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 }
@@ -613,7 +592,6 @@ func setupTables(
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 }
@@ -644,7 +622,6 @@ func TestVertexAndEdgeTableDrop(t *testing.T) {
 			require.NoError(t, err)
 			return ErrRollback
 		},
-		false,
 	)
 	require.ErrorIs(t, err, ErrRollback)
 
@@ -660,7 +637,6 @@ func TestVertexAndEdgeTableDrop(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 }
@@ -728,7 +704,6 @@ func TestSnowflakeNeighbours(t *testing.T) {
 
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -745,7 +720,6 @@ func TestSnowflakeNeighbours(t *testing.T) {
 				}
 				return nil
 			},
-			true,
 		)
 		require.NoError(t, err)
 	})
@@ -793,7 +767,6 @@ func TestSnowflakeNeighbours(t *testing.T) {
 				}
 				return nil
 			},
-			true,
 		)
 		require.NoError(t, err)
 	})
@@ -816,7 +789,6 @@ func TestSnowflakeNeighbours(t *testing.T) {
 				require.ElementsMatch(t, recordedNeighbors, []storage.VertexSystemIDWithRID{})
 				return nil
 			},
-			true,
 		)
 		require.NoError(t, err)
 	})
@@ -841,7 +813,6 @@ func TestSnowflakeNeighbours(t *testing.T) {
 				}
 				return nil
 			},
-			true,
 		)
 		require.NoError(t, err)
 	})
@@ -929,7 +900,6 @@ func instantiateGraph(
 			}
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 	return intVertID2systemID, edgesSystemInfo
@@ -1041,7 +1011,6 @@ func assertDBGraph(
 			}
 			return nil
 		},
-		true,
 	)
 	require.NoError(t, err)
 
@@ -1078,7 +1047,6 @@ func assertDBGraph(
 						)
 						return nil
 					},
-					true,
 				)
 				require.NoError(t, err)
 			}
@@ -1126,7 +1094,6 @@ func assertDBGraph(
 						require.ElementsMatch(t, expectedNeighborIDS, actualNeighbours)
 						return nil
 					},
-					true,
 				)
 				require.NoError(t, err)
 			}
@@ -1275,7 +1242,6 @@ func TestBuildGraph(t *testing.T) {
 					require.NoError(t, err)
 					return nil
 				},
-				false,
 			)
 			require.NoError(t, err)
 		})
@@ -1437,7 +1403,6 @@ func TestRandomizedBuildGraph(t *testing.T) {
 							require.NoError(t, err)
 							return nil
 						},
-						false,
 					)
 					require.NoError(t, err)
 				},
@@ -1571,7 +1536,6 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -1642,7 +1606,6 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -1724,7 +1687,6 @@ func TestNeighboursMultipleTables(t *testing.T) {
 			require.Equal(t, workplaceV.Data[workplaceFieldName], int64(3))
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 }
@@ -1753,7 +1715,6 @@ func TestSelectVerticesWithValues(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -1786,7 +1747,6 @@ func TestSelectVerticesWithValues(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -1805,7 +1765,6 @@ func TestSelectVerticesWithValues(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 	require.Equal(t, c, N)
@@ -1826,7 +1785,6 @@ func TestSelectVerticesWithValues(t *testing.T) {
 			require.Equal(t, len(vertices), N)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -1846,7 +1804,6 @@ func TestSelectVerticesWithValues(t *testing.T) {
 			require.Equal(t, len(vertices), 0)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 }
@@ -1971,7 +1928,6 @@ func TestGetAllTriangles(t *testing.T) {
 				require.Equal(t, triangles, test.expected)
 				return nil
 			},
-			false,
 		)
 		require.NoError(t, err)
 
@@ -1984,7 +1940,6 @@ func TestGetAllTriangles(t *testing.T) {
 				require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
 				return nil
 			},
-			false,
 		)
 		require.NoError(t, err)
 	}
@@ -2250,7 +2205,6 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 						}
 						return nil
 					},
-					false,
 				)
 				require.NoError(t, err)
 
@@ -2263,7 +2217,6 @@ func TestRandomizedGetAllTriangles(t *testing.T) {
 						require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
 						return nil
 					},
-					false,
 				)
 				require.NoError(t, err)
 			},
@@ -2321,7 +2274,6 @@ func TestPhantomRead(t *testing.T) {
 				time.Sleep(time.Second * 3)
 				return nil
 			},
-			false,
 		)
 		require.NoError(t, err)
 	}()
@@ -2345,7 +2297,6 @@ func TestPhantomRead(t *testing.T) {
 				}
 				return nil
 			},
-			false,
 		)
 		require.NoError(t, err)
 	}()
@@ -2824,7 +2775,6 @@ func TestSimpleUnfinishedTxnRecovery(t *testing.T) {
 				require.NoError(t, err)
 				return nil
 			},
-			false,
 		)
 		require.NoError(t, err)
 
@@ -2837,7 +2787,6 @@ func TestSimpleUnfinishedTxnRecovery(t *testing.T) {
 				require.NoError(t, err)
 				return nil
 			},
-			false,
 		)
 		require.NoError(t, err)
 
@@ -2875,7 +2824,6 @@ func TestSimpleUnfinishedTxnRecovery(t *testing.T) {
 				}
 				return nil
 			},
-			false,
 		)
 		require.NoError(t, err)
 	}()
@@ -2958,7 +2906,6 @@ func TestGetVertexesOnDepthConcurrent(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -3000,7 +2947,6 @@ func TestGetVertexesOnDepthConcurrent(t *testing.T) {
 						results[index] = result
 						return nil
 					},
-					false,
 				)
 				if err != nil {
 					errors[index] = err
@@ -3114,7 +3060,6 @@ func TestGetVertexesOnDepthConcurrentWithDifferentDepths(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -3160,7 +3105,6 @@ func TestGetVertexesOnDepthConcurrentWithDifferentDepths(t *testing.T) {
 						results[index] = result
 						return nil
 					},
-					false,
 				)
 				if err != nil {
 					errors[index] = err
@@ -3288,7 +3232,6 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVertices(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -3338,7 +3281,6 @@ func TestGetVertexesOnDepthConcurrentWithDifferentStartVertices(t *testing.T) {
 						results[index] = result
 						return nil
 					},
-					false,
 				)
 				if err != nil {
 					errors[index] = err
@@ -3639,7 +3581,6 @@ func TestConcurrentVertexInsertsSameTable(t *testing.T) {
 			schema := storage.Schema{{Name: vertFieldName, Type: storage.ColumnTypeInt64}}
 			return e.CreateVertexType(txnID, vertTableName, schema, logger)
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -3685,7 +3626,6 @@ func TestConcurrentVertexInsertsSameTable(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 }
@@ -3715,7 +3655,6 @@ func TestConcurrentVertexInsertsMultipleTables(t *testing.T) {
 				schema := storage.Schema{{Name: field, Type: storage.ColumnTypeInt64}}
 				return e.CreateVertexType(txnID, name, schema, logger)
 			},
-			false,
 		))
 	}
 	createTable(leftTable)
@@ -3771,7 +3710,6 @@ func TestConcurrentVertexInsertsMultipleTables(t *testing.T) {
 				}
 				return nil
 			},
-			false,
 		))
 	}
 	verify(leftTable, leftVertices, 1000)
@@ -3802,7 +3740,6 @@ func TestConcurrentVertexInsertsHighContention(t *testing.T) {
 			schema := storage.Schema{{Name: field, Type: storage.ColumnTypeInt64}}
 			return e.CreateVertexType(txnID, table, schema, logger)
 		},
-		false,
 	))
 
 	const writers = 12
@@ -3843,7 +3780,6 @@ func TestConcurrentVertexInsertsHighContention(t *testing.T) {
 			}
 			return nil
 		},
-		false,
 	))
 
 	{
@@ -3863,7 +3799,6 @@ func TestConcurrentVertexInsertsHighContention(t *testing.T) {
 				}
 				return nil
 			},
-			false,
 		))
 	}
 }
@@ -3932,7 +3867,6 @@ func TestForbidSelectOnInsertedVertex(t *testing.T) {
 				time.Sleep(time.Hour)
 				return nil
 			},
-			false,
 		))
 	}()
 
@@ -3946,13 +3880,11 @@ func TestForbidSelectOnInsertedVertex(t *testing.T) {
 			e,
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-				<-insertDoneCh
 				t.Logf("selecting src vertex: %s", srcVert.SystemID)
 				_, err := e.SelectVertex(txnID, vertTableName, srcVert.SystemID, logger)
 				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
 				return nil
 			},
-			false,
 		))
 	}()
 
@@ -3964,13 +3896,11 @@ func TestForbidSelectOnInsertedVertex(t *testing.T) {
 			e,
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-				<-insertDoneCh
 				t.Logf("selecting dst vertex: %s", dstVert.SystemID)
 				_, err := e.SelectVertex(txnID, vertTableName, dstVert.SystemID, logger)
 				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
 				return nil
 			},
-			false,
 		))
 	}()
 
@@ -3982,14 +3912,12 @@ func TestForbidSelectOnInsertedVertex(t *testing.T) {
 			e,
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-				<-insertDoneCh
 				t.Logf("inserting edge: %s", edge.SystemID)
 				err := e.InsertEdge(txnID, edgeTableName, edge, logger)
 				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
-				return nil
+				return ErrRollback
 			},
-			false,
-		))
+		), ErrRollback)
 	}()
 
 	wg.Add(1)
@@ -4000,11 +3928,10 @@ func TestForbidSelectOnInsertedVertex(t *testing.T) {
 			e,
 			logger,
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-				<-insertDoneCh
 				t.Logf("getting vertices on depth: %s", edge.SrcVertexID)
 				_, err := e.GetVerticesOnDepth(
 					txnID,
-					edgeTableName,
+					vertTableName,
 					edge.SrcVertexID,
 					1,
 					storage.AllowAllVerticesFilter,
@@ -4013,7 +3940,6 @@ func TestForbidSelectOnInsertedVertex(t *testing.T) {
 				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
 				return nil
 			},
-			false,
 		))
 	}()
 
@@ -4054,7 +3980,6 @@ func TestOlderWaitsAndSucceedsOnEdgeInsert(t *testing.T) {
 			require.NoError(t, e.InsertVertex(txnID, vertTableName, dstVert, logger))
 			return nil
 		},
-		false,
 	))
 
 	edgeToInsert := storage.EdgeInfo{
@@ -4084,7 +4009,6 @@ func TestOlderWaitsAndSucceedsOnEdgeInsert(t *testing.T) {
 				require.NoError(t, e.InsertEdge(txnID, edgeTableName, edgeToInsert, logger))
 				return nil
 			},
-			false,
 		))
 	}()
 
@@ -4109,7 +4033,6 @@ func TestOlderWaitsAndSucceedsOnEdgeInsert(t *testing.T) {
 				time.Sleep(200 * time.Millisecond)
 				return nil
 			},
-			true,
 		))
 	}()
 
@@ -4126,7 +4049,6 @@ func TestOlderWaitsAndSucceedsOnEdgeInsert(t *testing.T) {
 			require.Equal(t, int64(300), edge.Data[edgeFieldName])
 			return nil
 		},
-		true,
 	))
 }
 
@@ -4164,7 +4086,6 @@ func TestYoungerInsertEdgeForbiddenByOlderRead(t *testing.T) {
 			require.NoError(t, e.InsertVertex(txnID, vertTableName, dstVert, logger))
 			return nil
 		},
-		false,
 	))
 
 	edgeToInsert := storage.EdgeInfo{
@@ -4200,7 +4121,6 @@ func TestYoungerInsertEdgeForbiddenByOlderRead(t *testing.T) {
 				<-holdOlder // keep S-locks until the younger tries to insert
 				return nil
 			},
-			false,
 		))
 	}()
 
@@ -4215,10 +4135,9 @@ func TestYoungerInsertEdgeForbiddenByOlderRead(t *testing.T) {
 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
 				err := e.InsertEdge(txnID, edgeTableName, edgeToInsert, logger)
 				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
-				return nil
+				return ErrRollback
 			},
-			false,
-		))
+		), ErrRollback)
 		close(holdOlder)
 	}()
 
@@ -4234,7 +4153,6 @@ func TestYoungerInsertEdgeForbiddenByOlderRead(t *testing.T) {
 			require.ErrorIs(t, err, storage.ErrKeyNotFound)
 			return nil
 		},
-		true,
 	))
 }
 
@@ -4272,7 +4190,6 @@ func TestYoungerSelectEdgeForbiddenByOlderInsert(t *testing.T) {
 			require.NoError(t, e.InsertVertex(txnID, vertTableName, dstVert, logger))
 			return nil
 		},
-		false,
 	))
 
 	edgeToInsert := storage.EdgeInfo{
@@ -4300,7 +4217,6 @@ func TestYoungerSelectEdgeForbiddenByOlderInsert(t *testing.T) {
 				<-olderHold
 				return nil
 			},
-			false,
 		))
 	}()
 
@@ -4322,7 +4238,6 @@ func TestYoungerSelectEdgeForbiddenByOlderInsert(t *testing.T) {
 				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
 				return nil
 			},
-			true,
 		))
 		close(olderHold)
 	}()
@@ -4340,7 +4255,6 @@ func TestYoungerSelectEdgeForbiddenByOlderInsert(t *testing.T) {
 			require.Equal(t, int64(111), edge.Data[edgeFieldName])
 			return nil
 		},
-		true,
 	))
 }
 
@@ -4440,7 +4354,6 @@ func TestConcurrentCheckpoint(t *testing.T) {
 				}
 				return nil
 			},
-			false,
 		)
 		require.NoError(t, err)
 
@@ -4492,7 +4405,6 @@ func TestConcurrentCheckpoint(t *testing.T) {
 						err = e.InsertEdges(txnID, edgeTableName, insertedEdges, logger)
 						return err
 					},
-					false,
 				)
 				if errors.Is(err, txns.ErrDeadlockPrevention) {
 					failedEdgeIDsMu.Lock()
@@ -4530,7 +4442,6 @@ func TestConcurrentCheckpoint(t *testing.T) {
 			e,
 			logger,
 			ensureConsistentDB,
-			true,
 		)
 		require.NoError(t, err)
 	}()
@@ -4547,7 +4458,6 @@ func TestConcurrentCheckpoint(t *testing.T) {
 			e,
 			logger,
 			ensureConsistentDB,
-			true,
 		))
 	}()
 }
@@ -4703,7 +4613,6 @@ func TestConcurrentGetTriangles(t *testing.T) {
 								}
 								return nil
 							},
-							true,
 						)
 						require.NoError(t, err)
 					}()
@@ -4720,7 +4629,6 @@ func TestConcurrentGetTriangles(t *testing.T) {
 						require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
 						return nil
 					},
-					false,
 				)
 				require.NoError(t, err)
 			},
@@ -5016,7 +4924,6 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 						}
 						return e.CreateVertexType(txnID, vertTableName, schema, logger)
 					},
-					false,
 				)
 				require.NoError(t, err)
 
@@ -5038,7 +4945,6 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 							logger,
 						)
 					},
-					false,
 				)
 				require.NoError(t, err)
 
@@ -5127,7 +5033,6 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 						slog.Info("final check", "db", triangles, "inmemory", trCnt)
 						return nil
 					},
-					false,
 				)
 				require.NoError(t, err)
 
@@ -5140,7 +5045,6 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 						require.NoError(t, e.DropEdgeTable(txnID, edgeTableName, logger))
 						return nil
 					},
-					false,
 				)
 				require.NoError(t, err)
 			})
@@ -5187,6 +5091,131 @@ func ExecuteWithRetry(
 	}
 }
 
+// func TestReproduceBrokenUpgrade(t *testing.T) {
+// 	fs := afero.NewOsFs()
+// 	catalogBasePath := t.TempDir()
+// 	poolPageCount := uint64(50)
+// 	debugMode := false
+//
+// 	e, debugPool, locker, logger, err := setupExecutor(
+// 		fs,
+// 		catalogBasePath,
+// 		poolPageCount,
+// 		debugMode,
+// 	)
+// 	require.NoError(t, err)
+// 	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+//
+// 	var ticker atomic.Uint64
+// 	vertTableName := "person"
+// 	vertFieldName := "id"
+//
+// 	vertSchema := storage.Schema{
+// 		{Name: vertFieldName, Type: storage.ColumnTypeInt64},
+// 	}
+//
+// 	vert := storage.VertexInfo{
+// 		SystemID: storage.VertexSystemID(uuid.New()),
+// 		Data:     map[string]any{vertFieldName: int64(0)},
+// 	}
+// 	require.NoError(t, Execute(
+// 		&ticker,
+// 		e,
+// 		logger,
+// 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+// 			err := e.se.CreateVertexTable(
+// 				txnID,
+// 				vertTableName,
+// 				vertSchema,
+// 				txns.NewNilCatalogLockToken(txnID),
+// 				logger,
+// 			)
+// 			require.NoError(t, err)
+// 			require.NoError(t, e.InsertVertex(txnID, vertTableName, vert, logger))
+// 			return nil
+// 		},
+// 		false,
+// 	))
+//
+// 	wg := sync.WaitGroup{}
+//
+// 	firstReadDoneCh := make(chan struct{})
+// 	secondReadDoneCh := make(chan struct{})
+//
+// 	wg.Add(1)
+// 	go func() {
+// 		defer wg.Done()
+// 		err := Execute(
+// 			&ticker,
+// 			e,
+// 			logger,
+// 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+// 				dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+// 				require.NoError(t, err)
+// 				firstReadDoneCh <- struct{}{}
+// 				<-secondReadDoneCh
+//
+// 				t.Logf("Dependency graph after all reads:\n%s", locker.DumpDependencyGraph())
+// 				newData := map[string]any{
+// 					vertFieldName: int64(dbVer.Data[vertFieldName].(int64) + 1),
+// 				}
+//
+// 				err = e.UpdateVertex(txnID, vertTableName, vert.SystemID, newData, logger)
+// 				require.NoError(t, err)
+// 				t.Logf("Dependency graph after first upgrade:\n%s", locker.DumpDependencyGraph())
+// 				firstReadDoneCh <- struct{}{}
+// 				return nil
+// 			},
+// 			false,
+// 		)
+// 		require.NoError(t, err)
+// 	}()
+//
+// 	wg.Add(1)
+// 	go func() {
+// 		defer wg.Done()
+//
+// 		err := Execute(
+// 			&ticker,
+// 			e,
+// 			logger,
+// 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+// 				<-firstReadDoneCh
+// 				dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+// 				require.NoError(t, err)
+// 				secondReadDoneCh <- struct{}{}
+// 				<-firstReadDoneCh
+//
+// 				t.Logf("Dependency graph after first commit:\n%s", locker.DumpDependencyGraph())
+// 				newData := map[string]any{
+// 					vertFieldName: int64(dbVer.Data[vertFieldName].(int64) + 1),
+// 				}
+// 				err = e.UpdateVertex(txnID, vertTableName, vert.SystemID, newData, logger)
+// 				require.NoError(t, err)
+// 				return nil
+// 			},
+// 			false,
+// 		)
+// 		require.NoError(t, err)
+// 	}()
+//
+// 	wg.Wait()
+//
+// 	err = Execute(
+// 		&ticker,
+// 		e,
+// 		logger,
+// 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+// 			dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+// 			require.NoError(t, err)
+// 			require.Equal(t, int64(2), dbVer.Data[vertFieldName].(int64))
+// 			return nil
+// 		},
+// 		true,
+// 	)
+// 	require.NoError(t, err)
+// }
+
 func TestRepeatableRead(t *testing.T) {
 	fs := afero.NewOsFs()
 	catalogBasePath := t.TempDir()
@@ -5210,8 +5239,8 @@ func TestRepeatableRead(t *testing.T) {
 	setupTables(t, e, &ticker, vertTableName, vertFieldName, edgeTableName, edgeFieldName, logger)
 
 	const (
-		jobsCount      = 100
-		workerPoolSize = 20
+		jobsCount      = 1000
+		workerPoolSize = 32
 	)
 
 	pool, err := ants.NewPool(workerPoolSize)
@@ -5232,7 +5261,6 @@ func TestRepeatableRead(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -5291,14 +5319,13 @@ func TestRepeatableRead(t *testing.T) {
 			require.Equal(t, int64(jobsCount), vert.Data[vertFieldName].(int64))
 			return nil
 		},
-		true,
 	)
 	require.NoError(t, err)
 }
 
 func TestBankTransactions(t *testing.T) {
-	fs := afero.NewOsFs()
-	catalogBasePath := t.TempDir()
+	fs := afero.NewMemMapFs()
+	catalogBasePath := "/tmp/graphdb_test"
 	poolPageCount := uint64(50)
 	debugMode := false
 
@@ -5345,15 +5372,14 @@ func TestBankTransactions(t *testing.T) {
 			require.NoError(t, err)
 			return nil
 		},
-		false,
 	)
 	require.NoError(t, err)
 
 	const (
 		nClients       = 1000
-		nTransactions  = 1000
+		nTransactions  = 20000
 		initialBalance = 100
-		workerPoolSize = 10
+		workerPoolSize = 30
 		totalMoney     = nClients * initialBalance
 	)
 
@@ -5372,7 +5398,6 @@ func TestBankTransactions(t *testing.T) {
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
 			return e.InsertVertices(txnID, vertTableName, vertices, logger)
 		},
-		false,
 	)
 	require.NoError(t, err)
 
@@ -5392,7 +5417,6 @@ func TestBankTransactions(t *testing.T) {
 			require.Equal(t, int64(totalMoney), s)
 			return nil
 		},
-		true,
 	)
 	require.NoError(t, err)
 
@@ -5401,12 +5425,12 @@ func TestBankTransactions(t *testing.T) {
 	defer workerPool.Release()
 
 	wg := sync.WaitGroup{}
-	wg.Add(nClients)
-	for range nClients {
+	wg.Add(nTransactions)
+	for range nTransactions {
 		err := workerPool.Submit(func() {
 			defer wg.Done()
 
-			err := ExecuteWithRetry(
+			err := execute(
 				&ticker,
 				e,
 				logger,
@@ -5527,10 +5551,16 @@ func TestBankTransactions(t *testing.T) {
 					return nil
 				},
 			)
+			if errors.Is(err, txns.ErrDeadlockPrevention) {
+				return
+			}
 			require.NoError(t, err)
 		})
 		require.NoError(t, err)
 	}
+	time.AfterFunc(time.Second*7, func() {
+		t.Logf("Dependency graph:\n%s", locker.DumpDependencyGraph())
+	})
 	wg.Wait()
 
 	err = execute(
@@ -5549,7 +5579,6 @@ func TestBankTransactions(t *testing.T) {
 			require.Equal(t, int64(totalMoney), s)
 			return nil
 		},
-		true,
 	)
 	require.NoError(t, err)
 }

@@ -180,10 +180,16 @@ func checkDeadlockCondition(
 // is granted immediately and a closed channel is returned. Otherwise, the
 // request is queued and a channel is returned that will be closed when the lock
 // is eventually granted. The returned channel can be used to wait for
-// lock acquisition.
 func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	r TxnLockRequest[LockModeType, ObjectIDType],
 ) <-chan struct{} {
+	// log.Printf(
+	// 	"[%v:%v:%v] Starting lock request",
+	// 	r.txnID,
+	// 	r.objectId,
+	// 	r.lockMode,
+	// )
+
 	if upgradingEntry, ok := q.txnNodes.Load(r.txnID); ok {
 		upgradingEntry := upgradingEntry.(*txnQueueEntry[LockModeType, ObjectIDType])
 		upgradingEntry.mu.Lock()
@@ -192,6 +198,12 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 			"can only upgrade acquired transactions",
 		)
 		upgradingEntry.mu.Unlock()
+		// log.Printf(
+		// 	"[%v:%v:%v] Found existing entry, performing upgrade",
+		// 	r.txnID,
+		// 	r.objectId,
+		// 	r.lockMode,
+		// )
 		return q.Upgrade(r)
 	}
 
@@ -200,6 +212,12 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	defer func() { cur.mu.Unlock() }()
 
 	if cur.next == q.tail {
+		// log.Printf(
+		// 	"[%v:%v:%v] Queue empty, granting lock immediately",
+		// 	r.txnID,
+		// 	r.objectId,
+		// 	r.lockMode,
+		// )
 		notifier := make(chan struct{})
 		close(notifier)
 		newNode := &txnQueueEntry[LockModeType, ObjectIDType]{
@@ -216,6 +234,13 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	cur = cur.SafeNext()
 	locksAreCompatible := true
 	deadlock := false
+	// log.Printf(
+	// 	"[%v:%v:%v] Checking compatibility with acquired locks",
+	// 	r.txnID,
+	// 	r.objectId,
+	// 	r.lockMode,
+	// )
+
 	for cur.status == entryStatusAcquired {
 		assert.Assert(
 			cur.r.txnID != r.txnID,
@@ -226,10 +251,24 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 		deadlock = deadlock || checkDeadlockCondition(cur.r.txnID, r.txnID)
 		locksAreCompatible = locksAreCompatible && r.lockMode.Compatible(cur.r.lockMode)
 		if !locksAreCompatible {
+			// log.Printf(
+			// 	"[%v:%v:%v] Lock incompatible with existing lock mode %v from txn %v",
+			// 	r.txnID,
+			// 	r.objectId,
+			// 	r.lockMode,
+			// 	cur.r.lockMode,
+			// 	cur.r.txnID,
+			// )
 			break
 		}
 
 		if cur.next == q.tail {
+			// log.Printf(
+			// 	"[%v:%v:%v] Compatible with all acquired locks & queue is empty, granting lock",
+			// 	r.txnID,
+			// 	r.objectId,
+			// 	r.lockMode,
+			// )
 			notifier := make(chan struct{})
 			close(notifier) // Grant the lock immediately
 			newNode := &txnQueueEntry[LockModeType, ObjectIDType]{
@@ -247,9 +286,21 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 
 	deadlock = deadlock || checkDeadlockCondition(cur.r.txnID, r.txnID)
 	if deadlock {
+		// log.Printf(
+		// 	"[%v:%v:%v] Deadlock condition detected, aborting lock request",
+		// 	r.txnID,
+		// 	r.objectId,
+		// 	r.lockMode,
+		// )
 		return nil
 	}
 
+	// log.Printf(
+	// 	"[%v:%v:%v] Checking for deadlocks with waiting transactions",
+	// 	r.txnID,
+	// 	r.objectId,
+	// 	r.lockMode,
+	// )
 	for cur.next != q.tail {
 		cur = cur.SafeNext()
 		assert.Assert(
@@ -259,10 +310,23 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 		)
 
 		if checkDeadlockCondition(cur.r.txnID, r.txnID) {
+			// log.Printf(
+			// 	"[%v:%v:%v] Deadlock condition detected with txn %v, aborting lock request",
+			// 	r.txnID,
+			// 	r.objectId,
+			// 	r.lockMode,
+			// 	cur.r.txnID,
+			// )
 			return nil
 		}
 	}
 
+	// log.Printf(
+	// 	"[%v:%v:%v] Enqueueing lock request for waiting",
+	// 	r.txnID,
+	// 	r.objectId,
+	// 	r.lockMode,
+	// )
 	notifier := make(chan struct{})
 	newNode := &txnQueueEntry[LockModeType, ObjectIDType]{
 		r:        r,
@@ -274,9 +338,18 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 	return notifier
 }
 
+// lock acquisition.
+
 func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	r TxnLockRequest[LockModeType, ObjectIDType],
 ) <-chan struct{} {
+	// log.Printf(
+	// 	"[%v:%v:%v] Starting lock upgrade request",
+	// 	r.txnID,
+	// 	r.objectId,
+	// 	r.lockMode,
+	// )
+
 	upgradingEntryAny, ok := q.txnNodes.Load(r.txnID)
 	assert.Assert(ok, "can't find upgrading entry")
 	upgradingEntry := upgradingEntryAny.(*txnQueueEntry[LockModeType, ObjectIDType])
@@ -289,11 +362,24 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	acquiredLockMode := upgradingEntry.r.lockMode
 
 	if r.lockMode.WeakerOrEqual(acquiredLockMode) {
+		// log.Printf(
+		// 	"[%v:%v:%v] Current lock mode is sufficient for requested mode, returning existing
+		// notifier",
+		// 	r.txnID,
+		// 	r.objectId,
+		// 	r.lockMode,
+		// )
 		upgradingEntry.mu.Unlock()
 		return upgradingEntry.notifier
 	}
 
 	r.lockMode = r.lockMode.Combine(acquiredLockMode)
+	// log.Printf(
+	// 	"[%v:%v:%v] Combined lock mode calculated",
+	// 	r.txnID,
+	// 	r.objectId,
+	// 	r.lockMode,
+	// )
 	upgradingEntry.mu.Unlock()
 
 	deadlock := false
@@ -311,6 +397,12 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 		cur = cur.next
 		cur.mu.Lock()
 		if cur.r.txnID == r.txnID {
+			// log.Printf(
+			// 	"[%v:%v:%v] Found upgrading entry in queue",
+			// 	r.txnID,
+			// 	r.objectId,
+			// 	r.lockMode,
+			// )
 			break
 		}
 		entryBeforeUpgradingOne.mu.Unlock()
@@ -337,6 +429,12 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	if next == q.tail || next.status == entryStatusWaitAcquire {
 		// no upgrades pending
 		if compatible {
+			// log.Printf(
+			// 	"[%v:%v:%v] Lock upgrade is compatible, granting immediately",
+			// 	r.txnID,
+			// 	r.objectId,
+			// 	r.lockMode,
+			// )
 			cur.mu.Unlock()
 			next.mu.Unlock()
 
@@ -348,11 +446,23 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 		}
 
 		if deadlock {
+			// 	log.Printf(
+			// 		"[%v:%v:%v] Deadlock detected, aborting upgrade",
+			// 		r.txnID,
+			// 		r.objectId,
+			// 		r.lockMode,
+			// 	)
 			cur.mu.Unlock()
 			next.mu.Unlock()
 			return nil
 		}
 
+		// log.Printf(
+		// 	"[%v:%v:%v] Creating new wait upgrade entry",
+		// 	r.txnID,
+		// 	r.objectId,
+		// 	r.lockMode,
+		// )
 		newEntry := &txnQueueEntry[LockModeType, ObjectIDType]{
 			r:        r,
 			notifier: make(chan struct{}),
@@ -371,26 +481,58 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 
 	assert.Assert(next.status == entryStatusWaitUpgrade)
 	if deadlock {
+		// log.Printf(
+		// 	"[%v:%v:%v] Deadlock detected with existing upgrade, aborting upgrade",
+		// 	r.txnID,
+		// 	r.objectId,
+		// 	r.lockMode,
+		// )
 		cur.mu.Unlock()
 		next.mu.Unlock()
 		return nil
 	}
 
+	// log.Printf(
+	// 	"[%v:%v:%v] Checking compatibility with existing upgrade entries",
+	// 	r.txnID,
+	// 	r.objectId,
+	// 	r.lockMode,
+	// )
 	cur.mu.Unlock()
 	cur = next
 	defer func() { cur.mu.Unlock() }()
 
 	for {
 		if !cur.r.lockMode.Compatible(r.lockMode) {
+			// log.Printf(
+			// 	"[%v:%v:%v] Incompatible with existing upgrade entry, aborting upgrade",
+			// 	r.txnID,
+			// 	r.objectId,
+			// 	r.lockMode,
+			// )
 			return nil
 		}
 		if checkDeadlockCondition(cur.r.txnID, r.txnID) {
+			// log.Printf(
+			// 	"[%v:%v:%v] Deadlock condition with upgrade entry, aborting upgrade",
+			// 	r.txnID,
+			// 	r.objectId,
+			// 	r.lockMode,
+			// )
 			return nil
 		}
 		next = cur.next
 		next.mu.Lock()
 
 		if next == q.tail || next.status == entryStatusWaitAcquire {
+			// log.Printf(
+			// 	"[%v:%v:%v] Inserting upgrade entry at end of upgrade queue after existing upgrade
+			// entry %v",
+			// 	r.txnID,
+			// 	r.objectId,
+			// 	r.lockMode,
+			// 	cur.r.txnID,
+			// )
 			newEntry := &txnQueueEntry[LockModeType, ObjectIDType]{
 				r:        r,
 				notifier: make(chan struct{}),

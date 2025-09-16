@@ -9,7 +9,7 @@ import (
 
 type TaggedType[T any] struct{ v T } // this trick forbids casting one lock mode to another
 
-type PageLockMode TaggedType[uint8]
+type SimpleLockMode TaggedType[uint8]
 type GranularLockMode TaggedType[uint16]
 
 type GranularLock[Lock any] interface {
@@ -20,8 +20,8 @@ type GranularLock[Lock any] interface {
 }
 
 var (
-	PageLockShared    PageLockMode = PageLockMode{0}
-	PageLockExclusive PageLockMode = PageLockMode{1}
+	PageLockShared    SimpleLockMode = SimpleLockMode{0}
+	PageLockExclusive SimpleLockMode = SimpleLockMode{1}
 )
 
 var (
@@ -33,11 +33,11 @@ var (
 )
 
 var (
-	_ GranularLock[PageLockMode]     = PageLockMode{0}
+	_ GranularLock[SimpleLockMode]   = SimpleLockMode{0}
 	_ GranularLock[GranularLockMode] = GranularLockMode{0}
 )
 
-func (m PageLockMode) String() string {
+func (m SimpleLockMode) String() string {
 	switch m {
 	case PageLockShared:
 		return "SHARED"
@@ -65,14 +65,14 @@ func (m GranularLockMode) String() string {
 	}
 }
 
-func (m PageLockMode) Compatible(other PageLockMode) bool {
+func (m SimpleLockMode) Compatible(other SimpleLockMode) bool {
 	if m == PageLockShared && other == PageLockShared {
 		return true
 	}
 	return false
 }
 
-func (m PageLockMode) Combine(to PageLockMode) PageLockMode {
+func (m SimpleLockMode) Combine(to SimpleLockMode) SimpleLockMode {
 	switch m {
 	case PageLockShared:
 		switch to {
@@ -87,7 +87,7 @@ func (m PageLockMode) Combine(to PageLockMode) PageLockMode {
 	panic("unreachable")
 }
 
-func (m PageLockMode) WeakerOrEqual(other PageLockMode) bool {
+func (m SimpleLockMode) WeakerOrEqual(other SimpleLockMode) bool {
 	switch m {
 	case PageLockShared:
 		switch other {
@@ -347,6 +347,6 @@ func NewTxnUnlockRequest[ObjectIDType comparable](
 
 type PageLockRequest struct {
 	TxnID    common.TxnID
-	LockMode PageLockMode
+	LockMode SimpleLockMode
 	PageID   uint64
 }

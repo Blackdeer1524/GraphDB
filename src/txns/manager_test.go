@@ -14,10 +14,10 @@ import (
 )
 
 func TestManagerBasicOperation(t *testing.T) {
-	m := NewManager[PageLockMode, common.PageID]()
+	m := NewManager[SimpleLockMode, common.PageID]()
 
 	// Test queue creation on first lock
-	req := TxnLockRequest[PageLockMode, common.PageID]{
+	req := TxnLockRequest[SimpleLockMode, common.PageID]{
 		txnID:    1,
 		objectId: 100,
 		lockMode: PageLockShared,
@@ -42,7 +42,7 @@ func TestManagerBasicOperation(t *testing.T) {
 }
 
 func TestManagerConcurrentRecordAccess(t *testing.T) {
-	m := NewManager[PageLockMode, common.PageID]()
+	m := NewManager[SimpleLockMode, common.PageID]()
 
 	var wg sync.WaitGroup
 
@@ -54,7 +54,7 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 
 			//nolint:gosec
 			recordID := common.PageID(id & 1) // Two distinct records
-			req := TxnLockRequest[PageLockMode, common.PageID]{
+			req := TxnLockRequest[SimpleLockMode, common.PageID]{
 				txnID:    common.TxnID(id), //nolint:gosec
 				objectId: recordID,
 				lockMode: PageLockShared,
@@ -80,7 +80,7 @@ func TestManagerConcurrentRecordAccess(t *testing.T) {
 }
 
 func TestManagerUnlockPanicScenarios(t *testing.T) {
-	m := NewManager[PageLockMode, common.PageID]()
+	m := NewManager[SimpleLockMode, common.PageID]()
 
 	// Test non-existent record panic
 	t.Run("NonExistentRecord", func(t *testing.T) {
@@ -100,7 +100,7 @@ func TestManagerUnlockPanicScenarios(t *testing.T) {
 			}
 		}()
 
-		req := TxnLockRequest[PageLockMode, common.PageID]{
+		req := TxnLockRequest[SimpleLockMode, common.PageID]{
 			txnID:    1,
 			objectId: 200,
 			lockMode: PageLockExclusive,
@@ -115,11 +115,11 @@ func TestManagerUnlockPanicScenarios(t *testing.T) {
 }
 
 func TestManagerLockContention(t *testing.T) {
-	m := NewManager[PageLockMode, common.PageID]()
+	m := NewManager[SimpleLockMode, common.PageID]()
 	recordID := common.PageID(300)
 
 	// First exclusive lock
-	req1 := TxnLockRequest[PageLockMode, common.PageID]{
+	req1 := TxnLockRequest[SimpleLockMode, common.PageID]{
 		txnID:    5,
 		objectId: recordID,
 		lockMode: PageLockExclusive,
@@ -128,7 +128,7 @@ func TestManagerLockContention(t *testing.T) {
 	expectClosedChannel(t, notifier1, "First exclusive lock should be granted")
 
 	// Second exclusive lock (should block)
-	req2 := TxnLockRequest[PageLockMode, common.PageID]{
+	req2 := TxnLockRequest[SimpleLockMode, common.PageID]{
 		txnID:    4,
 		objectId: recordID,
 		lockMode: PageLockExclusive,
@@ -137,7 +137,7 @@ func TestManagerLockContention(t *testing.T) {
 	expectOpenChannel(t, notifier2, "Second exclusive lock should block")
 
 	// Concurrent shared lock (should also block)
-	req3 := TxnLockRequest[PageLockMode, common.PageID]{
+	req3 := TxnLockRequest[SimpleLockMode, common.PageID]{
 		txnID:    3,
 		objectId: recordID,
 		lockMode: PageLockShared,
@@ -161,11 +161,11 @@ func TestManagerLockContention(t *testing.T) {
 }
 
 func TestManagerUnlockRetry(t *testing.T) {
-	m := NewManager[PageLockMode, common.PageID]()
+	m := NewManager[SimpleLockMode, common.PageID]()
 	recordID := common.PageID(400)
 
 	// Setup lock
-	req := TxnLockRequest[PageLockMode, common.PageID]{
+	req := TxnLockRequest[SimpleLockMode, common.PageID]{
 		txnID:    1,
 		objectId: recordID,
 		lockMode: PageLockExclusive,
@@ -181,7 +181,7 @@ func TestManagerUnlockRetry(t *testing.T) {
 	go func() {
 		// Acquire lock on previous node to force retry
 		qAny, _ := m.qs.Load(recordID)
-		q := qAny.(*txnQueue[PageLockMode, common.PageID])
+		q := qAny.(*txnQueue[SimpleLockMode, common.PageID])
 		q.head.mu.Lock()
 		time.Sleep(50 * time.Millisecond) // Hold lock briefly
 		q.head.mu.Unlock()
@@ -194,10 +194,10 @@ func TestManagerUnlockRetry(t *testing.T) {
 }
 
 func TestManagerUnlockAll(t *testing.T) {
-	m := NewManager[PageLockMode, common.PageID]()
+	m := NewManager[SimpleLockMode, common.PageID]()
 	defer func() {
 		m.qs.Range(func(_, value any) bool {
-			q := value.(*txnQueue[PageLockMode, common.PageID])
+			q := value.(*txnQueue[SimpleLockMode, common.PageID])
 			assertQueueConsistency(t, q)
 			return true
 		})
@@ -206,7 +206,7 @@ func TestManagerUnlockAll(t *testing.T) {
 	waitingTxn := common.TxnID(0)
 	runningTxn := common.TxnID(1)
 
-	notifier1x := m.Lock(TxnLockRequest[PageLockMode, common.PageID]{
+	notifier1x := m.Lock(TxnLockRequest[SimpleLockMode, common.PageID]{
 		txnID:    runningTxn,
 		objectId: 1,
 		lockMode: PageLockExclusive,
@@ -217,7 +217,7 @@ func TestManagerUnlockAll(t *testing.T) {
 		"Txn 1 should have been granted the Exclusive Lock on 1",
 	)
 
-	notifier0s := m.Lock(TxnLockRequest[PageLockMode, common.PageID]{
+	notifier0s := m.Lock(TxnLockRequest[SimpleLockMode, common.PageID]{
 		txnID:    waitingTxn,
 		objectId: 1,
 		lockMode: PageLockShared,
@@ -249,10 +249,10 @@ func TestManagerConcurrency(t *testing.T) {
 		t.Skip("Skipping slow test in short mode")
 	}
 
-	m := NewManager[PageLockMode, common.PageID]()
+	m := NewManager[SimpleLockMode, common.PageID]()
 	defer func() {
 		m.qs.Range(func(_, value any) bool {
-			q := value.(*txnQueue[PageLockMode, common.PageID])
+			q := value.(*txnQueue[SimpleLockMode, common.PageID])
 			assertQueueConsistency(t, q)
 			return true
 		})
@@ -264,7 +264,7 @@ func TestManagerConcurrency(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	lockModes := []PageLockMode{
+	lockModes := []SimpleLockMode{
 		PageLockShared,
 		PageLockExclusive,
 	}
@@ -292,7 +292,7 @@ func TestManagerConcurrency(t *testing.T) {
 			for op := range opsPerTxn {
 				if len(lockedObjects) > 0 && op%3 == 0 {
 					for objectID := range lockedObjects {
-						upgradeReq := TxnLockRequest[PageLockMode, common.PageID]{
+						upgradeReq := TxnLockRequest[SimpleLockMode, common.PageID]{
 							txnID:    txn,
 							objectId: objectID,
 							lockMode: PageLockExclusive,
@@ -309,7 +309,7 @@ func TestManagerConcurrency(t *testing.T) {
 					objectID := common.PageID(rand.Intn(numObjects))
 					lockMode := lockModes[txnID%len(lockModes)]
 
-					req := TxnLockRequest[PageLockMode, common.PageID]{
+					req := TxnLockRequest[SimpleLockMode, common.PageID]{
 						txnID:    txn,
 						objectId: objectID,
 						lockMode: lockMode,

@@ -15,8 +15,8 @@ func TestLockManagerNilCatalogLockToken(t *testing.T) {
 	txnID := common.TxnID(1)
 	cToken := NewNilCatalogLockToken(txnID)
 
-	require.True(t, l.UpgradeCatalogLock(cToken, GranularLockShared))
-	require.Equal(t, GranularLockShared, cToken.lockMode)
+	require.True(t, l.UpgradeCatalogLock(cToken, PageLockShared))
+	require.Equal(t, PageLockShared, cToken.lockMode)
 	require.Equal(t, true, cToken.wasSetUp)
 }
 
@@ -25,13 +25,13 @@ func TestLockManagerNilFileLockToken(t *testing.T) {
 
 	tests := []struct {
 		fileLockMode            GranularLockMode
-		expectedCatalogLockMode GranularLockMode
+		expectedCatalogLockMode SimpleLockMode
 	}{
-		{GranularLockExclusive, GranularLockIntentionExclusive},
-		{GranularLockIntentionShared, GranularLockIntentionShared},
-		{GranularLockIntentionExclusive, GranularLockIntentionExclusive},
-		{GranularLockSharedIntentionExclusive, GranularLockIntentionExclusive},
-		{GranularLockShared, GranularLockIntentionShared},
+		{GranularLockExclusive, PageLockShared},
+		{GranularLockIntentionShared, PageLockShared},
+		{GranularLockIntentionExclusive, PageLockShared},
+		{GranularLockSharedIntentionExclusive, PageLockShared},
+		{GranularLockShared, PageLockShared},
 	}
 
 	for i, test := range tests {
@@ -59,12 +59,12 @@ func TestLockManagerNilPageLockToken(t *testing.T) {
 	l := NewLockManager()
 
 	tests := []struct {
-		pageLockMode            PageLockMode
+		pageLockMode            SimpleLockMode
 		expectedFileLockMode    GranularLockMode
-		expectedCatalogLockMode GranularLockMode
+		expectedCatalogLockMode SimpleLockMode
 	}{
-		{PageLockExclusive, GranularLockIntentionExclusive, GranularLockIntentionExclusive},
-		{PageLockShared, GranularLockIntentionShared, GranularLockIntentionShared},
+		{PageLockExclusive, GranularLockIntentionExclusive, PageLockShared},
+		{PageLockShared, GranularLockIntentionShared, PageLockShared},
 	}
 
 	for i, test := range tests {
@@ -124,13 +124,6 @@ func TestLockManagerLockToken_RequestWeakerLockModeRequestGranted(t *testing.T) 
 		lockFunc    func(txnID common.TxnID, lockMode GranularLockMode, ct *CatalogLockToken)
 	}{
 		{
-			"catalog",
-			l.catalogLockManager,
-			func(txnID common.TxnID, lockMode GranularLockMode, _ *CatalogLockToken) {
-				require.NotNil(t, l.LockCatalog(txnID, lockMode))
-			},
-		},
-		{
 			"file",
 			l.fileLockManager,
 			func(txnID common.TxnID, lockMode GranularLockMode, ct *CatalogLockToken) {
@@ -173,7 +166,8 @@ func TestLockManagerLockToken_RequestWeakerLockModeRequestGranted(t *testing.T) 
 							txnQueueEntry.r.lockMode.String(),
 						)
 					case "file":
-						qAny, ok := test.lockManager.(*lockGranularityManager[GranularLockMode, common.FileID]).qs.Load(
+						qAny, ok := test.lockManager.(*lockGranularityManager[GranularLockMode,
+							common.FileID]).qs.Load(
 							fileID,
 						)
 						require.True(t, ok)
@@ -216,9 +210,11 @@ func TestLockCompatibilityMatrix(t *testing.T) {
 		compatible := mode1.Compatible(mode2)
 
 		firstStartedNotifier := make(chan struct{})
+		fileID := common.FileID(1)
 		go func() {
-			ct := lm.LockCatalog(txnID1, mode1)
-			require.NotNil(t, ct, "LockCatalog should succeed for txn 1")
+			ct := NewNilCatalogLockToken(txnID1)
+			ft := lm.LockFile(ct, fileID, mode1)
+			require.NotNil(t, ft, "LockFile should succeed for txn 1")
 			firstStartedNotifier <- struct{}{}
 			done1 <- struct{}{}
 		}()
@@ -228,9 +224,10 @@ func TestLockCompatibilityMatrix(t *testing.T) {
 		// * compatible modes: we both complete
 		go func() {
 			<-firstStartedNotifier
-			ct := lm.LockCatalog(txnID2, mode2)
+			ct := NewNilCatalogLockToken(txnID2)
+			ft := lm.LockFile(ct, fileID, mode2)
 			// block on the lock or die trying
-			if ct == nil {
+			if ft == nil {
 				return
 			}
 			done2 <- struct{}{}
