@@ -10,7 +10,7 @@ type Task func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithCont
 
 type Executor struct {
 	se     storage.Engine
-	locker txns.ILockManager
+	Locker txns.ILockManager
 }
 
 func New(
@@ -19,6 +19,6 @@ func New(
 ) *Executor {
 	return &Executor{
 		se:     se,
-		locker: locker,
+		Locker: locker,
 	}
 }

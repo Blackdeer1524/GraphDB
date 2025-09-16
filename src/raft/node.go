@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"net"
+	"sync/atomic"
 
 	"github.com/Jille/raft-grpc-leader-rpc/leaderhealth"
 	transport "github.com/Jille/raft-grpc-transport"
@@ -38,8 +39,6 @@ type Node struct {
 	txnLogger   *recovery.TxnLogger
 	debugPool   *bufferpool.DebugBufferPool
 	lockManager *txns.LockManager
-
-	ticker uint64
 }
 
 func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node, error) {
@@ -123,9 +122,16 @@ func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node,
 		r.BootstrapCluster(hraft.Configuration{Servers: peers})
 	}
 
+	//TODO remove when we have DDL open api support
+	ticker := atomic.Uint64{}
+	err = addMoneyNodeType(&ticker, exec, txnLogger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create money node type: %w", err)
+	}
+
 	s := grpc.NewServer()
 
-	proto.RegisterRaftServiceServer(s, New(r))
+	proto.RegisterRaftServiceServer(s, New(r, &ticker, logger))
 	tr.Register(s)
 	leaderhealth.Setup(r, s, []string{"graphdb"})
 
@@ -148,6 +154,55 @@ func StartNode(id, addr string, logger src.Logger, peers []hraft.Server) (*Node,
 	}()
 
 	return node, nil
+}
+
+func execute(
+	ticker *atomic.Uint64,
+	executor *query.Executor,
+	logger common.ITxnLogger,
+	fn query.Task,
+) (err error) {
+	txnID := common.TxnID(ticker.Add(1))
+	defer executor.Locker.Unlock(txnID)
+
+	ctxLogger := logger.WithContext(txnID)
+	if err := ctxLogger.AppendBegin(); err != nil {
+		return fmt.Errorf("failed to append begin: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			ctxLogger.Rollback()
+			return
+		}
+		if err = ctxLogger.AppendCommit(); err != nil {
+			err = fmt.Errorf("failed to append commit: %w", err)
+		} else if err = ctxLogger.AppendTxnEnd(); err != nil {
+			err = fmt.Errorf("failed to append txn end: %w", err)
+		}
+	}()
+
+	return fn(txnID, executor, ctxLogger)
+}
+
+func addMoneyNodeType(
+	ticker *atomic.Uint64,
+	e *query.Executor,
+	logger common.ITxnLogger,
+) error {
+	return execute(
+		ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *query.Executor, logger common.ITxnLoggerWithContext) (err error) {
+			tableName := "main"
+			schema := storage.Schema{
+				{Name: "money", Type: storage.ColumnTypeInt64},
+			}
+			err = e.CreateVertexType(txnID, tableName, schema, logger)
+			return nil
+		},
+	)
 }
 
 func (n *Node) Close() {
