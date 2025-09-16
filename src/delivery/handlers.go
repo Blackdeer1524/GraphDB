@@ -100,7 +100,7 @@ func (h *APIHandler) RaftInsertEdges(ctx context.Context, req *api.InsertEdgesRe
 }
 
 func (h *APIHandler) NewError(ctx context.Context, err error) *api.ErrorStatusCode {
-	h.Logger.Error("internal server error", zap.Error(err))
+	h.Logger.Errorw("internal server error", zap.Error(err))
 	return &api.ErrorStatusCode{
 		StatusCode: 500,
 		Response: api.Error{

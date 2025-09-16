@@ -3,13 +3,11 @@ package disk
 import (
 	"errors"
 	"fmt"
+	"github.com/spf13/afero"
 	"io"
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
-
-	"github.com/spf13/afero"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
 	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
@@ -74,7 +72,7 @@ func (m *Manager) getOrOpenFile(fileID common.FileID) (afero.File, error) {
 	path := utils.GetFilePath(m.basePath, fileID)
 	file, err := m.fs.OpenFile(
 		filepath.Clean(path),
-		os.O_RDWR|os.O_CREATE|syscall.O_DIRECT,
+		os.O_RDWR|os.O_CREATE,
 		0o644,
 	)
 	if err != nil {

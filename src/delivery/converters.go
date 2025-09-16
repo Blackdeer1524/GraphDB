@@ -18,7 +18,7 @@ func (h *APIHandler) toVertex(in api.VertexInfo) *proto.VertexInfo {
 	if in.Properties.Set {
 		a, err := utils.JXMapToAnyMap(in.Properties.Value)
 		if err != nil {
-			h.Logger.Error("failed to convert properties to any", zap.Error(err))
+			h.Logger.Errorw("failed to convert properties to any", zap.Error(err))
 			return nil
 		}
 		properties = &proto.Properties{
@@ -45,7 +45,7 @@ func (h *APIHandler) toEdgeInfo(in api.EdgeInfo) *proto.EdgeInfo {
 	if in.Properties.Set {
 		a, err := utils.JXMapToAnyMap(in.Properties.Value)
 		if err != nil {
-			h.Logger.Error("failed to convert properties to any", zap.Error(err))
+			h.Logger.Errorw("failed to convert properties to any", zap.Error(err))
 			return nil
 		}
 		properties = &proto.Properties{

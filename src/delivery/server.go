@@ -43,12 +43,24 @@ func (s *Server) Run() error {
 		grpc_retry.WithMax(5),
 	}
 
-	cl, _ := grpc.NewClient(
-		fmt.Sprintf("multi://%s", strings.Join(s.nodesAddr, ",")),
+	cl, err := grpc.NewClient(
+		fmt.Sprintf("multi:///%s", strings.Join(s.nodesAddr, ",")),
 		grpc.WithDefaultServiceConfig(serviceConfig),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.WaitForReady(true)),
 		grpc.WithUnaryInterceptor(grpc_retry.UnaryClientInterceptor(retryOpts...)))
+	if err != nil {
+		return fmt.Errorf("Server.Run grpc.NewClient: %w", err)
+	}
+
+	cl.Connect()
+	defer func(cl *grpc.ClientConn) {
+		err := cl.Close()
+		if err != nil {
+			s.log.Errorf("Server.Run grpc.NewClient cl.Close: %w", err)
+		}
+	}(cl)
+
 	raftCl := proto.NewRaftServiceClient(cl)
 
 	h := &APIHandler{
