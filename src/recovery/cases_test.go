@@ -40,8 +40,8 @@ func TestBankTransactions(t *testing.T) {
 
 	const (
 		startBalance      = uint32(60)
-		rollbackCutoff    = startBalance / 3
-		clientsCount      = 5000
+		rollbackCutoff    = 0
+		clientsCount      = 50000
 		txnsCount         = 10000
 		retryCount        = 3
 		maxEntriesPerPage = 12
@@ -155,11 +155,7 @@ func TestBankTransactions(t *testing.T) {
 		err := logger.AppendBegin()
 		require.NoError(t, err)
 
-		ctoken := locker.LockCatalog(
-			txnID,
-			txns.GranularLockIntentionShared,
-		)
-		require.NotNil(t, ctoken)
+		ctoken := txns.NewNilCatalogLockToken(txnID)
 		defer locker.Unlock(txnID)
 
 		t.Logf("[%d] locking file %d", txnID, me.FileID)

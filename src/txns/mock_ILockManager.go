@@ -120,7 +120,7 @@ func (_c *MockILockManager_LockFile_Call) RunAndReturn(run func(*CatalogLockToke
 }
 
 // LockPage provides a mock function with given fields: ft, pageID, lockMode
-func (_m *MockILockManager) LockPage(ft *FileLockToken, pageID common.PageID, lockMode PageLockMode) *PageLockToken {
+func (_m *MockILockManager) LockPage(ft *FileLockToken, pageID common.PageID, lockMode SimpleLockMode) *PageLockToken {
 	ret := _m.Called(ft, pageID, lockMode)
 
 	if len(ret) == 0 {
@@ -128,7 +128,7 @@ func (_m *MockILockManager) LockPage(ft *FileLockToken, pageID common.PageID, lo
 	}
 
 	var r0 *PageLockToken
-	if rf, ok := ret.Get(0).(func(*FileLockToken, common.PageID, PageLockMode) *PageLockToken); ok {
+	if rf, ok := ret.Get(0).(func(*FileLockToken, common.PageID, SimpleLockMode) *PageLockToken); ok {
 		r0 = rf(ft, pageID, lockMode)
 	} else {
 		if ret.Get(0) != nil {
@@ -152,9 +152,9 @@ func (_e *MockILockManager_Expecter) LockPage(ft interface{}, pageID interface{}
 	return &MockILockManager_LockPage_Call{Call: _e.mock.On("LockPage", ft, pageID, lockMode)}
 }
 
-func (_c *MockILockManager_LockPage_Call) Run(run func(ft *FileLockToken, pageID common.PageID, lockMode PageLockMode)) *MockILockManager_LockPage_Call {
+func (_c *MockILockManager_LockPage_Call) Run(run func(ft *FileLockToken, pageID common.PageID, lockMode SimpleLockMode)) *MockILockManager_LockPage_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*FileLockToken), args[1].(common.PageID), args[2].(PageLockMode))
+		run(args[0].(*FileLockToken), args[1].(common.PageID), args[2].(SimpleLockMode))
 	})
 	return _c
 }
@@ -164,7 +164,7 @@ func (_c *MockILockManager_LockPage_Call) Return(_a0 *PageLockToken) *MockILockM
 	return _c
 }
 
-func (_c *MockILockManager_LockPage_Call) RunAndReturn(run func(*FileLockToken, common.PageID, PageLockMode) *PageLockToken) *MockILockManager_LockPage_Call {
+func (_c *MockILockManager_LockPage_Call) RunAndReturn(run func(*FileLockToken, common.PageID, SimpleLockMode) *PageLockToken) *MockILockManager_LockPage_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -297,7 +297,7 @@ func (_c *MockILockManager_UpgradeFileLock_Call) RunAndReturn(run func(*FileLock
 }
 
 // UpgradePageLock provides a mock function with given fields: pt, lockMode
-func (_m *MockILockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLockMode) bool {
+func (_m *MockILockManager) UpgradePageLock(pt *PageLockToken, lockMode SimpleLockMode) bool {
 	ret := _m.Called(pt, lockMode)
 
 	if len(ret) == 0 {
@@ -305,7 +305,7 @@ func (_m *MockILockManager) UpgradePageLock(pt *PageLockToken, lockMode PageLock
 	}
 
 	var r0 bool
-	if rf, ok := ret.Get(0).(func(*PageLockToken, PageLockMode) bool); ok {
+	if rf, ok := ret.Get(0).(func(*PageLockToken, SimpleLockMode) bool); ok {
 		r0 = rf(pt, lockMode)
 	} else {
 		r0 = ret.Get(0).(bool)
@@ -326,9 +326,9 @@ func (_e *MockILockManager_Expecter) UpgradePageLock(pt interface{}, lockMode in
 	return &MockILockManager_UpgradePageLock_Call{Call: _e.mock.On("UpgradePageLock", pt, lockMode)}
 }
 
-func (_c *MockILockManager_UpgradePageLock_Call) Run(run func(pt *PageLockToken, lockMode PageLockMode)) *MockILockManager_UpgradePageLock_Call {
+func (_c *MockILockManager_UpgradePageLock_Call) Run(run func(pt *PageLockToken, lockMode SimpleLockMode)) *MockILockManager_UpgradePageLock_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*PageLockToken), args[1].(PageLockMode))
+		run(args[0].(*PageLockToken), args[1].(SimpleLockMode))
 	})
 	return _c
 }
@@ -338,7 +338,7 @@ func (_c *MockILockManager_UpgradePageLock_Call) Return(_a0 bool) *MockILockMana
 	return _c
 }
 
-func (_c *MockILockManager_UpgradePageLock_Call) RunAndReturn(run func(*PageLockToken, PageLockMode) bool) *MockILockManager_UpgradePageLock_Call {
+func (_c *MockILockManager_UpgradePageLock_Call) RunAndReturn(run func(*PageLockToken, SimpleLockMode) bool) *MockILockManager_UpgradePageLock_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -225,6 +225,19 @@ func TestChainSanity(t *testing.T) {
 		require.Equal(t, txnID, r.txnID)
 	}
 
+	// TxnEnd
+	{
+		data := page.UnsafeRead(8)
+		require.NoError(t, err)
+		tag, untypedRecord, err := parseLogRecord(data)
+
+		require.NoError(t, err)
+		require.Equal(t, TypeTxnEnd, tag)
+
+		_, ok := untypedRecord.(TxnEndLogRecord)
+		require.True(t, ok)
+	}
+
 	// CheckpointBegin
 	{
 		data := page.UnsafeRead(6)
@@ -252,19 +265,6 @@ func TestChainSanity(t *testing.T) {
 
 		require.Equal(t, checkpointATT, r.activeTransactions)
 		require.Equal(t, checkpointDPT, r.dirtyPageTable)
-	}
-
-	// TxnEnd
-	{
-		data := page.UnsafeRead(8)
-		require.NoError(t, err)
-		tag, untypedRecord, err := parseLogRecord(data)
-
-		require.NoError(t, err)
-		require.Equal(t, TypeTxnEnd, tag)
-
-		_, ok := untypedRecord.(TxnEndLogRecord)
-		require.True(t, ok)
 	}
 }
 

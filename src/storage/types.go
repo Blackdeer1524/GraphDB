@@ -435,6 +435,7 @@ type Engine interface {
 	SelectVertex(
 		txnID common.TxnID,
 		vertexID VertexSystemID,
+		vertexFileToken *txns.FileLockToken,
 		vertexIndex Index,
 		schema Schema,
 	) (VertexSystemFields, map[string]any, error)
