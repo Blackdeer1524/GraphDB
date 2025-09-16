@@ -227,7 +227,7 @@ func TestChainSanity(t *testing.T) {
 
 	// TxnEnd
 	{
-		data := page.UnsafeRead(8)
+		data := page.UnsafeRead(6)
 		require.NoError(t, err)
 		tag, untypedRecord, err := parseLogRecord(data)
 
@@ -240,7 +240,7 @@ func TestChainSanity(t *testing.T) {
 
 	// CheckpointBegin
 	{
-		data := page.UnsafeRead(6)
+		data := page.UnsafeRead(7)
 		require.NoError(t, err)
 		tag, untypedRecord, err := parseLogRecord(data)
 
@@ -253,7 +253,7 @@ func TestChainSanity(t *testing.T) {
 
 	// CheckpointEnd
 	{
-		data := page.UnsafeRead(7)
+		data := page.UnsafeRead(8)
 		require.NoError(t, err)
 		tag, untypedRecord, err := parseLogRecord(data)
 
