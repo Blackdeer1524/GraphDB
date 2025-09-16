@@ -15,8 +15,8 @@ func TestLockManagerNilCatalogLockToken(t *testing.T) {
 	txnID := common.TxnID(1)
 	cToken := NewNilCatalogLockToken(txnID)
 
-	require.True(t, l.UpgradeCatalogLock(cToken, PageLockShared))
-	require.Equal(t, PageLockShared, cToken.lockMode)
+	require.True(t, l.UpgradeCatalogLock(cToken, SimpleLockShared))
+	require.Equal(t, SimpleLockShared, cToken.lockMode)
 	require.Equal(t, true, cToken.wasSetUp)
 }
 
@@ -27,11 +27,11 @@ func TestLockManagerNilFileLockToken(t *testing.T) {
 		fileLockMode            GranularLockMode
 		expectedCatalogLockMode SimpleLockMode
 	}{
-		{GranularLockExclusive, PageLockShared},
-		{GranularLockIntentionShared, PageLockShared},
-		{GranularLockIntentionExclusive, PageLockShared},
-		{GranularLockSharedIntentionExclusive, PageLockShared},
-		{GranularLockShared, PageLockShared},
+		{GranularLockExclusive, SimpleLockShared},
+		{GranularLockIntentionShared, SimpleLockShared},
+		{GranularLockIntentionExclusive, SimpleLockShared},
+		{GranularLockSharedIntentionExclusive, SimpleLockShared},
+		{GranularLockShared, SimpleLockShared},
 	}
 
 	for i, test := range tests {
@@ -63,8 +63,8 @@ func TestLockManagerNilPageLockToken(t *testing.T) {
 		expectedFileLockMode    GranularLockMode
 		expectedCatalogLockMode SimpleLockMode
 	}{
-		{PageLockExclusive, GranularLockIntentionExclusive, PageLockShared},
-		{PageLockShared, GranularLockIntentionShared, PageLockShared},
+		{SimpleLockExclusive, GranularLockIntentionExclusive, SimpleLockShared},
+		{SimpleLockShared, GranularLockIntentionShared, SimpleLockShared},
 	}
 
 	for i, test := range tests {

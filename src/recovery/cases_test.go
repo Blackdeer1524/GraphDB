@@ -178,7 +178,7 @@ func TestBankTransactions(t *testing.T) {
 		myPageToken := locker.LockPage(
 			ttoken,
 			common.PageID(me.PageID),
-			txns.PageLockShared,
+			txns.SimpleLockShared,
 		)
 		if myPageToken == nil {
 			t.Logf("[%d] failed to lock page %d", txnID, me.PageID)
@@ -211,7 +211,7 @@ func TestBankTransactions(t *testing.T) {
 		firstPageToken := locker.LockPage(
 			ttoken,
 			common.PageID(first.PageID),
-			txns.PageLockShared,
+			txns.SimpleLockShared,
 		)
 		if firstPageToken == nil {
 			t.Logf("[%d] failed to lock first page %d", txnID, first.PageID)
@@ -232,7 +232,7 @@ func TestBankTransactions(t *testing.T) {
 		// transfering
 		t.Logf("[%d] upgrading page lock %d", txnID, me.PageID)
 		transferAmount := uint32(rand.Intn(int(myBalance)))
-		if !locker.UpgradePageLock(myPageToken, txns.PageLockExclusive) {
+		if !locker.UpgradePageLock(myPageToken, txns.SimpleLockExclusive) {
 			t.Logf("[%d] failed to upgrade page lock %d", txnID, me.PageID)
 			myPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
@@ -243,7 +243,7 @@ func TestBankTransactions(t *testing.T) {
 		t.Logf("[%d] upgraded page lock %d", txnID, me.PageID)
 
 		t.Logf("[%d] upgrading first page lock %d", txnID, first.PageID)
-		if !locker.UpgradePageLock(firstPageToken, txns.PageLockExclusive) {
+		if !locker.UpgradePageLock(firstPageToken, txns.SimpleLockExclusive) {
 			t.Logf("[%d] failed to upgrade first page lock %d", txnID, first.PageID)
 			firstPageUpgradeFail.Add(1)
 			err = logger.AppendAbort()
