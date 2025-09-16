@@ -80,7 +80,7 @@ func (s *StorageEngine) CreateVertexTable(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -145,7 +145,7 @@ func (s *StorageEngine) createDirTable(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -207,7 +207,7 @@ func (s *StorageEngine) CreateEdgeTable(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -268,7 +268,7 @@ func (s *StorageEngine) DropVertexTable(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -310,7 +310,7 @@ func (s *StorageEngine) DropEdgeTable(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -347,7 +347,7 @@ func (s *StorageEngine) dropDirTable(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -386,7 +386,7 @@ func (s *StorageEngine) CreateVertexTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -485,7 +485,7 @@ func (s *StorageEngine) CreateEdgeTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -684,7 +684,7 @@ func (s *StorageEngine) GetVertexTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockShared) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
 		return nil, fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -725,7 +725,7 @@ func (s *StorageEngine) GetEdgeTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockShared) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
 		return nil, fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -768,7 +768,7 @@ func (s *StorageEngine) createDirTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to get system catalog X-lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -906,7 +906,7 @@ func (s *StorageEngine) getDirTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) (storage.Index, error) {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockShared) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockShared) {
 		return nil, fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -938,7 +938,7 @@ func (s *StorageEngine) DropVertexTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to upgrade catalog lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -965,7 +965,7 @@ func (s *StorageEngine) DropEdgeTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to get system catalog X-lock: %w", txns.ErrDeadlockPrevention)
 	}
 
@@ -992,7 +992,7 @@ func (s *StorageEngine) dropDirTableIndex(
 	cToken *txns.CatalogLockToken,
 	logger common.ITxnLoggerWithContext,
 ) error {
-	if !s.locker.UpgradeCatalogLock(cToken, txns.PageLockExclusive) {
+	if !s.locker.UpgradeCatalogLock(cToken, txns.GranularLockExclusive) {
 		return fmt.Errorf("unable to get system catalog X-lock: %w", txns.ErrDeadlockPrevention)
 	}
 

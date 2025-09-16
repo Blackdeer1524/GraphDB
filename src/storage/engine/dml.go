@@ -96,8 +96,12 @@ func (s *StorageEngine) getSerializedVertex(
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex RID: %w", err)
 	}
-	
-	pToken := s.locker.LockPage(vertexFileToken, vertexRID.R.PageIdentity().PageID, txns.PageLockShared)
+
+	pToken := s.locker.LockPage(
+		vertexFileToken,
+		vertexRID.R.PageIdentity().PageID,
+		txns.PageLockShared,
+	)
 	if pToken == nil {
 		return nil, fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
 	}

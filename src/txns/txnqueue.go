@@ -213,7 +213,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 
 	cur = cur.SafeNext()
 	locksAreCompatible := true
-	deadlockCondition := false
+	deadlock := false
 	for cur.status == entryStatusAcquired {
 		assert.Assert(
 			cur.r.txnID != r.txnID,
@@ -221,10 +221,8 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 			r,
 		)
 
-		deadlockCondition = deadlockCondition ||
-			checkDeadlockCondition(cur.r.txnID, r.txnID)
-		locksAreCompatible = locksAreCompatible &&
-			r.lockMode.Compatible(cur.r.lockMode)
+		deadlock = deadlock || checkDeadlockCondition(cur.r.txnID, r.txnID)
+		locksAreCompatible = locksAreCompatible && r.lockMode.Compatible(cur.r.lockMode)
 		if !locksAreCompatible {
 			break
 		}
@@ -245,7 +243,8 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Lock(
 		cur = cur.SafeNext()
 	}
 
-	if deadlockCondition {
+	deadlock = deadlock || checkDeadlockCondition(cur.r.txnID, r.txnID)
+	if deadlock {
 		return nil
 	}
 
@@ -295,7 +294,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	r.lockMode = r.lockMode.Combine(acquiredLockMode)
 	upgradingEntry.mu.Unlock()
 
-	deadlockCond := false
+	deadlock := false
 	compatible := true
 
 	var entryBeforeUpgradingOne *txnQueueEntry[LockModeType, ObjectIDType] = nil
@@ -314,8 +313,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 		}
 		entryBeforeUpgradingOne.mu.Unlock()
 
-		deadlockCond = deadlockCond ||
-			checkDeadlockCondition(cur.r.txnID, r.txnID)
+		deadlock = deadlock || checkDeadlockCondition(cur.r.txnID, r.txnID)
 		compatible = compatible && cur.r.lockMode.Compatible(r.lockMode)
 	}
 	assert.Assert(entryBeforeUpgradingOne != nil)
@@ -324,8 +322,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	var next = cur.next
 	next.mu.Lock()
 	for next != q.tail && next.status == entryStatusAcquired {
-		deadlockCond = deadlockCond ||
-			checkDeadlockCondition(next.r.txnID, r.txnID)
+		deadlock = deadlock || checkDeadlockCondition(next.r.txnID, r.txnID)
 		compatible = compatible && next.r.lockMode.Compatible(r.lockMode)
 
 		cur.mu.Unlock()
@@ -348,7 +345,7 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 			return upgradingEntry.notifier
 		}
 
-		if deadlockCond {
+		if deadlock {
 			cur.mu.Unlock()
 			next.mu.Unlock()
 			return nil
@@ -371,6 +368,11 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 	}
 
 	assert.Assert(next.status == entryStatusWaitUpgrade)
+	if deadlock {
+		cur.mu.Unlock()
+		next.mu.Unlock()
+		return nil
+	}
 
 	cur.mu.Unlock()
 	cur = next
@@ -378,6 +380,9 @@ func (q *txnQueue[LockModeType, ObjectIDType]) Upgrade(
 
 	for {
 		if !cur.r.lockMode.Compatible(r.lockMode) {
+			return nil
+		}
+		if checkDeadlockCondition(cur.r.txnID, r.txnID) {
 			return nil
 		}
 		next = cur.next
