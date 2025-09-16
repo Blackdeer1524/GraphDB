@@ -63,7 +63,7 @@ func (f *fsm) Apply(l *hraft.Log) any {
 			f.log.Errorw("failed to insert vertex", zap.Error(err), nodeID)
 			return fmt.Errorf("InsertVertex failed: %w", err)
 		}
-		f.log.Infow("vertex inserted", nodeID)
+		f.log.Infow("vertex inserted", nodeID, "vertex_id", record.SystemID)
 		return record.SystemID
 
 	case InsertVertices:
@@ -101,7 +101,7 @@ func (f *fsm) Apply(l *hraft.Log) any {
 			f.log.Errorw("failed to insert edge", zap.Error(err), nodeID)
 			return fmt.Errorf("InsertEdge failed: %w", err)
 		}
-		f.log.Infow("edge inserted", nodeID)
+		f.log.Infow("edge inserted", nodeID, "edge_id", edgeInfo.SystemID)
 		return edgeInfo.SystemID
 
 	case InsertEdges:
