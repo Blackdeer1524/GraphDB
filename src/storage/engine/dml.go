@@ -89,11 +89,17 @@ func GetDirectoryRID(
 func (s *StorageEngine) getSerializedVertex(
 	txnID common.TxnID,
 	vertexID storage.VertexSystemID,
+	vertexFileToken *txns.FileLockToken,
 	vertexIndex storage.Index,
 ) ([]byte, error) {
 	vertexRID, err := GetVertexRID(txnID, vertexID, vertexIndex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vertex RID: %w", err)
+	}
+	
+	pToken := s.locker.LockPage(vertexFileToken, vertexRID.R.PageIdentity().PageID, txns.PageLockShared)
+	if pToken == nil {
+		return nil, fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
 	}
 
 	pageIdent := vertexRID.R.PageIdentity()
@@ -110,10 +116,11 @@ func (s *StorageEngine) getSerializedVertex(
 func (s *StorageEngine) SelectVertex(
 	txnID common.TxnID,
 	vertexID storage.VertexSystemID,
+	vertexFileToken *txns.FileLockToken,
 	vertexIndex storage.Index,
 	schema storage.Schema,
 ) (storage.VertexSystemFields, map[string]any, error) {
-	data, err := s.getSerializedVertex(txnID, vertexID, vertexIndex)
+	data, err := s.getSerializedVertex(txnID, vertexID, vertexFileToken, vertexIndex)
 	if err != nil {
 		err = fmt.Errorf("failed to get serialized vertex: %w", err)
 		return storage.VertexSystemFields{}, nil, err
@@ -615,7 +622,13 @@ func (s *StorageEngine) InsertEdge(
 
 	ctxLogger common.ITxnLoggerWithContext,
 ) error {
-	srcVertSystemFields, _, err := s.SelectVertex(txnID, srcVertexID, srcVertSystemIndex, srcVertSchema)
+	srcVertSystemFields, _, err := s.SelectVertex(
+		txnID,
+		srcVertexID,
+		srcVertToken,
+		srcVertSystemIndex,
+		srcVertSchema,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to get serialized src vertex: %w", err)
 	}

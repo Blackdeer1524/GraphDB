@@ -31,9 +31,11 @@ func (e *Executor) SelectVertex(
 	}
 	defer vertexIndex.Close()
 
+	vertFileToken := txns.NewNilFileLockToken(cToken, vertexTableMeta.FileID)
 	vertSystems, data, err := e.se.SelectVertex(
 		txnID,
 		vertexID,
+		vertFileToken,
 		vertexIndex,
 		vertexTableMeta.Schema,
 	)
