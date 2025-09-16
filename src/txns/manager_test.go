@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
 
 func TestManagerBasicOperation(t *testing.T) {
@@ -343,4 +344,29 @@ func TestManagerConcurrency(t *testing.T) {
 		"Expected no active transactions, but found %d",
 		len(activeTxns),
 	)
+}
+
+func TestShowGraph(t *testing.T) {
+	m := NewManager[PageLockMode, common.PageID]()
+
+	r := rand.New(rand.NewSource(42))
+	txnIDs := utils.GenerateUniqueInts[common.TxnID](7, 1, 7, r)
+
+	for _, txnID := range txnIDs {
+		lockedObjects := utils.GenerateUniqueInts[common.PageID](3, 0, 5, r)
+		for _, objectID := range lockedObjects {
+			req := TxnLockRequest[PageLockMode, common.PageID]{
+				txnID:    txnID,
+				objectId: objectID,
+				lockMode: PageLockShared,
+			}
+
+			if r.Intn(2) == 0 {
+				req.lockMode = PageLockExclusive
+			}
+			m.Lock(req)
+		}
+	}
+
+	t.Logf("Graph:\n%s", m.GetGraphSnaphot().Dump())
 }
