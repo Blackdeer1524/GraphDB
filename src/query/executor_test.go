@@ -5680,3 +5680,98 @@ func TestBankTransactions(t *testing.T) {
 	)
 	require.NoError(t, err)
 }
+
+func BenchmarkInserts(b *testing.B) {
+	fs := afero.NewOsFs()
+	catalogBasePath := b.TempDir()
+	poolPageCount := uint64(250_000)
+	debugMode := false
+	ticker := atomic.Uint64{}
+	vertTableName := "person"
+	vertFieldName := "money"
+
+	e, debugPool, _, logger, err := setupExecutor(
+		fs,
+		catalogBasePath,
+		poolPageCount,
+		debugMode,
+	)
+	require.NoError(b, err)
+	defer func() { require.NoError(b, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			return e.CreateVertexType(
+				txnID,
+				vertTableName,
+				storage.Schema{{Name: vertFieldName, Type: storage.ColumnTypeInt64}},
+				logger,
+			)
+		},
+		false,
+	)
+	require.NoError(b, err)
+
+	workerPoolSize := 32
+	workerPool, err := ants.NewPool(workerPoolSize)
+	require.NoError(b, err)
+	defer workerPool.Release()
+
+	batchSize := b.N
+	totalCount := batchSize * 100
+	batchesCount := totalCount / batchSize
+
+	batches := make([][]storage.VertexInfo, 0, batchesCount)
+	for range batchesCount {
+		batches = append(batches, make([]storage.VertexInfo, batchSize))
+	}
+
+	for i := range totalCount {
+		batches[i/batchSize][i%batchSize] = storage.VertexInfo{
+			SystemID: storage.VertexSystemID(uuid.New()),
+			Data: map[string]any{
+				vertFieldName: int64(i),
+			},
+		}
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(batchesCount)
+	for i := range batchesCount {
+		c := i
+		err := workerPool.Submit(func() {
+			defer wg.Done()
+			err := ExecuteWithRetry(
+				&ticker,
+				e,
+				logger,
+				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+					return e.InsertVertices(txnID, vertTableName, batches[c], logger)
+				},
+			)
+			require.NoError(b, err)
+		})
+		require.NoError(b, err)
+	}
+	wg.Wait()
+
+	err = Execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			for i := range totalCount {
+				expectedVert := batches[i/batchSize][i%batchSize]
+				vert, err := e.SelectVertex(txnID, vertTableName, expectedVert.SystemID, logger)
+				require.NoError(b, err)
+				require.Equal(b, int64(i), vert.Data[vertFieldName].(int64))
+			}
+			return nil
+		},
+		true,
+	)
+	require.NoError(b, err)
+}
