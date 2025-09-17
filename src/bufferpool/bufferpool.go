@@ -506,7 +506,7 @@ func (m *Manager) flushLogsAssumeLocked() (err error) {
 		return err
 	}
 	defer func() {
-		log.Printf("flusing logs after bulk write")
+		log.Printf("flushing logs after bulk write")
 		err = errors.Join(err, doneHandle())
 	}()
 
@@ -567,7 +567,7 @@ func (m *Manager) flushPageAssumeDiskLocked(
 	flushLSN := m.logger.GetFlushLSN()
 	if lockedPg.PageLSN() > flushLSN {
 		log.Printf(
-			"flushing logs because pageLSN is greater than flushLSN. pageLSN: %d, flushLSN: %d",
+			"calling flushLogsAssumeLocked from flushPageAssumeDiskLocked - reason: page LSN (%d) exceeds current flush LSN (%d)",
 			lockedPg.PageLSN(),
 			flushLSN,
 		)
@@ -595,6 +595,11 @@ func (m *Manager) flushPage(lockedPg *page.SlottedPage, pIdent common.PageIdenti
 
 	flushLSN := m.logger.GetFlushLSN()
 	if lockedPg.PageLSN() > flushLSN {
+		log.Printf(
+			"calling flushLogsAssumeLocked from flushPage - reason: page LSN (%d) exceeds current flush LSN (%d)",
+			lockedPg.PageLSN(),
+			flushLSN,
+		)
 		if err := m.flushLogsAssumeLocked(); err != nil {
 			return err
 		}
@@ -625,6 +630,7 @@ func (m *Manager) FlushAllPages() error {
 		m.diskManager.Lock()
 		defer m.diskManager.Unlock()
 
+		log.Printf("calling flushLogsAssumeLocked just before flushing all pages")
 		if err := m.flushLogsAssumeLocked(); err != nil {
 			return err
 		}
@@ -666,6 +672,7 @@ func (m *Manager) FlushAllPages() error {
 		m.diskManager.Lock()
 		defer m.diskManager.Unlock()
 
+		log.Printf("calling flushLogsAssumeLocked just after appending CheckpointBegin log")
 		return m.flushLogsAssumeLocked()
 	}()
 	if err != nil {
@@ -684,6 +691,7 @@ func (m *Manager) FlushAllPages() error {
 		m.diskManager.Lock()
 		defer m.diskManager.Unlock()
 
+		log.Printf("calling flushLogsAssumeLocked just after appending CheckpointEnd log")
 		return m.flushLogsAssumeLocked()
 	}()
 

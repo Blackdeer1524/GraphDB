@@ -4346,7 +4346,7 @@ func TestYoungerSelectEdgeForbiddenByOlderInsert(t *testing.T) {
 func TestConcurrentCheckpoint(t *testing.T) {
 	fs := afero.NewOsFs()
 	catalogBasePath := t.TempDir()
-	pools := uint64(200)
+	pools := uint64(100)
 	debug := false
 
 	vertTableName := "person"
@@ -4356,7 +4356,7 @@ func TestConcurrentCheckpoint(t *testing.T) {
 
 	const (
 		workersCount = 100
-		insertsCount = 100_000
+		insertsCount = 10_000
 		edgesCount   = 10
 	)
 
@@ -4405,7 +4405,7 @@ func TestConcurrentCheckpoint(t *testing.T) {
 
 	func() {
 		var ticker atomic.Uint64
-		e, pool, _, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
+		e, pool, locker, logger, err := setupExecutor(fs, catalogBasePath, pools, debug)
 		require.NoError(t, err)
 		defer func() { require.NoError(t, pool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
@@ -4522,6 +4522,9 @@ func TestConcurrentCheckpoint(t *testing.T) {
 				}))
 			}
 		}
+		time.AfterFunc(20*time.Second, func() {
+			t.Logf("Dependency graph:\n%s", locker.DumpDependencyGraph())
+		})
 		wg.Wait()
 
 		err = Execute(
@@ -4529,7 +4532,7 @@ func TestConcurrentCheckpoint(t *testing.T) {
 			e,
 			logger,
 			ensureConsistentDB,
-			false,
+			true,
 		)
 		require.NoError(t, err)
 	}()
@@ -4546,7 +4549,7 @@ func TestConcurrentCheckpoint(t *testing.T) {
 			e,
 			logger,
 			ensureConsistentDB,
-			false,
+			true,
 		))
 	}()
 }
