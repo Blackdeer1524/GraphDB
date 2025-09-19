@@ -2,12 +2,15 @@ package txns
 
 import (
 	"fmt"
+	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/Blackdeer1524/GraphDB/src/pkg/common"
+	"github.com/Blackdeer1524/GraphDB/src/pkg/utils"
 )
 
 func TestLockManagerNilCatalogLockToken(t *testing.T) {
@@ -275,4 +278,61 @@ func TestLockCompatibilityMatrix(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestRandomLockPattern(t *testing.T) {
+	lm := NewLockManager()
+
+	const (
+		filesCount        = 10
+		pagesPerFileCount = 100
+		opsPerTxnCount    = 10000
+		txnsCount         = 10
+	)
+
+	r := rand.New(rand.NewSource(42))
+	txnIDs := utils.GenerateUniqueInts[common.TxnID](txnsCount, 1, txnsCount, r)
+
+	wg := sync.WaitGroup{}
+	for _, txnID := range txnIDs {
+		wg.Add(1)
+		go func(txnID common.TxnID) {
+			defer wg.Done()
+			defer func() {
+				t.Logf("[%d] Unlocking all locks", txnID)
+				lm.Unlock(txnID)
+			}()
+
+			t.Logf("[%d] Starting transaction", txnID)
+			gr := rand.New(rand.NewSource(int64(txnID)))
+
+			ct := NewNilCatalogLockToken(txnID)
+			t.Logf("[%d] Created catalog lock token", txnID)
+			for i := range opsPerTxnCount {
+				isSharedAccess := gr.Intn(2) == 0
+				var lockMode SimpleLockMode
+				if isSharedAccess {
+					lockMode = SimpleLockShared
+				} else {
+					lockMode = SimpleLockExclusive
+				}
+				t.Logf("[%d] Operation %d: Using %s lock mode", txnID, i, lockMode.String())
+
+				fileID := utils.GenerateUniqueInts[common.FileID](1, 1, filesCount, gr)[0]
+				pageID := utils.GenerateUniqueInts[common.PageID](1, 1, pagesPerFileCount, gr)[0]
+				t.Logf("[%d] Operation %d: Targeting file %d, page %d", txnID, i, fileID, pageID)
+
+				fileLockToken := NewNilFileLockToken(ct, fileID)
+
+				pageLockToken := lm.LockPage(fileLockToken, pageID, lockMode)
+				if pageLockToken == nil {
+					t.Logf("[%d] Operation %d: Failed to acquire lock, exiting", txnID, i)
+					return
+				}
+				t.Logf("[%d] Operation %d: Successfully acquired lock", txnID, i)
+			}
+			t.Logf("[%d] Completed all operations", txnID)
+		}(txnID)
+	}
+	wg.Wait()
 }
