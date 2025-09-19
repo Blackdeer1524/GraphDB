@@ -346,14 +346,49 @@ func TestManagerConcurrency(t *testing.T) {
 	)
 }
 
-func TestShowGraph(t *testing.T) {
+func TestDemonstrateGraph(t *testing.T) {
 	m := NewManager[SimpleLockMode, common.PageID]()
 
-	r := rand.New(rand.NewSource(42))
-	txnIDs := utils.GenerateUniqueInts[common.TxnID](7, 1, 7, r)
+	r := rand.New(rand.NewSource(43))
+	txnsCount := 7
+	objectsCount := 5
+
+	func() {
+		lockedObjects := utils.GenerateUniqueInts[common.PageID](objectsCount, 1, objectsCount, r)
+		for _, objectID := range lockedObjects {
+			req := TxnLockRequest[SimpleLockMode, common.PageID]{
+				txnID:    common.TxnID(txnsCount) + 1,
+				objectId: objectID,
+				lockMode: SimpleLockShared,
+			}
+			m.Lock(req)
+		}
+
+		lockedObjects = utils.GenerateUniqueInts[common.PageID](objectsCount, 1, objectsCount, r)
+		for _, objectID := range lockedObjects {
+			req := TxnLockRequest[SimpleLockMode, common.PageID]{
+				txnID:    common.TxnID(txnsCount) + 2,
+				objectId: objectID,
+				lockMode: SimpleLockShared,
+			}
+			m.Lock(req)
+		}
+
+		lockedObjects = utils.GenerateUniqueInts[common.PageID](objectsCount/2, 1, objectsCount, r)
+		for _, objectID := range lockedObjects {
+			req := TxnLockRequest[SimpleLockMode, common.PageID]{
+				txnID:    common.TxnID(txnsCount) + 1,
+				objectId: objectID,
+				lockMode: SimpleLockExclusive,
+			}
+			m.Lock(req)
+		}
+	}()
+
+	txnIDs := utils.GenerateUniqueInts[common.TxnID](txnsCount/2, 1, txnsCount, r)
 
 	for _, txnID := range txnIDs {
-		lockedObjects := utils.GenerateUniqueInts[common.PageID](3, 0, 5, r)
+		lockedObjects := utils.GenerateUniqueInts[common.PageID](objectsCount/2, 1, objectsCount, r)
 		for _, objectID := range lockedObjects {
 			req := TxnLockRequest[SimpleLockMode, common.PageID]{
 				txnID:    txnID,
