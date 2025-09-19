@@ -85,7 +85,7 @@ func (g txnDependencyGraph[LockModeType, ID]) Dump() string {
 
 	result.WriteString("digraph TransactionDependencyGraph {\n")
 	result.WriteString("\trankdir=RL;\n")
-	result.WriteString("\tnode [shape=box];\n")
+	result.WriteString("\tnode [shape=box, fontsize=14];\n")
 
 	// Define object nodes with same rank
 	objectNodes := make(map[ID]struct{})
