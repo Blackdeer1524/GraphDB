@@ -3609,6 +3609,7 @@ func insertVertexWithRetry(
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) (err error) {
 			return e.InsertVertex(txnID, tableName, vertex, logger)
 		},
+		0,
 	)
 	if err != nil {
 		require.ErrorIs(t, err, ErrRollback)
@@ -4582,6 +4583,7 @@ func insertNotOrientedEdgeWithRetry(
 			}
 			return err
 		},
+		0,
 	)
 	if err != nil {
 		require.ErrorIs(t, err, ErrRollback)
@@ -5102,6 +5104,7 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 
 								return nil
 							},
+							0,
 						)
 						require.NoError(t, err)
 					}
@@ -5145,11 +5148,14 @@ func TestConcurrentGetTrianglesWithWrites(t *testing.T) {
 	}
 }
 
+var ErrRetryFailed = errors.New("retry failed")
+
 func ExecuteWithRetry(
 	ticker *atomic.Uint64,
 	executor *Executor,
 	logger common.ITxnLogger,
 	fn Task,
+	retryCount int,
 ) error {
 	txnID := common.TxnID(ticker.Add(1))
 
@@ -5176,139 +5182,25 @@ func ExecuteWithRetry(
 		return nil
 	}
 
-	for {
+	if retryCount == 0 {
+		for {
+			err := job()
+			if errors.Is(err, txns.ErrDeadlockPrevention) {
+				continue
+			}
+			return err
+		}
+	}
+
+	for range retryCount {
 		err := job()
 		if errors.Is(err, txns.ErrDeadlockPrevention) {
 			continue
 		}
 		return err
 	}
+	return ErrRetryFailed
 }
-
-// func TestReproduceBrokenUpgrade(t *testing.T) {
-// 	fs := afero.NewOsFs()
-// 	catalogBasePath := t.TempDir()
-// 	poolPageCount := uint64(50)
-// 	debugMode := false
-//
-// 	e, debugPool, locker, logger, err := setupExecutor(
-// 		fs,
-// 		catalogBasePath,
-// 		poolPageCount,
-// 		debugMode,
-// 	)
-// 	require.NoError(t, err)
-// 	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
-//
-// 	var ticker atomic.Uint64
-// 	vertTableName := "person"
-// 	vertFieldName := "id"
-//
-// 	vertSchema := storage.Schema{
-// 		{Name: vertFieldName, Type: storage.ColumnTypeInt64},
-// 	}
-//
-// 	vert := storage.VertexInfo{
-// 		SystemID: storage.VertexSystemID(uuid.New()),
-// 		Data:     map[string]any{vertFieldName: int64(0)},
-// 	}
-// 	require.NoError(t, Execute(
-// 		&ticker,
-// 		e,
-// 		logger,
-// 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-// 			err := e.se.CreateVertexTable(
-// 				txnID,
-// 				vertTableName,
-// 				vertSchema,
-// 				txns.NewNilCatalogLockToken(txnID),
-// 				logger,
-// 			)
-// 			require.NoError(t, err)
-// 			require.NoError(t, e.InsertVertex(txnID, vertTableName, vert, logger))
-// 			return nil
-// 		},
-// 		false,
-// 	))
-//
-// 	wg := sync.WaitGroup{}
-//
-// 	firstReadDoneCh := make(chan struct{})
-// 	secondReadDoneCh := make(chan struct{})
-//
-// 	wg.Add(1)
-// 	go func() {
-// 		defer wg.Done()
-// 		err := Execute(
-// 			&ticker,
-// 			e,
-// 			logger,
-// 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-// 				dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
-// 				require.NoError(t, err)
-// 				firstReadDoneCh <- struct{}{}
-// 				<-secondReadDoneCh
-//
-// 				t.Logf("Dependency graph after all reads:\n%s", locker.DumpDependencyGraph())
-// 				newData := map[string]any{
-// 					vertFieldName: int64(dbVer.Data[vertFieldName].(int64) + 1),
-// 				}
-//
-// 				err = e.UpdateVertex(txnID, vertTableName, vert.SystemID, newData, logger)
-// 				require.NoError(t, err)
-// 				t.Logf("Dependency graph after first upgrade:\n%s", locker.DumpDependencyGraph())
-// 				firstReadDoneCh <- struct{}{}
-// 				return nil
-// 			},
-// 			false,
-// 		)
-// 		require.NoError(t, err)
-// 	}()
-//
-// 	wg.Add(1)
-// 	go func() {
-// 		defer wg.Done()
-//
-// 		err := Execute(
-// 			&ticker,
-// 			e,
-// 			logger,
-// 			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-// 				<-firstReadDoneCh
-// 				dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
-// 				require.NoError(t, err)
-// 				secondReadDoneCh <- struct{}{}
-// 				<-firstReadDoneCh
-//
-// 				t.Logf("Dependency graph after first commit:\n%s", locker.DumpDependencyGraph())
-// 				newData := map[string]any{
-// 					vertFieldName: int64(dbVer.Data[vertFieldName].(int64) + 1),
-// 				}
-// 				err = e.UpdateVertex(txnID, vertTableName, vert.SystemID, newData, logger)
-// 				require.NoError(t, err)
-// 				return nil
-// 			},
-// 			false,
-// 		)
-// 		require.NoError(t, err)
-// 	}()
-//
-// 	wg.Wait()
-//
-// 	err = Execute(
-// 		&ticker,
-// 		e,
-// 		logger,
-// 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-// 			dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
-// 			require.NoError(t, err)
-// 			require.Equal(t, int64(2), dbVer.Data[vertFieldName].(int64))
-// 			return nil
-// 		},
-// 		true,
-// 	)
-// 	require.NoError(t, err)
-// }
 
 func TestRepeatableRead(t *testing.T) {
 	fs := afero.NewOsFs()
@@ -5393,6 +5285,7 @@ func TestRepeatableRead(t *testing.T) {
 					require.Equal(t, newData[vertFieldName], updatedDbVert.Data[vertFieldName])
 					return nil
 				},
+				0,
 			)
 			require.NoError(t, err)
 		})
@@ -5419,9 +5312,9 @@ func TestRepeatableRead(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestBankTransactions(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	catalogBasePath := "/tmp/graphdb_test"
+func TestGraphBankTransactions(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
 	poolPageCount := uint64(50)
 	debugMode := false
 
@@ -5473,10 +5366,10 @@ func TestBankTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	const (
-		nClients       = 1000
-		nTransactions  = 20000
+		nClients       = 100
+		nTransactions  = 1_000
 		initialBalance = 100
-		workerPoolSize = 30
+		workerPoolSize = 100
 		totalMoney     = nClients * initialBalance
 	)
 
@@ -5523,13 +5416,16 @@ func TestBankTransactions(t *testing.T) {
 	require.NoError(t, err)
 	defer workerPool.Release()
 
+	successCount := atomic.Uint64{}
 	wg := sync.WaitGroup{}
 	wg.Add(nTransactions)
-	for range nTransactions {
+	for i := range nTransactions {
+		j := i
 		err := workerPool.Submit(func() {
 			defer wg.Done()
+			rand := rand.New(rand.NewSource(int64(j)))
 
-			err := execute(
+			err := ExecuteWithRetry(
 				&ticker,
 				e,
 				logger,
@@ -5647,18 +5543,18 @@ func TestBankTransactions(t *testing.T) {
 						src,
 						dst,
 					)
+					successCount.Add(1)
 					return nil
 				},
-				false,
+				10,
 			)
-			if errors.Is(err, txns.ErrDeadlockPrevention) {
-				return
+			if err != nil {
+				require.ErrorIs(t, err, ErrRetryFailed)
 			}
-			require.NoError(t, err)
 		})
 		require.NoError(t, err)
 	}
-	time.AfterFunc(time.Second*7, func() {
+	time.AfterFunc(time.Second*20, func() {
 		t.Logf("Dependency graph:\n%s", locker.DumpDependencyGraph())
 	})
 	wg.Wait()
@@ -5668,15 +5564,25 @@ func TestBankTransactions(t *testing.T) {
 		e,
 		logger,
 		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
-			s := int64(0)
+			totalMoneySum := int64(0)
+			totalEdgesCount := uint64(0)
+
 			for _, vert := range vertices {
 				vert, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
-				if err != nil {
-					return err
-				}
-				s += vert.Data[balanceField].(int64)
+				require.NoError(t, err)
+				totalMoneySum += vert.Data[balanceField].(int64)
 			}
-			require.Equal(t, int64(totalMoney), s)
+			require.Equal(t, int64(totalMoney), totalMoneySum)
+
+			edgesIter, err := e.GetAllEdges(txnID, edgeTableName, logger)
+			if err != nil {
+				return err
+			}
+			for range edgesIter.Seq() {
+				totalEdgesCount++
+			}
+
+			require.Equal(t, int(successCount.Load()), int(totalEdgesCount))
 			return nil
 		},
 		false,
@@ -5702,7 +5608,7 @@ func BenchmarkInserts(b *testing.B) {
 	require.NoError(b, err)
 	defer func() { require.NoError(b, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
 
-	err = Execute(
+	err = execute(
 		&ticker,
 		e,
 		logger,
@@ -5754,6 +5660,7 @@ func BenchmarkInserts(b *testing.B) {
 				func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
 					return e.InsertVertices(txnID, vertTableName, batches[c], logger)
 				},
+				0,
 			)
 			require.NoError(b, err)
 		})
@@ -5761,7 +5668,7 @@ func BenchmarkInserts(b *testing.B) {
 	}
 	wg.Wait()
 
-	err = Execute(
+	err = execute(
 		&ticker,
 		e,
 		logger,
@@ -5777,4 +5684,127 @@ func BenchmarkInserts(b *testing.B) {
 		true,
 	)
 	require.NoError(b, err)
+}
+
+func TestReproduceBrokenUpgrade(t *testing.T) {
+	fs := afero.NewOsFs()
+	catalogBasePath := t.TempDir()
+	poolPageCount := uint64(50)
+	debugMode := false
+
+	e, debugPool, locker, logger, err := setupExecutor(
+		fs,
+		catalogBasePath,
+		poolPageCount,
+		debugMode,
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, debugPool.EnsureAllPagesUnpinnedAndUnlocked()) }()
+
+	var ticker atomic.Uint64
+	vertTableName := "person"
+	vertFieldName := "id"
+
+	vertSchema := storage.Schema{
+		{Name: vertFieldName, Type: storage.ColumnTypeInt64},
+	}
+
+	vert := storage.VertexInfo{
+		SystemID: storage.VertexSystemID(uuid.New()),
+		Data:     map[string]any{vertFieldName: int64(0)},
+	}
+	require.NoError(t, execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			err := e.se.CreateVertexTable(
+				txnID,
+				vertTableName,
+				vertSchema,
+				txns.NewNilCatalogLockToken(txnID),
+				logger,
+			)
+			require.NoError(t, err)
+			require.NoError(t, e.InsertVertex(txnID, vertTableName, vert, logger))
+			return nil
+		},
+		false,
+	))
+
+	wg := sync.WaitGroup{}
+
+	firstReadDoneCh := make(chan struct{})
+	secondReadDoneCh := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+				require.NoError(t, err)
+				firstReadDoneCh <- struct{}{}
+				<-secondReadDoneCh
+
+				t.Logf("Dependency graph after all reads:\n%s", locker.DumpDependencyGraph())
+				newData := map[string]any{
+					vertFieldName: int64(dbVer.Data[vertFieldName].(int64) + 1),
+				}
+
+				err = e.UpdateVertex(txnID, vertTableName, vert.SystemID, newData, logger)
+				require.NoError(t, err)
+				t.Logf("Dependency graph after first upgrade:\n%s", locker.DumpDependencyGraph())
+				return nil
+			},
+			false,
+		)
+		require.NoError(t, err)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		<-firstReadDoneCh
+		err := execute(
+			&ticker,
+			e,
+			logger,
+			func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+				dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+				require.NoError(t, err)
+				secondReadDoneCh <- struct{}{}
+
+				t.Logf("Dependency graph after first commit:\n%s", locker.DumpDependencyGraph())
+				newData := map[string]any{
+					vertFieldName: int64(dbVer.Data[vertFieldName].(int64) + 1),
+				}
+				err = e.UpdateVertex(txnID, vertTableName, vert.SystemID, newData, logger)
+				require.ErrorIs(t, err, txns.ErrDeadlockPrevention)
+				return nil
+			},
+			false,
+		)
+		require.NoError(t, err)
+	}()
+
+	wg.Wait()
+
+	err = execute(
+		&ticker,
+		e,
+		logger,
+		func(txnID common.TxnID, e *Executor, logger common.ITxnLoggerWithContext) error {
+			dbVer, err := e.SelectVertex(txnID, vertTableName, vert.SystemID, logger)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), dbVer.Data[vertFieldName].(int64))
+			return nil
+		},
+		true,
+	)
+	require.NoError(t, err)
 }

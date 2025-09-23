@@ -167,19 +167,19 @@ func (m *Metadata) Copy() Metadata {
 
 type DirectoryItemSystemFields struct {
 	ID         DirItemSystemID
-	NextItemID DirItemSystemID
 	PrevItemID DirItemSystemID
+	NextItemID DirItemSystemID
 }
 
 func NewDirectoryItemSystemFields(
 	ID DirItemSystemID,
-	NextItemID DirItemSystemID,
 	PrevItemID DirItemSystemID,
+	NextItemID DirItemSystemID,
 ) DirectoryItemSystemFields {
 	return DirectoryItemSystemFields{
 		ID:         ID,
-		NextItemID: NextItemID,
 		PrevItemID: PrevItemID,
+		NextItemID: NextItemID,
 	}
 }
 
@@ -219,12 +219,12 @@ func GetDirectoryItemSchemaMap() map[string]ColumnType {
 }
 
 type EdgeSystemFields struct {
-	ID              EdgeSystemID
-	DirectoryItemID DirItemSystemID
-	SrcVertexID     VertexSystemID
-	DstVertexID     VertexSystemID
-	NextEdgeID      EdgeSystemID
-	PrevEdgeID      EdgeSystemID
+	ID          EdgeSystemID
+	DirItemID   DirItemSystemID
+	SrcVertexID VertexSystemID
+	DstVertexID VertexSystemID
+	NextEdgeID  EdgeSystemID
+	PrevEdgeID  EdgeSystemID
 }
 
 func GetEdgeSystemSchemaMap() map[string]ColumnType {
@@ -241,19 +241,19 @@ func GetEdgeSystemSchemaMap() map[string]ColumnType {
 
 func NewEdgeSystemFields(
 	ID EdgeSystemID,
-	DirectoryItemID DirItemSystemID,
+	DirItemID DirItemSystemID,
 	SrcVertexID VertexSystemID,
 	DstVertexID VertexSystemID,
 	PrevEdgeID EdgeSystemID,
 	NextEdgeID EdgeSystemID,
 ) EdgeSystemFields {
 	return EdgeSystemFields{
-		ID:              ID,
-		DirectoryItemID: DirectoryItemID,
-		SrcVertexID:     SrcVertexID,
-		DstVertexID:     DstVertexID,
-		NextEdgeID:      NextEdgeID,
-		PrevEdgeID:      PrevEdgeID,
+		ID:          ID,
+		DirItemID:   DirItemID,
+		SrcVertexID: SrcVertexID,
+		DstVertexID: DstVertexID,
+		NextEdgeID:  NextEdgeID,
+		PrevEdgeID:  PrevEdgeID,
 	}
 }
 
