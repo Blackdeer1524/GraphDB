@@ -258,6 +258,7 @@ type Engine interface {
 
 	// Graph traversals
 	GetAllVertices(txnID common.TxnID, vertTableToken *txns.FileLockToken) (VerticesIter, error)
+	GetAllEdges(txnID common.TxnID, edgeTableToken *txns.FileLockToken) (EdgesIter, error)
 	Neighbours(
 		txnID common.TxnID,
 		startVertSystemID VertexSystemID,

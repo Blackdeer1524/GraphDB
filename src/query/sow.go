@@ -177,6 +177,26 @@ func (e *Executor) bfsWithDepth(
 	return result, nil
 }
 
+func (e *Executor) GetAllEdges(
+	txnID common.TxnID,
+	edgeTableName string,
+	logger common.ITxnLoggerWithContext,
+) (storage.EdgesIter, error) {
+	cToken := txns.NewNilCatalogLockToken(txnID)
+
+	edgeTableMeta, err := e.se.GetEdgeTableMeta(edgeTableName, cToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get edge table meta: %w", err)
+	}
+
+	edgeFileToken := txns.NewNilFileLockToken(cToken, edgeTableMeta.FileID)
+	edgesIter, err := e.se.GetAllEdges(txnID, edgeFileToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all edges: %w", err)
+	}
+	return edgesIter, nil
+}
+
 // GetVerticesOnDepth is the first query from SOW. It returns all vertexes on a given depth.
 // We will use BFS on graph because DFS cannot calculate right depth on graphs (except trees).
 func (e *Executor) GetVerticesOnDepth(
