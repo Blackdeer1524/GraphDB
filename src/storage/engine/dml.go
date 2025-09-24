@@ -106,15 +106,6 @@ func (s *StorageEngine) getSerializedVertex(
 		return nil, fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
 	}
 
-	pToken := s.locker.LockPage(
-		vertexFileToken,
-		vertexRID.R.PageIdentity().PageID,
-		txns.PageLockShared,
-	)
-	if pToken == nil {
-		return nil, fmt.Errorf("failed to lock page: %w", txns.ErrDeadlockPrevention)
-	}
-
 	pageIdent := vertexRID.R.PageIdentity()
 	pg, err := s.pool.GetPageNoCreate(pageIdent)
 	if err != nil {
